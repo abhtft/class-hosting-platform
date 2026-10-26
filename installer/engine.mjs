@@ -86,7 +86,11 @@ export function adoptState(ctx) {
 export function cli(ctx) {
   if (!existsSync(join(ctx.repo, '.packaged'))) return 'node setup.mjs';
   let repo = '';
-  try { repo = JSON.parse(readFileSync(join(ctx.repo, 'release.json'), 'utf8')).repo; } catch { /* no stamp */ }
+  try {
+    const release = JSON.parse(readFileSync(join(ctx.repo, 'release.json'), 'utf8'));
+    if (release.url) return `npx -y ${release.url}`; // the exact release the teacher is running, so a repeated command cannot pick up an older saved copy
+    repo = release.repo;
+  } catch { /* no stamp */ }
   return repo ? `npx -y https://github.com/${repo}/releases/latest/download/class-platform-teacher.tgz` : 'npx -y class-platform-teacher';
 }
 

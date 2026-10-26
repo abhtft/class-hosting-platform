@@ -126,7 +126,15 @@ export async function main(argv, overrides = {}) {
         const ctx2 = { ...ctx, profile: answers.profile, aws: overrides.aws ?? engine.realAws({ profile: answers.profile }) };
         let result = await engine.install(ctx2, answers);
         if (keys.managementKey || keys.googleKey) engine.saveAiSecret(ctx2, keys);
-        if (result.needs === 'certificate') { print(result, flags); console.log('\nAfter the record is added (AWS checks it within minutes), run `node setup.mjs install --domain ' + answers.domain + '` again.'); return result; }
+        if (result.needs === 'certificate') {
+          print(result, flags);
+          console.log('');
+          console.log(`You will add three DNS records for ${answers.domain} in total: this one now (it lets AWS issue your certificate), and two more after the platform is built (one for the student sites, one for the portal).`);
+          console.log('In most DNS hosts (Cloudflare, for example) enter the name without the domain ending, and choose "DNS only" (no proxy).');
+          console.log('');
+          console.log(`After this record is added (AWS checks it within minutes), run the install again with:  ${engine.cli(ctx2)} install --domain ${answers.domain}${answers.profile ? ` --profile ${answers.profile}` : ''}`);
+          return result;
+        }
         if (result.needs === 'dns') {
           print(result, flags);
           await prompt.ask('\nPress Enter once the records are added (DNS can take a few minutes to spread)...');
