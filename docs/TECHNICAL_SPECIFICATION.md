@@ -1,6 +1,6 @@
 # Class Hosting Platform: Technical Specification (Release 1.0, MVP)
 
-> **This is the main technical source of truth for Release 1.0.** If another document, a comment or a message disagrees with it, this document wins and the other one is wrong and must be fixed. The companion documents ([END_TO_END.md](END_TO_END.md), [API_REFERENCE.md](API_REFERENCE.md), [AI_CONNECTOR.md](AI_CONNECTOR.md), [STUDENT_KIT.md](STUDENT_KIT.md), [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md), [MCP.md](MCP.md), [TEACHER_SETUP.md](TEACHER_SETUP.md), [AWS_LEARNINGS.md](AWS_LEARNINGS.md) (a learning guide, not an operating document), [../implement.md](../implement.md), [../learning.md](../learning.md)) go deeper on one area each. Numbers in section 14 are **machine-checked** against the code by `tests/test_spec.py` on every test run.
+> **This is the main technical source of truth for Release 1.0.** If another document, a comment or a message disagrees with it, this document wins and the other one is wrong and must be fixed. The companion documents ([END_TO_END.md](END_TO_END.md), [API_REFERENCE.md](API_REFERENCE.md), [AI_CONNECTOR.md](AI_CONNECTOR.md), [STUDENT_KIT.md](STUDENT_KIT.md), [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md), [MCP.md](MCP.md), [TEACHER_SETUP.md](TEACHER_SETUP.md), [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md) (how the teacher tooling is built, a learning document), [AWS_LEARNINGS.md](AWS_LEARNINGS.md) (a learning guide, not an operating document), [../implement.md](../implement.md), [../learning.md](../learning.md)) go deeper on one area each. Numbers in section 14 are **machine-checked** against the code by `tests/test_spec.py` on every test run.
 
 ## 0. Document control
 
@@ -189,7 +189,10 @@ flowchart TB
 | `web/` | portal pages (`index`, `teacher`, `student`) and modules (`teacher.js`, `student.js`, `backend.js`, `github.js`, `common.js`, `check.js`, `backend-check.js`, `zip.js`), `shared.css` |
 | `student/` | files students and the kit use: `portal-deploy.mjs`, `class_ai.py/.mjs`, workflow templates, guides, starter backend templates, legacy `deploy.mjs`; `class_storage.py/.mjs` (the storage helpers) |
 | `starter/` | the student kit: `template/`, `rules/AGENTS.md`, `build-kit.mjs`, `zip.mjs`, `eval/` (AI evaluation); the MCP package: `mcp/` (server, setup, jsonc reader, package.json), `build-mcp-package.mjs` (deterministic tarball), `publish-files.mjs` (everything `portal-publish` uploads and the dev portal serves) |
-| `admin.mjs` | operator CLI: legacy students, `teacher-setup`, `portal-publish` |
+| `admin.mjs` | operator CLI: legacy students, `teacher-setup`, `portal-publish`, `verify-cleanup` |
+| `setup.mjs`, `installer/` | the teacher's installer and updater (section 4.16): `engine.mjs` (install, plan/apply, destroy), `verify.mjs`, `data.mjs`, `transfer.mjs`, `credentials.mjs`, `prompts.mjs` |
+| `teacher-mcp/`, `teacher-package/`, `build-teacher-package.mjs` | the teacher's editor tools (MCP), the npm/GitHub package entry point and its builder |
+| `VERSION`, `CHANGELOG.md` | the single version number and what each version means for a teacher |
 | `custom-domain/` | the hand-made CloudFront pieces: scripts and reference files |
 | `tests/` | all tests, fakes, the local portal `dev_server.py`, `live_smoke.py` |
 | `docs/` | this specification and the companion documents |
@@ -778,6 +781,25 @@ sequenceDiagram
 
 ---
 
+### 4.16 Teacher tooling: install, update, verify, move and remove (F16)
+
+A teacher installs the platform into their own AWS account, keeps it up to date and removes it with one package, `class-platform-teacher`, run by `npx` from a GitHub Release (no git, no clone, no SAM CLI). Full explanation: [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md); operating guide: [TEACHER_SETUP.md](TEACHER_SETUP.md).
+
+| Requirement | Behaviour |
+|---|---|
+| F16.1 One engine | All behaviour is in `installer/*.mjs` functions that take a context (`aws` runner, `fetch`, `node`, `publish`, `progress`, `dryRun`) and return plain data; `setup.mjs`, the MCP server and the tests are callers |
+| F16.2 Install | Preflight (Node 20+, signed-in AWS CLI, CloudFront allowed, no existing stack), staging bucket, `aws cloudformation package` + `deploy` (no SAM CLI), portal publish, smoke check. Features are CloudFormation parameters that default to off. Questions asked: account (only if there is a real choice, never in AWS CloudShell), own domain (yes/no), teacher login (typed twice), release notices (default yes) |
+| F16.3 Resumable | State is written before the deploy; a repeated install waits for a stack still being created or carries on from a finished one |
+| F16.4 Domain install | Two phases: certificate and its validation record first, then the build with `PortalAlias=false`, the two DNS records (`*.domain`, `deploy.domain`), then `finish-domain` attaches the alias |
+| F16.5 Update | `plan` creates a change set and a plan id (hash of the change set and its items); `apply` runs only that plan, re-checks it, and refuses any plan that replaces or removes a data-holding resource (tables, buckets, parameters, secrets, distributions). Features switch through the same path. Updates are never automatic; the teacher is only notified of a newer release (opt-out at install) |
+| F16.6 verify | A throwaway student (`zz-verify-...`) publishes a sample site with the student CLI; checks: public pages and their 401s, teacher sign-in, token creation (HTTP 201), student sign-in, features offered, the site live, an unknown site refused. Always revoked and cleaned up. Run at the end of the guided install |
+| F16.7 destroy | Shows an inventory first, asks for the teacher login (checked against the portal) and a typed phrase, empties every bucket **including all versions**, deletes the stack, removes the staging bucket and local state; the student data table and AI keys secret stay unless `--everything` |
+| F16.8 export / import | A private folder holds the tokens table, the student data table, the files under `sites/`, `archive/`, `userdata/`, and the two SSM parameters (key map, teacher login). Import adds in batches of 25 with retries, never deletes, never puts a secret on a command line |
+| F16.9 transfer | Between two profiles after typing both account numbers and the teacher login: install the target, copy the data (dropping what only exists in the old account), verify, write `class-transfer-dns.csv` (`who, name, type, old_value, new_value, note`). The old account is only read; the DNS switch is the teacher's; `--finish` attaches the domain after it |
+| F16.10 Editor tools (MCP) | 11 tools over `node setup.mjs <command> --json`; every tool that changes something needs `confirm: true`; install, domain finish and apply run as background jobs; no tool deletes, takes a password or key, or touches IAM; output is masked for key-shaped text |
+| F16.11 Credentials | `setup` saves an access key as the profile `class-platform` (one section of the AWS credentials file, after a backup, the key validated first) and remembers only the profile name |
+| F16.12 Package and release | `build-teacher-package.mjs` builds the package from git-tracked files only (version from `VERSION`, no dependencies); a pushed tag `vX.Y.Z` runs the suite, builds, attests and publishes `class-platform-teacher-X.Y.Z.tgz`, `class-platform-teacher.tgz` and `sha256sums.txt`; editor entries are pinned to the exact release file |
+
 ## 5. API summary
 
 Complete request and response shapes: [API_REFERENCE.md](API_REFERENCE.md). Routes at baseline (all `/api/...` portal routes need `Authorization: Bearer <session>` except the two logins):
@@ -844,6 +866,8 @@ Error shape: JSON `{"error": "<code or message>"}` (gateway errors: `{"error": "
 > **About the diagrams.** Each diagram is shown as a PNG (works in every viewer) with its Mermaid source collapsed underneath. Edit the Mermaid, then run `node docs/diagrams/render.mjs` (needs Chrome; renders only what changed). `tests/test_diagrams.mjs` fails if a diagram changed without a fresh image.
 
 ### 7.1 Tests (all run by `node tests/run.mjs`, no AWS needed)
+
+The teacher tooling is tested against a fake AWS CLI (`test_installer`, `test_verify`, `test_data`, `test_transfer`, `test_credentials`, `test_prompts`, `test_teacher_mcp`, `test_teacher_package`); a real-account run (install, `verify`, `destroy --everything`, then a listing of what remains) is repeated before each release and every bug it finds becomes a test.
 
 | Group | Steps | Scope |
 |---|---|---|
@@ -1029,6 +1053,8 @@ Stop one student's AI or backend with the teacher switches (effective within abo
 
 ### 12.2 Lessons built into the design (selected)
 
+Teacher tooling (found only by running against a real account): a versioned bucket cannot be deleted while it holds any version, so `destroy` empties all versions; the portal answers 201 for a created token, so a check that expects 200 fails and leaves its throwaway data behind; a hidden-input prompt must not leave the terminal's input paused; line endings change a hash on Windows; `npx` caches a downloaded address, so only pinned release addresses are repeated in messages. Details in [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md).
+
 Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the change set catches them); the gateway must cache "no backend" briefly (2 s) so a fresh deploy is not refused; JSON from providers can start with whitespace; DynamoDB rejects floats; Windows Node can print a libuv assertion if a program calls `process.exit()` while sockets are closing; a test must not run a child synchronously when it hosts a server in the same process. More in [../learning.md](../learning.md).
 
 ### 12.3 Known limitations and open items (priority order)
@@ -1108,6 +1134,7 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
   "kitVersion": "1.6.0",
   "mcpPackage": { "version": "1.0.0" },
   "testSteps": 38,
+  "teacherTools": 11,
   "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors"]
 }
 ```

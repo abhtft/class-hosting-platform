@@ -151,6 +151,7 @@ if re.search(r"^parameter_overrides", samconfig, re.M):  # only where a deployme
         check(f"deployedParameters.{name} (samconfig.toml)", expected, found.group(1) if found else None)
 check("mcpPackage.version", facts["mcpPackage"]["version"], json.loads(read("starter/mcp/package.json"))["version"])
 check("kitVersion", facts["kitVersion"], json.loads(read("starter/template/platform.json"))["kitVersion"])
+check("teacherTools", facts["teacherTools"], len(re.findall(r"^  \{ name: '", read("teacher-mcp/server.mjs"), re.M)))
 check("testSteps", facts["testSteps"], len(re.findall(r"^\s*await step\(", read("tests/run.mjs"), re.M)))
 
 # Mermaid reads pk, fk and uk as key constraints, so an attribute with that name is a syntax error and the diagram does not render
