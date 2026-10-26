@@ -21,7 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const docs = resolve(here, '..');
 const force = process.argv.includes('--force');
 const DOCS = ['TECHNICAL_SPECIFICATION.md', 'AI_CONNECTOR.md', 'STUDENT_KIT.md', 'STORAGE_CONNECTOR.md', 'AWS_LEARNINGS.md'];
-const config = readFileSync(join(here, 'mermaid.json'), 'utf8');
+const config = readFileSync(join(here, 'mermaid.json'), 'utf8').split('\r\n').join('\n'); // line endings must not change the hash (Windows checkouts use CRLF)
 
 export const sha8 = (source) => createHash('sha256').update(`${source}\n${config}`).digest('hex').slice(0, 8);
 export const slugify = (text) => text.toLowerCase().replace(/`/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);

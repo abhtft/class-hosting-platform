@@ -2,6 +2,11 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## 1.0.2
+
+- After an upgrade, and in `status` when a newer release exists, the teacher is told the exact `editor` command that moves the editor's teacher tools to the new version (the teacher MCP passes this on).
+- Teacher action needed: none. Breaking changes: none.
+
 ## 1.0.1
 
 - Guided install: lists the AWS profiles it finds, shows the AWS account and user it will use and asks you to confirm before creating anything, and says where a bracketed profile default comes from (your `AWS_PROFILE` setting or an earlier install on this computer).

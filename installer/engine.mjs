@@ -272,7 +272,8 @@ export async function latestRelease(ctx) {
     if (response.status !== 200) return null;
     const version = String((await response.json()).tag_name ?? '').replace(/^v/, '');
     if (!/^\d+\.\d+\.\d+$/.test(version)) return null;
-    return { version, command: `npx -y https://github.com/${info.repo}/releases/download/v${version}/class-platform-teacher-${version}.tgz upgrade` };
+    const base = `npx -y https://github.com/${info.repo}/releases/download/v${version}/class-platform-teacher-${version}.tgz`;
+    return { version, command: `${base} upgrade`, editorCommand: `${base} editor` };
   } catch { return null; }
 }
 
@@ -288,8 +289,8 @@ export async function status(ctx) {
   const latest = await latestRelease(ctx);
   const newer = latest && newerThan(latest.version, info.repoVersion);
   return { ...info, installed: true, stack: stackName, stackStatus: now.status, portalUrl: now.outputs.PortalUrl ?? null, domain: now.parameters.RootDomain || null, features, phase: state.phase,
-    upgradeAvailable: upgrade, latestVersion: latest?.version ?? null, newerRelease: Boolean(newer), upgradeCommand: newer ? latest.command : null,
-    message: newer ? `Version ${latest.version} is out (this is ${info.repoVersion}). To update: ${latest.command}` : upgrade ? (info.installedVersion ? `This copy is version ${info.repoVersion}; the account runs ${info.installedVersion}. Run \`${cli(ctx)} upgrade\`.` : `Installed from another copy. To compare with this version (${info.repoVersion}) run \`${cli(ctx)} plan\`; nothing changes until you apply.`) : 'Up to date with this folder.' };
+    upgradeAvailable: upgrade, latestVersion: latest?.version ?? null, newerRelease: Boolean(newer), upgradeCommand: newer ? latest.command : null, editorCommand: newer ? latest.editorCommand : null,
+    message: newer ? `Version ${latest.version} is out (this is ${info.repoVersion}). To update: ${latest.command}   Then update your editor's teacher tools to that version: ${latest.editorCommand}` : upgrade ? (info.installedVersion ? `This copy is version ${info.repoVersion}; the account runs ${info.installedVersion}. Run \`${cli(ctx)} upgrade\`.` : `Installed from another copy. To compare with this version (${info.repoVersion}) run \`${cli(ctx)} plan\`; nothing changes until you apply.`) : 'Up to date with this folder.' };
 }
 
 // ---------- plan, apply ----------
@@ -338,7 +339,10 @@ export async function apply(ctx, id) {
   const { outputs } = stackOutputs({ ...ctx, stack: saved.config.stack });
   writeState(ctx, { ...rest, ...saved.config, installedVersion: saved.toVersion, installedAt: ctx.now() });
   adminScript({ ...ctx, stack: saved.config.stack }, ['portal-publish']);
-  return { ok: true, version: saved.toVersion, portalUrl: outputs.PortalUrl, message: `Updated to ${saved.toVersion} and published the portal pages, the student kit and the MCP package.` };
+  const release = releaseInfo(ctx);
+  const editorCommand = release?.url ? `npx -y ${release.url} editor` : null; // the editor's teacher tools stay on the version they were set up with until this is run
+  return { ok: true, version: saved.toVersion, portalUrl: outputs.PortalUrl, editorCommand,
+    message: `Updated to ${saved.toVersion} and published the portal pages, the student kit and the MCP package.${editorCommand ? ` To make your editor's teacher tools use this version too, run: ${editorCommand}` : ''}` };
 }
 
 /** Feature switch = a plan with that feature turned on or off. */

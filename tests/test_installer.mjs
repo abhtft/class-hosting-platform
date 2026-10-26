@@ -169,6 +169,8 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.equal(newer.newerRelease, true);
   assert.equal(newer.upgradeCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v1.2.0/class-platform-teacher-1.2.0.tgz upgrade');
   assert.match(newer.message, /Version 1\.2\.0 is out/);
+  assert.equal(newer.editorCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v1.2.0/class-platform-teacher-1.2.0.tgz editor');
+  assert.match(newer.message, /Then update your editor's teacher tools.*tgz editor/);
   assert.equal((await engine.status({ ...ctx, fetch: answer('v1.1.0') })).newerRelease, false, 'the same version is not news');
   assert.equal((await engine.status({ ...ctx, fetch: answer('latest; rm -rf /') })).latestVersion, null, 'only a plain version number is accepted from the answer');
   assert.equal((await engine.status({ ...ctx, fetch: async () => { throw new Error('offline'); } })).newerRelease, false, 'offline is not an error');
@@ -205,6 +207,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.equal(applied.ok, true);
   assert.ok(names(fake.calls).includes('cloudformation execute-change-set') && names(fake.calls).includes('cloudformation wait'));
   assert.deepEqual(adminCalls.map((c) => c.args), [['portal-publish']], 'applying publishes the portal, kit and MCP package');
+  assert.equal(applied.editorCommand, null, 'a git checkout has no release file to point the editor at');
   assert.equal(stateOf().installedVersion, '1.1.0');
   assert.ok(!stateOf().plan, 'a plan is used once');
   await fails(() => engine.apply(ctx, planned.planId), /not the one that was last shown/);
@@ -230,6 +233,19 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   const f4 = fakeAws({ stack: 'UPDATE_COMPLETE' });
   assert.equal((await engine.plan(context(f4).ctx)).empty, true);
   console.log('  ok  plan changes nothing; apply runs only the plan shown, once; data-holding replacements and changed plans are refused');
+}
+
+// ---------- after an upgrade from a release package the teacher is told how to update the editor tools ----------
+{
+  writeFileSync(join(repo, 'release.json'), JSON.stringify({ repo: 'someone/class-platform', version: '1.2.0', tag: 'v1.2.0', url: 'https://github.com/someone/class-platform/releases/download/v1.2.0/class-platform-teacher-1.2.0.tgz' }));
+  const fake = fakeAws({ stack: 'UPDATE_COMPLETE', nextChanges: [{ Action: 'Modify', LogicalResourceId: 'PortalFunction', ResourceType: 'AWS::Lambda::Function', Replacement: 'False' }] });
+  const { ctx } = context(fake);
+  const p = await engine.plan(ctx);
+  const done = await engine.apply(ctx, p.planId);
+  assert.equal(done.editorCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v1.2.0/class-platform-teacher-1.2.0.tgz editor');
+  assert.match(done.message, /make your editor's teacher tools use this version too, run: npx -y .*tgz editor/);
+  rmSync(join(repo, 'release.json'));
+  console.log('  ok  upgrade and status tell the teacher the exact command that moves the editor tools to the new version');
 }
 
 // ---------- feature switch ----------

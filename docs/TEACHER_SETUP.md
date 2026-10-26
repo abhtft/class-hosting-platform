@@ -41,7 +41,7 @@ When it ends it prints your portal address. Sign in at `<portal>/teacher.html`, 
 npx -y <package-of-the-new-version> upgrade
 ```
 
-The teacher page and `status` tell you when a newer release exists and print this exact command. (With a git clone: `git pull`, then `node setup.mjs upgrade`.) `upgrade` shows what would change in plain words ("adds 1, modifies 3, replaces no data"), asks, applies exactly that plan and republishes the portal, kit and MCP package. Safety rules it enforces:
+The teacher page and `status` tell you when a newer release exists and print this exact command. After an upgrade, run the same release's `editor` command once (`apply` and `status` print it), then restart the editor: the teacher tools in your editor stay on the version they were set up with until you do, just as a student re-runs the setup command to update theirs. (With a git clone: `git pull`, then `node setup.mjs upgrade`.) `upgrade` shows what would change in plain words ("adds 1, modifies 3, replaces no data"), asks, applies exactly that plan and republishes the portal, kit and MCP package. Safety rules it enforces:
 - New features arrive **switched off**; nothing changes for you until you turn them on.
 - An update that would replace or remove a data-holding resource (tables, buckets, secrets, distributions) is **refused** and nothing is changed.
 - `apply` only runs the plan that was shown, by its id. If the change set changed or expired, you get a new plan.
