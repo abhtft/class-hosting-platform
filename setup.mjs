@@ -13,6 +13,7 @@
 //   node setup.mjs setup                one-time setup of this computer: saves your AWS access (as its own profile) and adds the teacher tools to your editor
 //   node setup.mjs editor-update        move the editor's teacher tools to the newest release (asks first)
 //   node setup.mjs verify               does it really work? a throwaway student publishes a sample site; asks for your teacher login (used once, never saved); --no-login = public checks only
+//   node setup.mjs custom-domains       set up what students need to use their own domain (the install does this; use it to retry or on an older platform)
 //   node setup.mjs status               what is installed, which version, which features
 //   node setup.mjs plan                 show what an update (or a feature switch: --enable ai / --disable ai) would change, change nothing
 //   node setup.mjs apply <plan-id>      run exactly that plan, then publish the portal
@@ -271,6 +272,10 @@ export async function main(argv, overrides = {}) {
         if (!checked.ok) process.exitCode = 1;
         return checked;
       }
+      case 'custom-domains': {
+        if (!ctx.dryRun && !flags.yes && !flags.json && !(await prompt.yes('Set up custom domains for students (a few CloudFront pieces in this AWS account, about 10 minutes)?', 'y'))) return { ok: false };
+        return finish(await engine.setupCustomDomains(ctx));
+      }
       case 'status': return finish(await engine.status(ctx));
       case 'publish': return finish({ ok: true, ...engine.adminScript(ctx, ['portal-publish']) && {}, message: ctx.dryRun ? undefined : 'Portal pages, student kit and MCP package published.' });
       case 'check': return finish(engine.checkEnvironment(ctx));
@@ -307,7 +312,7 @@ export async function main(argv, overrides = {}) {
         const what = flags.everything ? 'Type "delete everything" to continue:' : `Type the stack name (${ctx.stack}) to continue:`;
         const typed = flags.yes ? phrase : await prompt.ask(what);
         if (typed !== phrase) { console.log('Not deleted.'); return { ok: false }; }
-        return finish(engine.destroy(ctx, { everything: Boolean(flags.everything) }));
+        return finish(await engine.destroy(ctx, { everything: Boolean(flags.everything) }));
       }
       default:
         console.log('Unknown command. Run: node setup.mjs --help (see the top of setup.mjs).');

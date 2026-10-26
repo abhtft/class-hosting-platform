@@ -37,6 +37,23 @@ def tenant_distribution_id():
     return os.environ.get("TENANT_DISTRIBUTION_ID", "")
 
 
+def tenant_arguments(slug, domain):
+    """What CloudFront is asked to create for one student's domain. With CONNECTION_GROUP_ID set (a platform installed by the installer, which makes
+    its own connection group) the tenant joins that group, and students point their CNAME at that group's routing endpoint; without it CloudFront's
+    default connection group is used (the hand-made setup of an older install)."""
+    arguments = dict(
+        DistributionId=tenant_distribution_id(),
+        Name=f"student-{slug}",
+        Domains=[{"Domain": domain}],
+        Parameters=[{"Name": "student", "Value": slug}],
+        ManagedCertificateRequest={"ValidationTokenHost": "cloudfront", "PrimaryDomainName": domain},
+        Enabled=True,
+    )
+    if os.environ.get("CONNECTION_GROUP_ID"):
+        arguments["ConnectionGroupId"] = os.environ["CONNECTION_GROUP_ID"]
+    return arguments
+
+
 def validate_domain(raw):
     domain = str(raw or "").strip().lower().rstrip(".")
     if not DOMAIN_RE.match(domain):
@@ -92,14 +109,7 @@ def advance(item):
 
     if not tenant_id:
         try:
-            tenant = cf.create_distribution_tenant(
-                DistributionId=tenant_distribution_id(),
-                Name=f"student-{item['slug']}",
-                Domains=[{"Domain": domain}],
-                Parameters=[{"Name": "student", "Value": item["slug"]}],
-                ManagedCertificateRequest={"ValidationTokenHost": "cloudfront", "PrimaryDomainName": domain},
-                Enabled=True,
-            )["DistributionTenant"]
+            tenant = cf.create_distribution_tenant(**tenant_arguments(item["slug"], domain))["DistributionTenant"]
         except ClientError as e:
             error = e.response["Error"]
             message = error.get("Message", error.get("Code", ""))

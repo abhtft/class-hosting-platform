@@ -14,8 +14,9 @@ export const REGION = 'us-east-1'; // CloudFront certificates must live here, so
 export const STATEFUL = new Set(['AWS::DynamoDB::Table', 'AWS::S3::Bucket', 'AWS::SSM::Parameter', 'AWS::SecretsManager::Secret', 'AWS::CloudFront::Distribution']);
 // every feature is installed by default; each stays OFF for every student until the teacher switches it on for that student
 export const FEATURES = { backend: 'BackendEnabled', ai: 'AiEnabled', gemini: 'AiGeminiEnabled', storage: 'StorageEnabled' };
-export const ALL_FEATURES = ['backend', 'ai', 'gemini', 'storage'];
-const NEEDS = { ai: ['backend'], gemini: ['backend', 'ai'], storage: ['backend'] };
+export const ALL_FEATURES = ['backend', 'ai', 'gemini', 'storage', 'customdomains'];
+export const FEATURE_NAMES = [...Object.keys(FEATURES), 'customdomains']; // customdomains has three parameters (ids), not one true/false
+const NEEDS = { ai: ['backend'], gemini: ['backend', 'ai'], storage: ['backend'], customdomains: ['backend'] };
 const STACK_RE = /^[A-Za-z][A-Za-z0-9-]{0,40}$/;
 const DOMAIN_RE = /^(?=.{4,100}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
 const MUTATING = /^(create|put|delete|request|execute|update|remove|empty|import|tag)-|^batch-write|^(mb|rb|rm|sync|cp|package|deploy|wait)$/;
@@ -71,6 +72,9 @@ function writeState(ctx, state) {
 }
 
 /** A fresh clone has no saved state. If the stack exists in the account, rebuild the state from it (parameters tell the domain and features). */
+/** The custom-domain ids a stack's parameters carry, or null when custom domains are not set up. */
+export const tenantFromParameters = (p) => (p.TenantDistributionId ? { distributionId: p.TenantDistributionId, connectionGroupId: p.ConnectionGroupId || '', routingEndpoint: p.RoutingEndpoint || '' } : null);
+
 export function adoptState(ctx) {
   const known = readState(ctx);
   if (known) return known;
@@ -78,8 +82,9 @@ export function adoptState(ctx) {
   try { found = stackOutputs(ctx); } catch { return null; }
   if (!found.status || !/COMPLETE$/.test(found.status) || /ROLLBACK|DELETE/.test(found.status)) return null;
   const p = found.parameters;
-  const features = Object.entries(FEATURES).filter(([, name]) => p[name] === 'true').map(([f]) => f).sort();
-  const state = { stack: ctx.stack, profile: ctx.profile, domain: p.RootDomain || '', certificateArn: p.CertificateArn || '', features, phase: 'ready', installedVersion: null, adopted: true };
+  const tenant = tenantFromParameters(p);
+  const features = [...Object.entries(FEATURES).filter(([, name]) => p[name] === 'true').map(([f]) => f), ...(tenant ? ['customdomains'] : [])].sort();
+  const state = { stack: ctx.stack, profile: ctx.profile, domain: p.RootDomain || '', certificateArn: p.CertificateArn || '', features, tenant, phase: 'ready', installedVersion: null, adopted: true };
   writeState(ctx, state);
   return state;
 }
@@ -102,20 +107,24 @@ export const repoVersion = (ctx) => { try { return readFileSync(join(ctx.repo, '
 export function normalise(input) {
   const features = new Set(input.features ?? ALL_FEATURES); // none given = all (the teacher can still choose fewer with --features)
   for (const f of [...features]) {
-    if (!FEATURES[f]) throw new InstallError(`Unknown feature "${f}".`, `Choose from: ${Object.keys(FEATURES).join(', ')}.`);
+    if (!FEATURE_NAMES.includes(f)) throw new InstallError(`Unknown feature "${f}".`, `Choose from: ${FEATURE_NAMES.join(', ')}.`);
     for (const need of NEEDS[f] ?? []) features.add(need); // gemini brings ai and backend, ai brings backend
   }
   const stack = input.stack || 'student-hosting';
   if (!STACK_RE.test(stack)) throw new InstallError('The stack name must start with a letter and use letters, digits and "-" (up to 41 characters).');
   const domain = (input.domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '');
   if (domain && !DOMAIN_RE.test(domain)) throw new InstallError(`"${input.domain}" is not a valid domain name (for example apps.example.com).`);
-  return { stack, profile: input.profile || '', domain, features: [...features].sort(), certificateArn: input.certificateArn || '', updateNotices: input.updateNotices !== false };
+  return { stack, profile: input.profile || '', domain, features: [...features].sort(), certificateArn: input.certificateArn || '', updateNotices: input.updateNotices !== false, tenant: input.tenant ?? null };
 }
 
 /** The CloudFormation parameters for a configuration. `aliasOn` is the second step of the domain install (see PortalAlias in template.yaml). */
 export function parametersFor(config, { aliasOn = false } = {}) {
   const p = { RootDomain: config.domain, CertificateArn: config.domain ? config.certificateArn : '', PortalAlias: config.domain && aliasOn ? 'true' : 'false' };
   for (const [name, parameter] of Object.entries(FEATURES)) p[parameter] = config.features.includes(name) ? 'true' : 'false';
+  // the custom-domain ids are carried on EVERY update (an update that left them out would switch custom domains off)
+  p.TenantDistributionId = config.tenant?.distributionId ?? '';
+  p.ConnectionGroupId = config.tenant?.connectionGroupId ?? '';
+  p.RoutingEndpoint = config.tenant?.routingEndpoint ?? '';
   return Object.entries(p).map(([k, v]) => `${k}=${v}`);
 }
 
@@ -148,18 +157,18 @@ export function ensureArtifactBucket(ctx, account) {
   return bucket;
 }
 
-function packageTemplate(ctx, bucket) {
+export function packageTemplate(ctx, bucket) {
   const out = join(ctx.work ?? tmpdir(), `${ctx.stack}-packaged.yaml`);
   call(ctx, ['cloudformation', 'package', '--template-file', join(ctx.repo, 'template.yaml'), '--s3-bucket', bucket, '--output-template-file', out]);
   return out;
 }
 
-const deployArgs = (ctx, packaged, params, extra = []) => ['cloudformation', 'deploy', '--template-file', packaged, '--stack-name', ctx.stack, '--capabilities', 'CAPABILITY_IAM', 'CAPABILITY_AUTO_EXPAND',
+export const deployArgs = (ctx, packaged, params, extra = []) => ['cloudformation', 'deploy', '--template-file', packaged, '--stack-name', ctx.stack, '--capabilities', 'CAPABILITY_IAM', 'CAPABILITY_AUTO_EXPAND',
   '--no-fail-on-empty-changeset', '--parameter-overrides', ...params, ...extra];
 
 export function stackOutputs(ctx) {
   const stack = call(ctx, ['cloudformation', 'describe-stacks', '--stack-name', ctx.stack], { json: true }).Stacks?.[0];
-  return { status: stack?.StackStatus ?? null, outputs: Object.fromEntries((stack?.Outputs ?? []).map((o) => [o.OutputKey, o.OutputValue])),
+  return { stackId: stack?.StackId ?? '', status: stack?.StackStatus ?? null, outputs: Object.fromEntries((stack?.Outputs ?? []).map((o) => [o.OutputKey, o.OutputValue])),
     parameters: Object.fromEntries((stack?.Parameters ?? []).map((p) => [p.ParameterKey, p.ParameterValue])) };
 }
 
@@ -248,13 +257,25 @@ export async function install(ctx, input) {
 
 /** The stack exists: remember it, then either ask for the DNS records (domain install) or publish the portal. */
 async function afterDeploy(ctx, config, found, result) {
+  config = { ...config };
   const say = ctx.progress ?? (() => {});
   result.steps.push('stack deployed');
+  if (config.features?.includes('customdomains') && !config.tenant && !ctx.dryRun) { // the pieces CloudFormation cannot make; a failure here never fails the install
+    try {
+      const { enableCustomDomains } = await import('./tenant.mjs');
+      const done = await enableCustomDomains(ctx, config, { say });
+      config = { ...config, tenant: done.tenant };
+      result.steps.push('custom domains set up');
+    } catch (e) {
+      result.notes = [...(result.notes ?? []), `Custom domains could not be set up (${e.message.split('\n')[0]}). Everything else works. Try again later with: ${cli(ctx)} custom-domains`];
+    }
+  }
   const { outputs } = ctx.dryRun ? { outputs: {} } : stackOutputs(ctx);
   writeState(ctx, { ...config, account: found.account, phase: config.domain ? 'dns' : 'ready', installedVersion: repoVersion(ctx), installedAt: ctx.now() });
   if (config.domain) return { ...result, needs: 'dns', records: dnsRecords(config.domain, outputs), message: 'Add these DNS records, then finish the domain step.' };
   say('Publishing the portal pages, the student kit and the MCP package...');
-  return { ...result, ...(await finishInstall(ctx, config, outputs)) };
+  const finished = await finishInstall(ctx, config, outputs);
+  return { ...result, ...finished, steps: [...result.steps, ...finished.steps] };
 }
 
 /** After the stack exists (and, with a domain, after DNS): publish the portal pages and check it answers. */
@@ -317,7 +338,7 @@ export async function status(ctx) {
   if (!state) return { ...info, message: `Nothing is installed yet. Run \`${cli(ctx)} install\`.` };
   const stackName = state.stack ?? ctx.stack;
   const now = stackOutputs({ ...ctx, stack: stackName });
-  const features = Object.entries(FEATURES).filter(([, p]) => now.parameters[p] === 'true').map(([f]) => f);
+  const features = [...Object.entries(FEATURES).filter(([, p]) => now.parameters[p] === 'true').map(([f]) => f), ...(tenantFromParameters(now.parameters) ? ['customdomains'] : [])];
   const upgrade = info.installedVersion !== info.repoVersion; // an adopted install has no recorded version: the next plan will say what differs
   const latest = state.updateNotices === false ? null : await latestRelease(ctx); // the teacher chose at install whether to be told about new releases
   const newer = latest && newerThan(latest.version, info.repoVersion);
@@ -338,6 +359,9 @@ export async function plan(ctx, change = {}) {
   if (state.phase !== 'ready') throw new InstallError(`The install is not finished (step: ${state.phase}).`, 'Finish the install first.');
   const config = normalise({ ...state, ...change, features: change.features ?? state.features, stack: state.stack, profile: ctx.profile || state.profile });
   const found = preflight({ ...ctx, stack: config.stack });
+  const live = stackOutputs({ ...ctx, stack: config.stack });
+  config.tenant = tenantFromParameters(live.parameters); // the live stack is the truth: an update must never clear the ids it already has
+  if (config.tenant && !config.features.includes('customdomains')) config.features = [...config.features, 'customdomains'].sort();
   const bucket = ensureArtifactBucket({ ...ctx, stack: config.stack }, found.account);
   const packaged = packageTemplate({ ...ctx, stack: config.stack }, bucket);
   call(ctx, deployArgs({ ...ctx, stack: config.stack }, packaged, parametersFor(config, { aliasOn: Boolean(config.domain) }), ['--no-execute-changeset']));
@@ -388,6 +412,17 @@ export const featurePlan = (ctx, feature, on) => {
   return plan(ctx, { features: [...features] });
 };
 
+/** `custom-domains`: set the custom-domain pieces up on an existing platform (the install does this itself; this is for a platform that has none, or a retry). */
+export async function setupCustomDomains(ctx) {
+  const state = adoptState(ctx);
+  if (!state) throw new InstallError('Nothing is installed here yet.', `Run \`${cli(ctx)} install\` first.`);
+  const config = normalise({ ...state, features: [...new Set([...(state.features ?? []), 'customdomains'])], stack: state.stack, profile: ctx.profile || state.profile });
+  const { enableCustomDomains } = await import('./tenant.mjs');
+  const done = await enableCustomDomains(ctx, config, { say: ctx.progress });
+  if (done.tenant) writeState(ctx, { ...state, features: config.features, tenant: done.tenant });
+  return { ok: true, tenant: done.tenant, already: done.already ?? false, message: done.message };
+}
+
 // ---------- secrets (AI keys) ----------
 /** Store the AI keys in Secrets Manager (the name the template reads). Values come from a hidden prompt in the teacher's terminal, never from an editor. */
 export function saveAiSecret(ctx, { managementKey, googleKey, name = 'openrouter' }) {
@@ -435,7 +470,7 @@ export async function verifyInstall(ctx, { login = null, portal } = {}) {
   const found = stackOutputs(ctx);
   if (!found.status) throw new InstallError(`There is no stack "${ctx.stack}" in this account.`, `Run \`${cli(ctx)} install\` first.`);
   const url = portal ?? found.outputs.PortalUrl;
-  const features = Object.entries(FEATURES).filter(([, p]) => found.parameters[p] === 'true').map(([f]) => f);
+  const features = [...Object.entries(FEATURES).filter(([, p]) => found.parameters[p] === 'true').map(([f]) => f), ...(tenantFromParameters(found.parameters) ? ['customdomains'] : [])];
   const result = await runVerify({ portal: url, login, features, repo: ctx.repo, fetchImpl: ctx.fetch ?? fetch, sleep: ctx.sleep, publish: ctx.publish, cleanup: async (slug) => { adminScript(ctx, ['verify-cleanup', slug]); } });
   return { ...result, portalUrl: url };
 }
@@ -458,7 +493,7 @@ const exists = (ctx, args) => { try { call(ctx, args); return true; } catch { re
  * staging bucket always goes too. Resources the stack keeps on purpose (the student data table) and the AI secret stay unless `everything` is set, which
  * leaves the account as it was before the install: use it for a test account, not for a class that has data.
  */
-export function destroy(ctx, { everything = false } = {}) {
+export async function destroy(ctx, { everything = false } = {}) {
   const say = ctx.progress ?? (() => {});
   const account = call(ctx, ['sts', 'get-caller-identity'], { json: true }).Account;
   let resources = [];
@@ -468,6 +503,8 @@ export function destroy(ctx, { everything = false } = {}) {
   const tables = of('AWS::DynamoDB::Table');
   const parameters = of('AWS::SSM::Parameter');
   if (resources.length) {
+    const { teardownCustomDomains } = await import('./tenant.mjs');
+    await teardownCustomDomains(ctx, { say });
     say('Emptying the sites bucket (all versions)...');
     for (const bucket of buckets) emptyBucket(ctx, bucket);
     say('Deleting the stack. CloudFront takes a few minutes to remove...');

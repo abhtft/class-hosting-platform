@@ -195,6 +195,22 @@ confirm both account numbers typed + teacher login
 
 The CSV (`who, name, type, old_value, new_value, note`, with a byte-order mark and CRLF so spreadsheets open it correctly) lists, in order: the certificate record (do first), the portal and wildcard switch with old and new values, and one row per student's own domain. There is **no live replication and no automatic DNS change**: a short, announced pause in publishing is the safe design, and the old account is deleted only by the teacher, later, with `destroy`. The transfer keeps a small state file, so running it again continues from where it stopped (for example after the certificate record).
 
+### 7.4 Custom domains: pieces CloudFormation cannot make
+
+A student's own domain needs a CloudFront multi-tenant distribution (the template every student domain is created from) and a connection group (whose *routing endpoint* students CNAME to). They are created with the AWS CLI by `installer/tenant.mjs`, not by `template.yaml`, so the install has three phases for this feature:
+
+```
+stack deployed -> enableCustomDomains: two functions -> connection group -> tenant-only distribution (wait) -> stack update with TenantDistributionId, ConnectionGroupId, RoutingEndpoint
+```
+
+Why it is built this way, and what to notice:
+- **Same shape as the hand-made original.** The configuration (`distributionConfig`) is the one tested by hand in production: the origin path `/sites/{{student}}` and `/b/{{student}}` use the tenant's `student` parameter to select the site and the backend, so one distribution serves every student.
+- **A fresh account has no connection group.** CloudFront creates a default only when the first tenant exists, so the routing endpoint would be unknown at install time. The installer makes its own group, and the portal passes `ConnectionGroupId` when it creates a tenant (`tenant_arguments` in `lambda/domains.py`); with no id it falls back to the default, so an install made by hand keeps working unchanged.
+- **The ids travel on every update.** `parametersFor` always emits the three ids, and `plan` reads them from the *live stack* (never from a possibly older saved state). An update that left them out would silently switch custom domains off: the safety rule is "the stack is the truth".
+- **It can fail without hurting the install.** The step is wrapped: on failure the install succeeds, prints the reason and the command to retry (`custom-domains`). Every step first looks for what exists (functions, group, distribution found by name or comment), so a retry resumes instead of duplicating.
+- **Teardown order is imposed by CloudFront.** Tenants (disable, wait until Deployed, delete), then the distribution (disable, wait, delete), the group, the functions, and only then the stack: the stack's origin access control cannot be deleted while a distribution still uses it. `destroy` does this before `delete-stack`.
+- **A secret in a file.** The distribution carries the origin secret (a header the gateway trusts), so its configuration goes through a `0600` temporary file that is removed straight after use, and the secret is never printed.
+
 ## 8. The teacher MCP
 
 ### 8.1 What MCP is, and what this server is

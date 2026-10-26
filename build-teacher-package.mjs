@@ -12,7 +12,7 @@
 // The package version is the repository's VERSION file. CI builds this from a release tag, so the package is exactly what was tested.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,7 +20,7 @@ export const PACKAGE_NAME = 'class-platform-teacher';
 const here = dirname(fileURLToPath(import.meta.url));
 
 // what goes into the package: whole folders (tracked files only) and single files
-const FOLDERS = ['lambda', 'web', 'starter', 'student', 'installer'];
+const FOLDERS = ['lambda', 'web', 'starter', 'student', 'installer', 'custom-domain'];
 const FILES = ['template.yaml', 'admin.mjs', 'setup.mjs', 'portal-downloads.json', 'VERSION', 'CHANGELOG.md', 'docs/TEACHER_SETUP.md', 'docs/NEW_ACCOUNT_AND_TRANSFER.md'];
 const SKIP = [/^starter\/eval\//, /(^|\/)__pycache__\//, /\.pyc$/, /\.local$/, /(^|\/)test_/];
 const MCP = ['server.mjs', 'setup.mjs', 'jsonc.mjs']; // from teacher-mcp/, placed in mcp/
@@ -30,7 +30,7 @@ const MCP = ['server.mjs', 'setup.mjs', 'jsonc.mjs']; // from teacher-mcp/, plac
 const tracked = (paths) => execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...paths], { cwd: here, encoding: 'utf8' }).split('\0').filter(Boolean);
 
 export function packageFiles() {
-  const files = [...tracked(FOLDERS), ...FILES].filter((f) => !SKIP.some((re) => re.test(f)));
+  const files = [...tracked(FOLDERS), ...FILES].filter((f) => !SKIP.some((re) => re.test(f)) && existsSync(join(here, f))); // a file deleted but not yet committed is skipped
   return [...new Set(files)].sort();
 }
 

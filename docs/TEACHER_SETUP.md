@@ -116,6 +116,17 @@ If your domain needs the certificate record, the first run stops after printing 
 
 After the new platform has passed its check and you have switched DNS, run the same command once more with `--finish` to attach your domain to the new platform. Keep the old account for a week as a way back, then remove it with `destroy`. Student custom domains and backend functions are not moved automatically in this release: the CSV lists each student's domain, and students publish their backend again.
 
+## 4b. Custom domains for students
+
+A student can use their own domain (for example `www.theirname.com`) for their site. It is part of the install: `install` sets up what CloudFront needs (two small functions, a connection group and a multi-tenant distribution), and the teacher page then shows a **Custom domain** switch for each student. A student gets nothing until you switch it on for them.
+
+For the student: after you switch it on, they enter their domain on their page, add **one CNAME** at their DNS host pointing at the address their page shows (the platform's routing endpoint), and HTTPS is set up automatically (CloudFront issues the certificate). Advice to give them:
+- Use a `www.` name: a bare domain such as `theirname.com` cannot use a CNAME unless their DNS host flattens CNAMEs (Cloudflare does).
+- At Cloudflare the record must be **DNS only** (grey cloud), not proxied.
+- The CNAME must exist before they save the domain, because CloudFront checks ownership first.
+
+For you: if the custom-domain step could not finish during the install (it never fails the install, it prints a note), or your platform was installed before this existed, run `<package> custom-domains` (about 10 minutes, safe to repeat). Pricing for tenants should be checked in the AWS billing console. `destroy` removes these pieces first; `transfer` sets them up in the new account and lists each student's domain in the DNS file.
+
 ## 5. The teacher MCP (do all of this from your AI editor)
 
 This works like the students' setup: one command once per computer, then you talk to the AI.

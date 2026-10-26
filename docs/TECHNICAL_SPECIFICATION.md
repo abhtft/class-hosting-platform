@@ -63,7 +63,7 @@ SQL or server databases for students (RDS), server-side rendering, long-running 
 | F2 | Token lifecycle (create, extend, revoke, offline, regenerate, daily sweeper) | live | `test_portal.py`, `test_portal_deploy.py` |
 | F3 | Frontend publishing (portal upload and legacy CLI) | live | `test_lambda.py`, e2e steps, live smoke |
 | F4 | Static hosting and routing (CloudFront, SPA fallback, wildcard host) | live | router function tests, e2e |
-| F5 | Custom domains (CloudFront multi-tenant) | live | `test_domains.py`, `test_tenant_config.py`, live test with a real domain |
+| F5 | Custom domains (CloudFront multi-tenant) | live | `test_domains.py`, `test_tenant.mjs`, live test with a real domain |
 | F6 | Student backends (deploy, environment variables, logs, removal) | live | `test_backend.py`, live smoke |
 | F7 | Backend gateway (nine checks, response shaping) | live | `test_backend.py`, live smoke |
 | F8 | Run allowance and in-flight limiter | live | `test_backend.py` (60 parallel callers), live smoke |
@@ -798,6 +798,7 @@ A teacher installs the platform into their own AWS account, keeps it up to date 
 | F16.9 transfer | Between two profiles after typing both account numbers and the teacher login: install the target, copy the data (dropping what only exists in the old account), verify, write `class-transfer-dns.csv` (`who, name, type, old_value, new_value, note`). The old account is only read; the DNS switch is the teacher's; `--finish` attaches the domain after it |
 | F16.10 Editor tools (MCP) | 11 tools over `node setup.mjs <command> --json`; every tool that changes something needs `confirm: true`; install, domain finish and apply run as background jobs; no tool deletes, takes a password or key, or touches IAM; output is masked for key-shaped text |
 | F16.11 Credentials | `setup` saves an access key as the profile `class-platform` (one section of the AWS credentials file, after a backup, the key validated first) and remembers only the profile name |
+| F16.13 Custom domains | Part of the default install (`customdomains` feature): two CloudFront functions, a connection group and a multi-tenant distribution are created with the AWS CLI (`installer/tenant.mjs`), then the stack is updated with `TenantDistributionId`, `ConnectionGroupId`, `RoutingEndpoint`. Safe to repeat and resumable; a failure never fails the install; every update carries the ids from the live stack; `custom-domains` retries; `destroy` removes the pieces (tenants, distribution, group, functions) before the stack; `transfer` recreates them in the new account |
 | F16.12 Package and release | `build-teacher-package.mjs` builds the package from git-tracked files only (version from `VERSION`, no dependencies); a pushed tag `vX.Y.Z` runs the suite, builds, attests and publishes `class-platform-teacher-X.Y.Z.tgz`, `class-platform-teacher.tgz` and `sha256sums.txt`; editor entries are pinned to the exact release file |
 
 ## 5. API summary
@@ -1089,7 +1090,7 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
 | R3 | Student publishes a static site, only their own folder | `app.publish`, `app.portal_deploy` | `test_lambda.py`, `test_portal_deploy.py`, e2e steps |
 | R4 | Safe zip handling | `app.site_entries`, `backends.inspect_zip` | `test_lambda.py`, `test_backend.py`, `test_web.mjs` |
 | R5 | Wildcard host routing, SPA fallback | `RouterFunction` | router tests |
-| R6 | One custom domain per student, teacher-gated | `domains.py` | `test_domains.py`, `test_tenant_config.py` |
+| R6 | One custom domain per student, teacher-gated | `domains.py` | `test_domains.py`, `test_tenant.mjs` |
 | R7 | One backend per student, Python or Node, sandboxed | `backends.py`, `StudentSandboxRole` | `test_backend.py`, `test_template_backend.py` |
 | R8 | Gateway checks in order; exact run allowance; in-flight limiter | `gateway.py` | `test_backend.py` (60 parallel callers) |
 | R9 | Environment variables are write-only | `backends.set_env`, `view` | `test_backend.py` |
@@ -1133,7 +1134,7 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
   "reservedSlugs": ["sites", "uploads", "archive", "deploy", "www", "api", "admin", "mail", "ftp", "app", "apps", "static", "assets", "bs", "lenden"],
   "kitVersion": "1.6.0",
   "mcpPackage": { "version": "1.0.0" },
-  "testSteps": 38,
+  "testSteps": 37,
   "teacherTools": 11,
   "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors"]
 }

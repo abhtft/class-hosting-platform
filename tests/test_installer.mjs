@@ -85,7 +85,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.throws(() => engine.normalise({ features: ['teleport'] }), /Unknown feature/);
   assert.throws(() => engine.normalise({ stack: '1bad' }), /stack name/);
   const config = engine.normalise({ features: ['ai'], domain: 'apps.example.com', certificateArn: 'arn:x' });
-  assert.deepEqual(engine.parametersFor(config), ['RootDomain=apps.example.com', 'CertificateArn=arn:x', 'PortalAlias=false', 'BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=false', 'StorageEnabled=false']);
+  assert.deepEqual(engine.parametersFor(config), ['RootDomain=apps.example.com', 'CertificateArn=arn:x', 'PortalAlias=false', 'BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=false', 'StorageEnabled=false', 'TenantDistributionId=', 'ConnectionGroupId=', 'RoutingEndpoint=']);
   assert.ok(engine.parametersFor(config, { aliasOn: true }).includes('PortalAlias=true'));
   assert.ok(engine.parametersFor(engine.normalise({})).includes('PortalAlias=false') && engine.parametersFor(engine.normalise({})).includes('RootDomain='), 'try mode: no domain, no alias');
   assert.deepEqual(parseArgs(['install', '--profile', 'p', '--dry-run', '--features', 'ai']), { command: 'install', args: [], flags: { profile: 'p', 'dry-run': true, features: 'ai' } });
@@ -219,7 +219,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   reset();
   let fake = make();
   let { ctx } = context(fake, { progress: () => {} });
-  let out = engine.destroy(ctx);
+  let out = await engine.destroy(ctx);
   assert.equal(fake.w.stack, null, 'the stack is deleted');
   assert.equal((fake.w.versions['sites-b'] ?? []).length, 0, 'every version of the sites bucket was removed first (the stack could not be deleted otherwise)');
   assert.ok(!fake.w.buckets.has('student-hosting-artifacts-111122223333'), 'the installer\'s own staging bucket is removed');
@@ -229,7 +229,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   reset();
   fake = make();
   ({ ctx } = context(fake, { progress: () => {} }));
-  out = engine.destroy(ctx, { everything: true });
+  out = await engine.destroy(ctx, { everything: true });
   assert.deepEqual(out.kept, []);
   assert.ok(!fake.w.tables.has('data-t') && !fake.w.secrets.openrouter && !fake.w.buckets.has('student-hosting-artifacts-111122223333'), 'nothing is left');
   assert.ok(!existsSync(join(repo, '.class-platform', 'install.json')), 'the saved install state is removed, so the next install starts clean');
@@ -239,7 +239,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   // dry run changes nothing
   fake = make();
   ({ ctx } = context(fake, { dryRun: true, progress: () => {} }));
-  engine.destroy(ctx, { everything: true });
+  await engine.destroy(ctx, { everything: true });
   assert.equal(fake.w.stack, 'CREATE_COMPLETE', 'a dry run deletes nothing');
   assert.equal(fake.w.versions['sites-b'].length, 230);
   console.log('  ok  destroy: all bucket versions, the stack, the staging bucket; data table and AI keys kept unless --everything; state removed; dry run safe');
@@ -247,7 +247,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
 
 // ---------- every feature is installed by default; "none" and explicit lists still work ----------
 {
-  assert.deepEqual(engine.normalise({}).features, ['ai', 'backend', 'gemini', 'storage'], 'no choice given: every feature is available (each stays off per student)');
+  assert.deepEqual(engine.normalise({}).features, ['ai', 'backend', 'customdomains', 'gemini', 'storage'], 'no choice given: every feature is available (each stays off per student)');
   assert.deepEqual(engine.normalise({ features: [] }).features, [], 'an explicit empty list means none');
   const { parseFeatures } = await import('../setup.mjs');
   assert.deepEqual(parseFeatures('none'), []);

@@ -279,7 +279,7 @@ These were created with the CLI and are **not** recreated by `sam deploy` or rem
 
 | Thing | Value |
 |---|---|
-| Multi-tenant distribution (template for tenants) | `<TENANT_DISTRIBUTION_ID>` (`custom-domain/tenant-distribution.json`) |
+| Multi-tenant distribution (template for tenants) | `<TENANT_DISTRIBUTION_ID>` (made by the installer, `installer/tenant.mjs`) |
 | Function: SPA fallback | `student-hosting-spa-fallback` (`custom-domain/spa-fallback.js`) |
 | Function: tenant `/api` route | `student-hosting-tenant-api` (`custom-domain/tenant-api-route.js`) |
 | Connection group routing endpoint | `<id>.cloudfront.net` |

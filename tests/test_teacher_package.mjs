@@ -22,7 +22,7 @@ const all = walk(out);
 // ---------- contents ----------
 for (const needed of ['template.yaml', 'admin.mjs', 'setup.mjs', 'bin.mjs', 'package.json', 'VERSION', 'CHANGELOG.md', 'README.md', '.packaged', 'portal-downloads.json',
   'installer/engine.mjs', 'mcp/server.mjs', 'mcp/setup.mjs', 'mcp/jsonc.mjs', 'lambda/portal.py', 'lambda/ai_proxy.py', 'web/teacher.html', 'student/portal-deploy.mjs',
-  'starter/build-kit.mjs', 'starter/publish-files.mjs', 'starter/mcp/server.mjs', 'docs/TEACHER_SETUP.md']) {
+  'starter/build-kit.mjs', 'starter/publish-files.mjs', 'starter/mcp/server.mjs', 'docs/TEACHER_SETUP.md', 'installer/tenant.mjs', 'custom-domain/spa-fallback.js', 'custom-domain/tenant-api-route.js']) {
   assert.ok(all.includes(needed), `the package must contain ${needed}`);
 }
 for (const forbidden of [/\.local$/, /^tests\//, /(^|\/)__pycache__\//, /^starter\/eval\//, /^samconfig\.toml$/, /^identifiers/, /node_modules/, /^\.class-platform\//, /^opensource_plan/, /^implement\.md/]) {

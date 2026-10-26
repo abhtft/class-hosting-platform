@@ -2,6 +2,12 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## 1.2.0
+
+- **Custom domains are part of the install.** A student can use their own domain (`www.theirname.com`): the installer creates what CloudFront needs (two functions, a connection group and a multi-tenant distribution, as in the hand-made original), the teacher page offers the **Custom domain** switch per student, and the student adds one CNAME. `custom-domains` sets it up on an existing platform or retries it; `destroy` removes it; `transfer` recreates it in the new account and lists each student's domain in the DNS file. Updates carry the custom-domain ids from the live stack, so an update can never switch the feature off.
+- The portal passes a connection group id when it creates a student's tenant (a platform with none keeps using CloudFront's default group, so installs made by hand are unchanged).
+- Teacher action needed: none. **To add custom domains to your existing platform:** `upgrade` (or `plan` then `apply <id>`) to 1.2.0, then `custom-domains`.
+
 ## 1.1.1
 
 - **Every feature is installed by default** (student backends, class AI, Google Gemini, class storage), so the teacher page offers each of them. A feature stays off for every student until you switch it on for that student; `--features backend,storage` (or `--features none`) installs fewer, and `plan --enable a,b` / `plan --disable a` change it later. The teacher page says how to switch features on when none are installed yet.

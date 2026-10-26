@@ -162,3 +162,14 @@ call("POST", f"/api/admin/tokens/{alice_id}/revoke", {}, admin)
 assert call("GET", "/api/student/domain/status", session=alice)[0] == 401
 
 print("test_domains.py: all passed")
+
+
+# ---------- the tenant joins the platform's own connection group when there is one ----------
+os.environ.pop("CONNECTION_GROUP_ID", None)
+plain = domains.tenant_arguments("alice", "www.alice.example")
+assert "ConnectionGroupId" not in plain and plain["DistributionId"] == "EMT" and plain["Parameters"] == [{"Name": "student", "Value": "alice"}], plain
+os.environ["CONNECTION_GROUP_ID"] = "cg_123"
+grouped = domains.tenant_arguments("alice", "www.alice.example")
+assert grouped["ConnectionGroupId"] == "cg_123" and {k: v for k, v in grouped.items() if k != "ConnectionGroupId"} == plain
+os.environ.pop("CONNECTION_GROUP_ID")
+print("  ok  a tenant joins the platform's own connection group when one is set, and uses CloudFront's default otherwise")

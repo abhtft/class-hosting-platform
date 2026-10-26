@@ -13,7 +13,7 @@ Before it, publish the CloudFront function once (source: custom-domain/tenant-ap
 
 Safe to repeat (does nothing if already configured). The CURRENT configuration is saved to a temp file first; rolling back
 means update-distribution with that file. The shared secret is read from the stack at run time and never printed or stored
-in the repo (custom-domain/tenant-distribution.json holds a placeholder).
+in the repo (the installer's installer/tenant.mjs generates the distribution configuration).
 """
 import json
 import os

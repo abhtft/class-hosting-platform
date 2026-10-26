@@ -106,7 +106,7 @@ export async function runVerify({ portal, login = null, features = [], repo, fet
     const me = await call('/api/student/me', { session: student.data.session });
     const view = me.data?.token ?? {};
     for (const feature of features) {
-      const offered = { backend: view.backend?.available, ai: view.ai?.available, gemini: view.ai?.providers?.includes('gemini'), storage: view.storage?.available }[feature];
+      const offered = { backend: view.backend?.available, ai: view.ai?.available, gemini: view.ai?.providers?.includes('gemini'), storage: view.storage?.available, customdomains: view.custom_domain?.available }[feature];
       add(`The feature "${feature}" is offered to students`, offered, 'it is switched on but the portal does not offer it');
     }
     const live = publish({ repo, portal: base, token: made.data.token });

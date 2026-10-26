@@ -44,6 +44,12 @@ Parameters:
     Type: String
     Default: ''
     Description: Routing endpoint of the tenant connection group (xxxx.cloudfront.net). Students point their CNAME here.
+  ConnectionGroupId:
+    Type: String
+    Default: ''
+    Description: >
+      Optional. Id of the CloudFront connection group the student tenants join (the installer creates one with the custom-domain pieces). Leave empty
+      to use CloudFront's default connection group (an install whose custom-domain pieces were made by hand).
   BackendEnabled:
     Type: String
     Default: 'false'
@@ -137,6 +143,7 @@ Globals:
         OFFLINE_GRACE_DAYS: !Ref OfflineGraceDays
         TENANT_DISTRIBUTION_ID: !Ref TenantDistributionId
         ROUTING_ENDPOINT: !Ref RoutingEndpoint
+        CONNECTION_GROUP_ID: !Ref ConnectionGroupId
         BACKEND_ENABLED: !Ref BackendEnabled
         SANDBOX_ROLE_ARN: !GetAtt StudentSandboxRole.Arn
         BACKEND_RESERVED_CONCURRENCY: '0' # the account limit is 10, so no reservation; the gateway's in-flight limiter is the cap
