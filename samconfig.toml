@@ -1,0 +1,12 @@
+version = 0.1
+
+# `sam deploy` reads this file. Most teachers do not need it: `npx -y <package> install` deploys without the SAM CLI (see docs/TEACHER_SETUP.md).
+# If you use the SAM CLI, copy this file to a git-ignored samconfig.local.toml (sam deploy --config-file samconfig.local.toml) and set your values there.
+[default.deploy.parameters]
+stack_name = "student-hosting"
+region = "us-east-1"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+# Example (all optional, see the Parameters section of template.yaml):
+# parameter_overrides = "RootDomain=apps.example.com CertificateArn=<certificate arn in us-east-1> BackendEnabled=true"

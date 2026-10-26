@@ -1,0 +1,129 @@
+{
+  "CallerReference": "student-hosting-tenant-template-1",
+  "Comment": "Student custom domains (multi-tenant template)",
+  "Enabled": true,
+  "ConnectionMode": "tenant-only",
+  "HttpVersion": "http2and3",
+  "TenantConfig": {
+    "ParameterDefinitions": [
+      {
+        "Name": "student",
+        "Definition": {
+          "StringSchema": {
+            "Comment": "Student name; the site lives at s3://bucket/sites/<student>/",
+            "Required": true
+          }
+        }
+      }
+    ]
+  },
+  "Origins": {
+    "Quantity": 2,
+    "Items": [
+      {
+        "Id": "sites",
+        "DomainName": "student-hosting-sitesbucket-pi9xyysg5smo.s3.us-east-1.amazonaws.com",
+        "OriginPath": "/sites/{{student}}",
+        "OriginAccessControlId": "<ORIGIN_ACCESS_CONTROL_ID>",
+        "S3OriginConfig": {
+          "OriginAccessIdentity": ""
+        }
+      },
+      {
+        "Id": "backend",
+        "DomainName": "<BACKEND_API_HOST>",
+        "OriginPath": "/b/{{student}}",
+        "CustomHeaders": {
+          "Quantity": 1,
+          "Items": [
+            {
+              "HeaderName": "x-origin-secret",
+              "HeaderValue": "<ORIGIN_SECRET>"
+            }
+          ]
+        },
+        "CustomOriginConfig": {
+          "HTTPPort": 80,
+          "HTTPSPort": 443,
+          "OriginProtocolPolicy": "https-only",
+          "OriginSslProtocols": {
+            "Quantity": 1,
+            "Items": [
+              "TLSv1.2"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "sites",
+    "ViewerProtocolPolicy": "redirect-to-https",
+    "AllowedMethods": {
+      "Quantity": 2,
+      "Items": [
+        "GET",
+        "HEAD"
+      ],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": [
+          "GET",
+          "HEAD"
+        ]
+      }
+    },
+    "Compress": true,
+    "CachePolicyId": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+    "FunctionAssociations": {
+      "Quantity": 1,
+      "Items": [
+        {
+          "EventType": "viewer-request",
+          "FunctionARN": "arn:aws:cloudfront::<ACCOUNT_ID>:function/student-hosting-spa-fallback"
+        }
+      ]
+    }
+  },
+  "CacheBehaviors": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "PathPattern": "/api/*",
+        "TargetOriginId": "backend",
+        "ViewerProtocolPolicy": "https-only",
+        "AllowedMethods": {
+          "Quantity": 7,
+          "Items": [
+            "GET",
+            "HEAD",
+            "OPTIONS",
+            "PUT",
+            "POST",
+            "PATCH",
+            "DELETE"
+          ],
+          "CachedMethods": {
+            "Quantity": 2,
+            "Items": [
+              "GET",
+              "HEAD"
+            ]
+          }
+        },
+        "Compress": false,
+        "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+        "OriginRequestPolicyId": "b689b0a8-53d0-40ab-baf2-68738e2966ac",
+        "FunctionAssociations": {
+          "Quantity": 1,
+          "Items": [
+            {
+              "EventType": "viewer-request",
+              "FunctionARN": "arn:aws:cloudfront::<ACCOUNT_ID>:function/student-hosting-tenant-api"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

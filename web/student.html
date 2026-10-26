@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student · Student Deploy</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<main>
+  <section id="login" class="hidden" style="max-width:420px;margin:60px auto 0">
+    <div class="card">
+      <h1>Student sign in</h1>
+      <p class="muted">Paste the token your teacher gave you.</p>
+      <form id="login-form" class="stack">
+        <label>Token <input name="token" placeholder="mds_…" autocomplete="off" spellcheck="false" required></label>
+        <div id="login-error" class="error" role="alert"></div>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+      <p class="small muted" style="margin-bottom:0"><a href="index.html">← Back</a></p>
+    </div>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="topbar">
+      <h1 id="title">Your site</h1>
+      <div class="actions"><button id="logout">Sign out</button></div>
+    </div>
+    <div class="stack">
+      <div id="status" class="card stack"></div>
+      <div id="deploy" class="card stack"></div>
+      <div id="domain" class="card stack hidden"></div>
+      <div id="backend" class="card stack hidden"></div>
+      <div id="github" class="card stack hidden"></div>
+      <details id="guide" class="card">
+        <summary>Upload guidelines</summary>
+        <ul>
+          <li>Upload your <strong>build folder</strong> (usually <code>dist</code> or <code>build</code>), made with <code>npm run build</code>. If you drop the whole project, the build folder is found automatically.</li>
+          <li>The folder must contain <code>index.html</code> at its top level.</li>
+          <li>File names: use letters, digits, <code>-</code>, <code>_</code> and <code>.</code> only. No spaces. Prefer lowercase: <code>Logo.png</code> and <code>logo.png</code> are different files online.</li>
+          <li>Do not include <code>node_modules</code>, <code>.git</code> or <code>.env</code> files.</li>
+          <li>Limits: 2,000 files, 200 MB in total, 50 MB zipped.</li>
+          <li>If your app calls a backend of its own elsewhere, it must use <code>https://</code> and allow your site's address in CORS. If your teacher enabled <strong>Backend</strong> for you, you can host a small function here instead and call it at <code>/api/…</code> on your own site (no CORS needed).</li>
+          <li>You can upload again at any time while your token is active. Each upload replaces the previous version.</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+</main>
+<script type="module" src="student.js"></script>
+</body>
+</html>

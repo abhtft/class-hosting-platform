@@ -1,0 +1,26 @@
+# Optional: auto-deploy on every push to main.
+# 1. Copy this file to .github/workflows/deploy.yml in your repo (deploy.mjs must be at the repo root).
+# 2. GitHub repo → Settings → Secrets and variables → Actions:
+#      Secret   DEPLOY_KEY    = your deploy key
+#      Variable VITE_API_URL  = your backend URL (only if your app reads it)
+name: Deploy frontend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node deploy.mjs
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}

@@ -1,0 +1,36 @@
+# Deploys on every push to main: first the platform check, then backend/, then frontend/.
+# One-time setup: GitHub repo > Settings > Secrets and variables > Actions > New repository secret
+#   name PORTAL_TOKEN, value = the token you sign in to the portal with. Never put the token in a file.
+# If this run fails, open it under the Actions tab, copy the red message and paste it to your AI assistant.
+name: Deploy to class hosting
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Platform check
+        run: node tools/check.mjs
+      - name: Install frontend packages
+        run: |
+          if [ -f frontend/package-lock.json ]; then (cd frontend && npm ci)
+          else (cd frontend && npm install); fi
+      - name: Deploy
+        run: node portal-deploy.mjs
+        env:
+          PORTAL_TOKEN: ${{ secrets.PORTAL_TOKEN }}

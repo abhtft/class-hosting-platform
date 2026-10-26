@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; line-height: 1.5; }
+body { margin: 0; }
+main { max-width: 640px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { margin: 0 0 4px; }
+h2 { font-size: 1.1rem; margin: 0 0 8px; }
+section { border: 1px solid #8884; border-radius: 10px; padding: 16px; margin: 16px 0; display: grid; gap: 8px; }
+textarea { font: inherit; width: 100%; box-sizing: border-box; padding: 8px; }
+button { font: inherit; padding: 8px 14px; cursor: pointer; justify-self: start; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.muted { opacity: 0.7; }
+.ok { color: #1d8a4e; margin: 0; }
+.answer { background: #8882; padding: 10px; border-radius: 8px; margin: 0; white-space: pre-wrap; }
+.error { color: #c0362c; }

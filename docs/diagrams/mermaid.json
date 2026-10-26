@@ -1,0 +1,8 @@
+{
+  "theme": "neutral",
+  "themeVariables": { "fontFamily": "Arial, Helvetica, sans-serif", "fontSize": "16px" },
+  "flowchart": { "htmlLabels": false, "useMaxWidth": false, "nodeSpacing": 40, "rankSpacing": 50, "curve": "basis" },
+  "sequence": { "useMaxWidth": false, "mirrorActors": false, "messageFontSize": 15, "actorFontSize": 16, "noteFontSize": 14 },
+  "state": { "useMaxWidth": false },
+  "er": { "useMaxWidth": false }
+}

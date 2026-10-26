@@ -1,0 +1,38 @@
+{
+  "kit": "class-platform-starter",
+  "kitVersion": "1.6.0",
+  "minKit": "1.0.0",
+  "portal": "https://deploy.example.edu",
+  "frontend": "frontend",
+  "backend": "backend",
+  "backendRuntime": "python",
+  "managedScripts": [
+    "dev",
+    "check",
+    "doctor",
+    "platform",
+    "login",
+    "mcp-config",
+    "deploy"
+  ],
+  "managed": [
+    "AGENTS.md",
+    "GEMINI.md",
+    "CLAUDE.md",
+    ".claude/",
+    ".cursor/",
+    ".github/copilot-instructions.md",
+    ".windsurfrules",
+    ".github/workflows/deploy.yml",
+    ".vscode/mcp.json",
+    "tools/",
+    "portal-deploy.mjs",
+    "backend/class_ai.py",
+    "variants/node-backend/class_ai.mjs",
+    "backend/class_ai.mjs",
+    "backend/class_storage.py",
+    "variants/node-backend/class_storage.mjs",
+    "backend/class_storage.mjs",
+    "PROMPTS.md"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "portal-deploy.mjs": "student/portal-deploy.mjs",
+  "deploy-frontend-folder.yml": "student/portal-deploy.yml",
+  "deploy-root-app.yml": "student/portal-deploy-root.yml",
+  "github-deploy-guide.md": "student/CICD.md"
+}

@@ -1,0 +1,42 @@
+# Auto-deploy your project on every push to main.
+#
+# 1. Copy this file to .github/workflows/deploy.yml in your repo, and portal-deploy.mjs to the repo root.
+# 2. GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret:
+#      PORTAL_TOKEN = the token you sign in to the portal with (starts with mds_)
+#    The token is a secret: never put it in a file you commit. It stops working when it expires, then you
+#    request regeneration on the portal and update this secret.
+# 3. Layout: frontend/ (your app) and backend/ (index.mjs or app.py at its top). Either may be missing.
+#
+# Your backend's own environment variables (API keys) are set once on the portal (Backend card); they stay
+# in place across deploys, so they do not belong here.
+name: Deploy to class hosting
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Install the frontend packages if there are any (portal-deploy.mjs then runs `npm run build` itself).
+      # Your app is in another folder (or the repo root)? Change FRONTEND below and add the same --frontend option to the deploy step.
+      - name: Install frontend packages
+        env:
+          FRONTEND: frontend
+        run: |
+          if [ -f "$FRONTEND/package-lock.json" ]; then (cd "$FRONTEND" && npm ci)
+          elif [ -f "$FRONTEND/package.json" ]; then (cd "$FRONTEND" && npm install)
+          else echo "No $FRONTEND/package.json: nothing to install"; fi
+      - run: node portal-deploy.mjs
+        env:
+          PORTAL_TOKEN: ${{ secrets.PORTAL_TOKEN }}

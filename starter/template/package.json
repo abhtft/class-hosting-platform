@@ -1,0 +1,16 @@
+{
+  "name": "class-project",
+  "private": true,
+  "type": "module",
+  "description": "Class platform project: frontend/ (React + Vite) and backend/ (one function). Tooling only; the app's own packages are in frontend/.",
+  "scripts": {
+    "dev": "node tools/dev.mjs",
+    "check": "node tools/check.mjs",
+    "doctor": "node tools/doctor.mjs",
+    "login": "node portal-deploy.mjs login",
+    "mcp-config": "node tools/mcp.mjs --print-config",
+    "platform": "node tools/platform.mjs",
+    "build": "npm --prefix frontend run build",
+    "deploy": "node portal-deploy.mjs"
+  }
+}

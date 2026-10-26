@@ -1,0 +1,1068 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Student frontend hosting - one private S3 bucket, one CloudFront distribution
+  and a tiny upload API. Students deploy with `node deploy.mjs` and a personal key.
+
+Parameters:
+  RootDomain:
+    Type: String
+    Default: ''
+    Description: >
+      Optional, e.g. apps.example.com. Sites are then served at https://<student>.apps.example.com
+      (students change nothing in their code). Leave empty to serve at
+      https://<distribution>.cloudfront.net/<student>/ instead.
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: Required when RootDomain is set. ACM certificate in us-east-1 covering *.<RootDomain>.
+  KeysParameterName:
+    Type: String
+    Default: /student-deploy/keys
+    AllowedPattern: '^/[a-zA-Z0-9_./-]+$'
+    Description: 'SSM parameter holding the student -> secret JSON map. Must start with "/".'
+  PortalAlias:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Attach deploy.<RootDomain> to the portal distribution. Keep 'false' on the first deploy: CloudFront refuses the alias while
+      DNS (e.g. a *.<RootDomain> wildcard) still points deploy.<RootDomain> at another distribution. Create the DNS record
+      deploy -> PortalDistributionDomain, then redeploy with 'true'.
+  TeacherParameterName:
+    Type: String
+    Default: /student-deploy/teacher
+    AllowedPattern: '^/[a-zA-Z0-9_./-]+$'
+    Description: 'SSM parameter holding the teacher login (set with `node admin.mjs teacher-setup`).'
+  TenantDistributionId:
+    Type: String
+    Default: ''
+    Description: >
+      Optional. Id of the CloudFront multi-tenant distribution used for student custom domains (created by hand, see
+      custom-domain/HANDOFF.md). Leave empty to switch the custom-domain feature off.
+  RoutingEndpoint:
+    Type: String
+    Default: ''
+    Description: Routing endpoint of the tenant connection group (xxxx.cloudfront.net). Students point their CNAME here.
+  BackendEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Student backends (backend_wire.md): the Backend API, the gateway function and the /api/* route on the student distribution.
+      Keep 'false' until the pilot is ready. The sandbox role below is always created but only lets a function write its own logs.
+  AiEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Class AI connector: the teacher can give a student's backend a capped, revocable OpenRouter key (needs BackendEnabled='true' and the
+      secret named below). Off by default; with it off nothing about student backends changes.
+  AiSecretName:
+    Type: String
+    Default: openrouter
+    Description: >
+      Secrets Manager secret holding the OpenRouter MANAGEMENT key as JSON {"OPENROUTER_MANAGEMENT_KEY": "..."}. Only the portal and
+      sweeper functions may read it; it is never given to a student function.
+  AiDefaultModel:
+    Type: String
+    Default: anthropic/claude-haiku-5.5
+    Description: OpenRouter model id given to students as AI_MODEL. Change it here (or per student on the teacher page) to use another model.
+  AiDefaultLimitUsd:
+    Type: String
+    Default: '0.25'
+    Description: Default spending cap per student in USD, used the first time the teacher switches AI on. The teacher can edit it per student.
+  AiGeminiEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Lets the teacher give a student Google Gemini instead of OpenRouter (needs AiEnabled='true'). Google has no per-student keys, so the
+      platform runs its own OpenAI-compatible proxy that holds the Google key (field GOOGLE_API_KEY in the same secret as above), checks the
+      student's private key and enforces the cap. Off by default.
+  StorageEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Class storage connector: the teacher can give a student's backend a small database (DynamoDB) and file area (S3) with hard caps
+      (needs BackendEnabled='true'). Creates the data table, the storage API and its function. Off by default; with it off nothing about
+      student backends changes. See docs/STORAGE_CONNECTOR.md.
+  AlertEmailParameter:
+    Type: String
+    Default: ''
+    Description: >
+      Name of an SSM String parameter that holds the email address for cost and error alerts (for example /student-deploy/alert-email).
+      The address itself stays in AWS, never in this repository. Leave empty to create no alerts.
+  ConcurrencyAlarmThreshold:
+    Type: Number
+    Default: 8
+    MinValue: 1
+    Description: Alarm when account-wide Lambda concurrency reaches this many executions. 8 suits the current limit of 10; raise it (for example to 800) after the quota increase to 1000 is granted.
+  OfflineGraceDays:
+    Type: Number
+    Default: 3
+    MinValue: 0
+    Description: Days after a token expires before the student's site goes offline.
+
+Rules:
+  CertificateRequiredForDomain:
+    RuleCondition: !Not [!Equals [!Ref RootDomain, '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CertificateArn, '']]
+        AssertDescription: CertificateArn (us-east-1, covering *.RootDomain) is required when RootDomain is set.
+
+Conditions:
+  UseCustomDomain: !Not [!Equals [!Ref RootDomain, '']]
+  UsePortalAlias: !And [!Condition UseCustomDomain, !Equals [!Ref PortalAlias, 'true']]
+  UseBackend: !Equals [!Ref BackendEnabled, 'true']
+  UseAi: !Equals [!Ref AiEnabled, 'true']
+  UseGemini: !And [!Condition UseAi, !Condition UseBackend, !Equals [!Ref AiGeminiEnabled, 'true']]
+  UseStorage: !And [!Condition UseBackend, !Equals [!Ref StorageEnabled, 'true']]
+  UseAlerts: !Not [!Equals [!Ref AlertEmailParameter, '']]
+  UseAlertsAndBackend: !And [!Condition UseAlerts, !Condition UseBackend]
+  UseAlertsAndStorage: !And [!Condition UseAlerts, !Condition UseStorage]
+
+Globals:
+  Function:
+    Environment:
+      Variables:
+        BUCKET: !Ref SitesBucket
+        DISTRIBUTION_ID: !Ref Distribution
+        DISTRIBUTION_DOMAIN: !GetAtt Distribution.DomainName
+        ROOT_DOMAIN: !Ref RootDomain
+        KEYS_PARAM: !Ref KeysParameterName
+        TOKENS_TABLE: !Ref TokensTable
+        TEACHER_PARAM: !Ref TeacherParameterName
+        OFFLINE_GRACE_DAYS: !Ref OfflineGraceDays
+        TENANT_DISTRIBUTION_ID: !Ref TenantDistributionId
+        ROUTING_ENDPOINT: !Ref RoutingEndpoint
+        BACKEND_ENABLED: !Ref BackendEnabled
+        SANDBOX_ROLE_ARN: !GetAtt StudentSandboxRole.Arn
+        BACKEND_RESERVED_CONCURRENCY: '0' # the account limit is 10, so no reservation; the gateway's in-flight limiter is the cap
+        INFLIGHT_GLOBAL: '3'
+        INFLIGHT_STUDENT: '2'
+        PER_IP_PER_MINUTE: '120'
+        ORIGIN_SECRET: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+        AI_ENABLED: !Ref AiEnabled
+        AI_GEMINI_ENABLED: !Ref AiGeminiEnabled
+        STORAGE_ENABLED: !Ref StorageEnabled
+        AI_SECRET_NAME: !Ref AiSecretName
+        AI_DEFAULT_MODEL: !Ref AiDefaultModel
+        AI_DEFAULT_LIMIT_USD: !Ref AiDefaultLimitUsd
+        AI_STUDENT_TIMEOUT: '25' # AI answers take seconds; the gateway below waits up to 29 (the HTTP API's own limit is 30)
+
+Resources:
+  # ---------- Storage ----------
+  SitesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      # The student page PUTs the zip straight to S3 from the browser.
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [PUT]
+            AllowedHeaders: ['*']
+            AllowedOrigins: !If
+              - UseCustomDomain
+              - [!Sub 'https://deploy.${RootDomain}']
+              - ['*']
+            MaxAge: 3600
+          # class storage: a student's page uploads a file with a presigned POST and reads it with a presigned GET link; the signature,
+          # not the origin, is what authorises each request
+          - AllowedMethods: [POST, GET]
+            AllowedHeaders: ['*']
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+      # Versioning is the undo button: an overwritten or deleted site file stays recoverable for 30 days (see docs/END_TO_END.md,
+      # "Recovering a file"). CloudFront and the Lambdas only ever see the current version, so nothing else changes.
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireUploadedZips
+            Prefix: uploads/
+            Status: Enabled
+            ExpirationInDays: 1
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 1
+          - Id: ExpireOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 2
+          - Id: CleanUpDeleteMarkers
+            Status: Enabled
+            ExpiredObjectDeleteMarker: true
+
+  SitesBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SitesBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: CloudFrontReadsPublishedSitesOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${SitesBucket.Arn}/sites/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+          - Sid: CustomDomainTenantsReadPublishedSitesOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${SitesBucket.Arn}/sites/*'
+            Condition:
+              StringLike:
+                AWS:SourceArn:
+                  - !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TenantDistributionId}'
+                  - !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution-tenant/*'
+          - Sid: PortalCloudFrontReadsPortalFolderOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${SitesBucket.Arn}/portal/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${PortalDistribution}'
+
+  # Edit this map in the SSM console (or with admin.mjs). CloudFormation only sets the initial "{}".
+  StudentKeys:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Ref KeysParameterName
+      Type: String
+      Value: '{}'
+
+  # Teacher login (username + scrypt hash + session secret). CloudFormation only sets the initial "{}".
+  TeacherAccount:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Ref TeacherParameterName
+      Type: String
+      Value: '{}'
+
+  # Deploy tokens, site-name locks and login-failure counters (see lambda/portal.py).
+  TokensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  # Class storage connector (storage.py): one table for every student's data. Items are <slug>#<collection> / <id>, so a student's data is
+  # only ever reached through the storage API, which builds the keys from the caller's own key. On-demand: an idle app costs nothing.
+  StudentDataTable:
+    Type: AWS::DynamoDB::Table
+    Condition: UseStorage
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: s
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: s
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+
+  # ---------- CDN ----------
+  SitesOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-oac'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Maps alice.<RootDomain>/cart or <dist>.cloudfront.net/alice/cart to s3://bucket/sites/alice/...
+  RouterFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${AWS::StackName}-router'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Route each student host/path to sites/<student>/ with SPA fallback
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !Sub |
+        var ROOT_DOMAIN = '${RootDomain}'.toLowerCase();
+        var NAME = /^[a-z0-9][a-z0-9-]{0,29}$/;
+
+        function handler(event) {
+          var request = event.request;
+          var host = request.headers.host ? request.headers.host.value.toLowerCase() : '';
+          var student;
+          var rest;
+
+          if (ROOT_DOMAIN && host.endsWith('.' + ROOT_DOMAIN)) {
+            // alice.apps.example.com/cart -> sites/alice/cart
+            student = host.slice(0, host.length - ROOT_DOMAIN.length - 1);
+            rest = request.uri;
+          } else {
+            // dxxxx.cloudfront.net/alice/cart -> sites/alice/cart
+            var slash = request.uri.indexOf('/', 1);
+            if (slash === -1) {
+              student = request.uri.slice(1);
+              if (!NAME.test(student)) return notFound();
+              return {
+                statusCode: 302,
+                statusDescription: 'Found',
+                headers: { location: { value: '/' + student + '/' } }
+              };
+            }
+            student = request.uri.slice(1, slash);
+            rest = request.uri.slice(slash);
+          }
+
+          if (!NAME.test(student)) return notFound();
+
+          // SPA fallback: a last path segment without a file extension is a client-side route.
+          var last = rest.slice(rest.lastIndexOf('/') + 1);
+          if (last.indexOf('.') === -1) rest = '/index.html';
+
+          request.uri = '/sites/' + student + rest;
+          return request;
+        }
+
+        function notFound() {
+          return { statusCode: 404, statusDescription: 'Not Found' };
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'Student frontends (${AWS::StackName})'
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        Aliases: !If
+          - UseCustomDomain
+          - [!Sub '*.${RootDomain}']
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - UseCustomDomain
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: sites
+            DomainName: !GetAtt SitesBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt SitesOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - !If
+            - UseBackend
+            - Id: backend
+              DomainName: !Sub '${BackendApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+              CustomOriginConfig:
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols: [TLSv1.2]
+              OriginCustomHeaders:
+                - HeaderName: x-origin-secret
+                  HeaderValue: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+            - !Ref AWS::NoValue
+        DefaultCacheBehavior:
+          TargetOriginId: sites
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt RouterFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors: !If
+          - UseBackend
+          - - PathPattern: /api/*
+              TargetOriginId: backend
+              ViewerProtocolPolicy: https-only
+              AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+              CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+              OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader (forwards Authorization)
+              FunctionAssociations:
+                - EventType: viewer-request
+                  FunctionARN: !GetAtt BackendRouteFunction.FunctionMetadata.FunctionARN
+          - !Ref AWS::NoValue
+
+  # ---------- Student backends (backend_wire.md) ----------
+  # <slug>.<RootDomain>/api/x  ->  CloudFront  ->  Backend API  ANY /b/{slug}/{proxy+}  ->  gateway Lambda  ->  student function sd-<slug>
+  BackendRouteFunction:
+    Type: AWS::CloudFront::Function
+    Condition: UseBackend
+    Properties:
+      Name: !Sub '${AWS::StackName}-backend-route'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Map <slug>.<RootDomain>/api/* to /b/<slug>/* for the gateway and pass the real viewer IP
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !Sub |
+        var ROOT_DOMAIN = '${RootDomain}'.toLowerCase();
+        var NAME = /^[a-z0-9][a-z0-9-]{0,29}$/;
+
+        function handler(event) {
+          var request = event.request;
+          var host = request.headers.host ? request.headers.host.value.toLowerCase() : '';
+          var suffix = '.' + ROOT_DOMAIN;
+          if (!ROOT_DOMAIN || host.length <= suffix.length || host.slice(-suffix.length) !== suffix) return notFound();
+          var slug = host.slice(0, host.length - suffix.length);
+          if (!NAME.test(slug)) return notFound();
+          var rest = request.uri.slice('/api'.length);
+          request.uri = '/b/' + slug + (rest.length ? rest : '/');
+          // Overwrites anything the client sent; the gateway trusts it only together with the origin secret header.
+          request.headers['x-viewer-ip'] = { value: event.viewer.ip };
+          return request;
+        }
+
+        function notFound() {
+          return { statusCode: 404, statusDescription: 'Not Found' };
+        }
+
+  # Upper limit for every student function role: write its own logs, nothing else.
+  StudentSandboxBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Permission boundary for student backend functions (logs only)
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: [logs:CreateLogStream, logs:PutLogEvents]
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sd-*:*'
+
+  StudentSandboxRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Execution role shared by all student backend functions. Can only write its own logs.
+      PermissionsBoundary: !Ref StudentSandboxBoundary
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: write-own-logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sd-*:*'
+
+  # Its own API so student traffic has its own throttle and cannot make the portal or the CLI API unusable.
+  BackendApi:
+    Type: AWS::Serverless::HttpApi
+    Condition: UseBackend
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+  GatewayFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseBackend
+    Properties:
+      CodeUri: lambda/
+      Handler: gateway.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 29 # a student function may run up to 25 s (AI-enabled ones), and the HTTP API gives up at 30
+      Environment:
+        Variables:
+          # The gateway needs neither. Overriding the shared (Globals) values removes its reference to Distribution, which would
+          # otherwise close a loop: Distribution -> BackendApi -> GatewayFunction -> Distribution (CloudFormation refuses it).
+          DISTRIBUTION_ID: ''
+          DISTRIBUTION_DOMAIN: ''
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
+              Resource: !GetAtt TokensTable.Arn
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:sd-*'
+      Events:
+        StudentRoute:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BackendApi
+            Path: /b/{slug}/{proxy+}
+            Method: ANY
+        StudentRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BackendApi
+            Path: /b/{slug}
+            Method: ANY
+
+  # ---------- Class storage connector ----------
+  # Its own API and function, so a student's busy loop cannot slow the portal. The student's function calls it over HTTPS with its own key.
+  StorageApi:
+    Type: AWS::Serverless::HttpApi
+    Condition: UseStorage
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 40
+        ThrottlingRateLimit: 20
+
+  StorageFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseStorage
+    Properties:
+      CodeUri: lambda/
+      Handler: storage_api.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          DATA_TABLE: !Ref StudentDataTable
+      Policies:
+        - Statement:
+            - Effect: Allow # the key lookup and the counters live in the tokens table
+              Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+              Resource: !GetAtt TokensTable.Arn
+            - Effect: Allow # the list of a student's collection names (scoll#...) is the only thing it may create or delete there
+              Action: [dynamodb:PutItem, dynamodb:DeleteItem]
+              Resource: !GetAtt TokensTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['scoll#*']
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem, dynamodb:Query]
+              Resource: !GetAtt StudentDataTable.Arn
+            - Effect: Allow # student files live under userdata/ only (published sites are under sites/)
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/userdata/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt SitesBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: ['userdata/*']
+      Events:
+        Any:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref StorageApi
+            Path: /{proxy+}
+            Method: ANY
+
+  # ---------- Class AI proxy for Gemini ----------
+  # Its own API and function (like storage), so a busy student cannot slow the portal. Students call it with their private ga_ key; the
+  # Google key stays in Secrets Manager and is only readable by this function (and never given to a student function).
+  AiProxyApi:
+    Type: AWS::Serverless::HttpApi
+    Condition: UseGemini
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+
+  AiProxyFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseGemini
+    Properties:
+      CodeUri: lambda/
+      Handler: ai_proxy.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 29 # Gemini answers take seconds; the HTTP API waits at most 30
+      Policies:
+        - Statement:
+            - Effect: Allow # the key lookup and the usage counters live in the tokens table
+              Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+              Resource: !GetAtt TokensTable.Arn
+            - Effect: Allow # the Google key (this one secret, nothing else)
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+      Events:
+        Any:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref AiProxyApi
+            Path: /{proxy+}
+            Method: ANY
+
+  # ---------- Web portal (deploy.<RootDomain>) ----------
+  # Static pages come from s3://bucket/portal/ (node admin.mjs portal-publish); /api/* goes to the API below.
+  PortalFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${AWS::StackName}-portal'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Clean URLs for the portal pages; pass the real viewer IP to the API
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          if (uri.indexOf('/api/') === 0) {
+            // Overwrites anything the client sent; the API only trusts it together with the origin secret header.
+            request.headers['x-viewer-ip'] = { value: event.viewer.ip };
+            return request;
+          }
+          if (uri === '/') return request; // DefaultRootObject serves index.html
+          if (uri.charAt(uri.length - 1) === '/') uri = uri.slice(0, -1);
+          if (uri.lastIndexOf('.') < uri.lastIndexOf('/')) request.uri = uri + '.html'; // /teacher -> /teacher.html
+          return request;
+        }
+
+  PortalDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'Deploy portal (${AWS::StackName})'
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        DefaultRootObject: index.html
+        Aliases: !If
+          - UsePortalAlias
+          - [!Sub 'deploy.${RootDomain}']
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - UsePortalAlias
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: portal
+            DomainName: !GetAtt SitesBucket.RegionalDomainName
+            OriginPath: /portal
+            OriginAccessControlId: !GetAtt SitesOAC.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - Id: api
+            DomainName: !Sub '${DeployApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+            OriginCustomHeaders:
+              - HeaderName: x-origin-secret
+                HeaderValue: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
+        DefaultCacheBehavior:
+          TargetOriginId: portal
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # Managed-SecurityHeadersPolicy
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt PortalFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader (forwards Authorization)
+            ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt PortalFunction.FunctionMetadata.FunctionARN
+
+  # ---------- Upload API ----------
+  DeployApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
+
+  DeployFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambda/
+      Handler: app.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 1024
+      Timeout: 29 # HTTP API waits at most 30s
+      Environment:
+        Variables:
+          STORAGE_URL: !If [UseStorage, !Sub 'https://${StorageApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}', '']
+          AI_PROXY_URL: !If [UseGemini, !Sub 'https://${AiProxyApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}', '']
+          DATA_TABLE: !If [UseStorage, !Ref StudentDataTable, '']
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt SitesBucket.Arn
+            - Effect: Allow
+              Action: cloudfront:CreateInvalidation
+              Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${KeysParameterName}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TeacherParameterName}'
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:Scan]
+              Resource: !GetAtt TokensTable.Arn
+            - Effect: Allow # student custom domains (CloudFront multi-tenant)
+              Action:
+                - cloudfront:CreateDistributionTenant
+                - cloudfront:GetDistributionTenant
+                - cloudfront:UpdateDistributionTenant
+                - cloudfront:DeleteDistributionTenant
+                - cloudfront:GetManagedCertificateDetails
+                - cloudfront:CreateInvalidationForDistributionTenant
+                - cloudfront:CreateInvalidation
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TenantDistributionId}'
+                - !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution-tenant/*'
+            - Effect: Allow
+              Action: [acm:RequestCertificate, acm:DescribeCertificate, acm:ListCertificates, acm:AddTagsToCertificate]
+              Resource: '*'
+            - Effect: Allow # student backends: manage ONLY functions named sd-*
+              Action:
+                - lambda:CreateFunction
+                - lambda:UpdateFunctionCode
+                - lambda:UpdateFunctionConfiguration
+                - lambda:GetFunction
+                - lambda:GetFunctionConfiguration
+                - lambda:DeleteFunction
+                - lambda:PutFunctionConcurrency
+                - lambda:DeleteFunctionConcurrency
+                - lambda:TagResource
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:sd-*'
+            - !If # class AI connector: read the OpenRouter management key (this one secret, nothing else)
+              - UseAi
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+              - !Ref AWS::NoValue
+            - !If # class storage: the teacher's "clear this student's data" needs to find and delete a student's items (nothing else, no reads of values)
+              - UseStorage
+              - Effect: Allow
+                Action: [dynamodb:Query, dynamodb:BatchWriteItem, dynamodb:DeleteItem]
+                Resource: !GetAtt StudentDataTable.Arn
+              - !Ref AWS::NoValue
+            - Effect: Allow # hand the sandbox role (and only that role) to Lambda
+              Action: iam:PassRole
+              Resource: !GetAtt StudentSandboxRole.Arn
+              Condition:
+                StringEquals:
+                  'iam:PassedToService': lambda.amazonaws.com
+            - Effect: Allow
+              Action: [logs:CreateLogGroup, logs:PutRetentionPolicy, logs:DeleteLogGroup, logs:FilterLogEvents]
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sd-*'
+                - !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/sd-*:*'
+      Events:
+        UploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref DeployApi
+            Path: /upload-url
+            Method: POST
+        Publish:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref DeployApi
+            Path: /publish
+            Method: POST
+        Portal:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref DeployApi
+            Path: /api/{proxy+}
+            Method: ANY
+
+  # Daily: move the site of every token past expiry + grace to archive/ (never deletes anything).
+  SweeperFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambda/
+      Handler: app.sweep
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 300
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt SitesBucket.Arn
+            - Effect: Allow
+              Action: cloudfront:CreateInvalidation
+              Resource: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+            - Effect: Allow
+              Action: [dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:Scan]
+              Resource: !GetAtt TokensTable.Arn
+            - !If # class AI connector: read the OpenRouter management key (this one secret, nothing else)
+              - UseAi
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+              - !Ref AWS::NoValue
+            - Effect: Allow
+              Action:
+                - cloudfront:GetDistributionTenant
+                - cloudfront:DeleteDistributionTenant
+                - cloudfront:CreateInvalidationForDistributionTenant
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${TenantDistributionId}'
+                - !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution-tenant/*'
+      Events:
+        Daily:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 3 * * ? *)
+
+  # ---------- Operations safety nets: alarms (every alert goes to one email through one SNS topic) ----------
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Condition: UseAlerts
+    Properties:
+      DisplayName: Student hosting alerts
+
+  AlertsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Condition: UseAlerts
+    Properties:
+      Topics: [!Ref AlertsTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountOwnerMayManageAndPublish
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: [SNS:Publish, SNS:Subscribe, SNS:GetTopicAttributes, SNS:ListSubscriptionsByTopic]
+            Resource: !Ref AlertsTopic
+            Condition:
+              StringEquals:
+                AWS:SourceOwner: !Ref AWS::AccountId
+          - Sid: CloudWatchAlarmsMayPublish
+            Effect: Allow
+            Principal:
+              Service: cloudwatch.amazonaws.com
+            Action: SNS:Publish
+            Resource: !Ref AlertsTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  # AWS emails a confirmation link once; alerts only arrive after it is clicked.
+  AlertsEmail:
+    Type: AWS::SNS::Subscription
+    Condition: UseAlerts
+    Properties:
+      TopicArn: !Ref AlertsTopic
+      Protocol: email
+      Endpoint: !Sub '{{resolve:ssm:${AlertEmailParameter}}}'
+
+  # Account-wide: every Lambda in the account shares the concurrency limit (10 today), so a student burst can throttle other apps.
+  LambdaConcurrencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-lambda-concurrency-near-limit'
+      AlarmDescription: Account-wide Lambda concurrency is near the limit; other apps can be throttled. See docs/END_TO_END.md, Alerts.
+      Namespace: AWS/Lambda
+      MetricName: ConcurrentExecutions
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: !Ref ConcurrencyAlarmThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  LambdaThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-lambda-throttles'
+      AlarmDescription: Lambda invocations were throttled account-wide (the concurrency limit was hit). See docs/END_TO_END.md, Alerts.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  DeployFunctionErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-portal-function-errors'
+      AlarmDescription: The portal/CLI function crashed (an unhandled error). Check its CloudWatch logs.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref DeployFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  SweeperErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-sweeper-errors'
+      AlarmDescription: The daily sweeper failed to archive a site or finish a domain removal; it retries tomorrow. Check its logs.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref SweeperFunction}]
+      Statistic: Sum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  GatewayErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlertsAndBackend
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-backend-gateway-errors'
+      AlarmDescription: The student-backend gateway crashed (an unhandled error in the platform code, not a student's function).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref GatewayFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  StorageErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlertsAndStorage
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-storage-errors'
+      AlarmDescription: The class storage API crashed (an unhandled error in the platform code). Check its CloudWatch logs.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref StorageFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  BackendServerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlertsAndBackend
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-backend-5xx'
+      AlarmDescription: Many 5xx answers from student backends in 5 minutes (a broken student function or a platform problem). Check the logs of the busiest sd-* function.
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions: [{Name: ApiId, Value: !Ref BackendApi}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 20
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+Outputs:
+  DeployApiUrl:
+    Description: Paste into API_URL in student/deploy.mjs
+    Value: !Sub 'https://${DeployApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  SiteUrlPattern:
+    Description: Where student sites are served
+    Value: !If
+      - UseCustomDomain
+      - !Sub 'https://<student>.${RootDomain}/'
+      - !Sub 'https://${Distribution.DomainName}/<student>/'
+  DistributionDomain:
+    Description: Point the wildcard DNS record (*.RootDomain) here as a CNAME
+    Value: !GetAtt Distribution.DomainName
+  DistributionId:
+    Value: !Ref Distribution
+  BucketName:
+    Value: !Ref SitesBucket
+  PortalUrl:
+    Description: Teacher and student web portal
+    Value: !If
+      - UsePortalAlias
+      - !Sub 'https://deploy.${RootDomain}/'
+      - !Sub 'https://${PortalDistribution.DomainName}/'
+  PortalDistributionDomain:
+    Description: Point the DNS record deploy.RootDomain (CNAME) here
+    Value: !GetAtt PortalDistribution.DomainName
+  PortalDistributionId:
+    Value: !Ref PortalDistribution
+  TokensTableName:
+    Value: !Ref TokensTable
+  AlertsTopicArn:
+    Condition: UseAlerts
+    Description: SNS topic that emails budget and alarm alerts (the email must confirm the subscription once)
+    Value: !Ref AlertsTopic
+  BackendApiUrl:
+    Condition: UseBackend
+    Description: Backend API (reached through CloudFront at <student>.<RootDomain>/api/)
+    Value: !Sub 'https://${BackendApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  StorageApiUrl:
+    Condition: UseStorage
+    Description: Class storage API (given to student functions as CLASS_STORAGE_URL)
+    Value: !Sub 'https://${StorageApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  AiProxyUrl:
+    Condition: UseGemini
+    Description: Class AI proxy for Gemini (given to student functions as OPENAI_BASE_URL, plus /v1)
+    Value: !Sub 'https://${AiProxyApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  StudentDataTableName:
+    Condition: UseStorage
+    Value: !Ref StudentDataTable
+  KeysParameterName:
+    Value: !Ref KeysParameterName
+  TeacherParameterName:
+    Value: !Ref TeacherParameterName

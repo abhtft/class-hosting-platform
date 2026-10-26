@@ -1,0 +1,10 @@
+{
+  "name": "class-platform-teacher-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for teachers of the class hosting platform: install it in your own AWS account, see what an update changes, apply it, switch features on. Works on a clone of the platform repository.",
+  "type": "module",
+  "bin": { "class-platform-teacher-mcp": "bin.mjs" },
+  "files": ["bin.mjs", "server.mjs", "setup.mjs", "jsonc.mjs", "README.md"],
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}

@@ -1,0 +1,12 @@
+.aws-sam/
+node_modules/
+
+__pycache__/
+*.pyc
+
+# local secrets
+*.local
+
+# installer state (account, stack, last plan)
+.class-platform/
+dist/

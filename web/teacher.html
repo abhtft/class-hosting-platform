@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teacher · Student Deploy</title>
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<main>
+  <section id="login" class="hidden" style="max-width:380px;margin:60px auto 0">
+    <div class="card">
+      <h1>Teacher sign in</h1>
+      <form id="login-form" class="stack" style="margin-top:16px">
+        <label>Username <input name="username" autocomplete="username" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <div id="login-error" class="error" role="alert"></div>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+      <p class="small muted" style="margin-bottom:0"><a href="index.html">← Back</a></p>
+    </div>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="topbar">
+      <div class="brand"><span class="logo" aria-hidden="true">SD</span><div><h1>Teacher dashboard</h1><div class="small muted">Student Deploy</div></div></div>
+      <div class="actions">
+        <button id="new-token" class="primary">New token</button>
+        <button id="refresh" title="Reload the list">Refresh</button>
+        <button id="logout">Sign out</button>
+      </div>
+    </div>
+    <div id="created" class="card hidden" style="margin-bottom:16px"></div>
+    <div id="stats" class="tiles" aria-label="Summary"></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-students" aria-selected="true">Students</button>
+      <button role="tab" id="tab-requests" aria-selected="false">Requests <span id="badge" class="badge hidden"></span></button>
+      <button role="tab" id="tab-storage" aria-selected="false">Storage</button>
+    </div>
+    <div id="toolbar" class="toolbar"><input id="search" type="search" placeholder="Search students by name or site" aria-label="Search students" autocomplete="off"></div>
+    <div id="error" class="error" role="alert"></div>
+    <div id="panel" class="card list"></div>
+  </section>
+</main>
+<script type="module" src="teacher.js"></script>
+</body>
+</html>

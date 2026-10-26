@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Marks the .js files in web/ as ES modules so Node can import them in tests; nothing here is installed."
+}

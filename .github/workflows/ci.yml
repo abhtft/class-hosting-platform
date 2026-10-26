@@ -1,0 +1,33 @@
+name: CI
+
+# Platform checks on every push and pull request. No AWS credentials are used or needed:
+# the suite runs against in-memory fakes, and the template is only linted, never deployed.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install boto3 cfn-lint
+      # W1030 is ignored because CertificateArn is a plain string parameter on purpose
+      - name: Template lint
+        run: cfn-lint -i W1030 -t template.yaml
+      - name: Local test suite
+        run: node tests/run.mjs 2>&1 | tee test-output.txt; exit ${PIPESTATUS[0]}
+      - name: Show failing checks as an annotation
+        if: failure()
+        run: |
+          grep -A14 '✖' test-output.txt | head -60 | python -c "import sys; print('::error title=Failing checks::' + sys.stdin.read().replace('%', '%25').replace(chr(10), '%0A'))"

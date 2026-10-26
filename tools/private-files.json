@@ -1,0 +1,14 @@
+{
+  "comment": "Paths that exist only in the maintainer's private copy. The scrub script skips them, the identifier guard test skips them, and the public repository is created without them. A trailing slash means a folder; * matches within one path segment.",
+  "paths": [
+    "image.png",
+    "domainmyhand.md",
+    "sample-site.zip",
+    "teacher-login.local",
+    "samconfig.toml",
+    "identifiers.local",
+    ".claude/",
+    "custom-domain/*.reference.*",
+    "opensource_plan.md"
+  ]
+}

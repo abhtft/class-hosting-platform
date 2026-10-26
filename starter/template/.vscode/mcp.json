@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "class-platform": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/tools/mcp.mjs", "--root", "${workspaceFolder}"]
+    }
+  }
+}
