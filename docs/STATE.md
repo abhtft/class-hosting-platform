@@ -61,7 +61,20 @@ The repository and releases are already public, so the question is how to **labe
 
 **Recommendation:** keep "public beta" today, do Priority 1 as the next release (1.3.0), and announce at that release. Do not wait for Priority 2 to announce, but do not drop the beta label until an outside teacher has completed a full cycle. That outside cycle is the one proof that code and tests cannot give.
 
-## 5. What this assessment does not cover
+## 5. How to launch it without an audience
+
+The goal is not sales or reach. It is **three to five outside people who really run the install**, find the bugs only an outsider finds, and perhaps send one fix. One outside teacher who completes a full cycle is worth more than a large following, and is also the proof needed to drop the beta label.
+
+1. **Be honest in the README.** "Public beta, tested end to end on one AWS account, testers wanted." Link this file so people see what is proven and what is not.
+2. **Find the right few people.** Teachers or trainers you know personally; teachers who already use AWS or run coding classes; small communities (r/aws, r/selfhosted, r/edtech, dev.to, a "Show HN" post, AWS user groups); one direct message to one teacher at a local college or bootcamp rather than a broadcast.
+3. **Make it easy to say yes.** The one-command install at the top of the README; a short screen recording of an install and a student deploy; an issue template "I tried the install" with two questions (what worked, what stopped you); five to eight `good first issue` / `help wanted` issues taken from the gaps in section 3 (the wrong-CNAME message, the tool prefix, a docs fix, a test, a check in another region). Contributors need a small, clearly described task, not a vision.
+4. **Tell a concrete story.** "I run a class where students deploy AI-built sites; I built a platform a teacher installs in their own AWS account with one command. It is open source and needs testers." Add the demo, ask for one specific thing ("if you teach coding and have an AWS account, 30 minutes"), reply to every comment. The same story goes on dev.to and Hacker News, which do not depend on follower count.
+5. **Protect your time.** State in the README what you will and will not do (no guaranteed support, issues answered when possible). Keep destroy, passwords, keys and IAM terminal-only. Label feature requests "later" until the Priority 1 gaps are closed. Keep the owner's production class out of it.
+6. **Define success.** Not sales: a few people who install without help, find real bugs, and maybe contribute a fix. That is also a strong portfolio and talk story.
+
+Order: Priority 1 gaps and the 1.3.0 release candidate; then the README "Testers wanted" section, a demo recording and the issue labels; then personal invitations to three to five people; then the public post; then fix what the testers hit and work toward stable. Nothing is published without the owner's go-ahead.
+
+## 6. What this assessment does not cover
 
 - Whether the owner's live class has been moved to the new tooling (it has not, by the owner's rule).
 - Load: the platform is built for a classroom, and no large-scale load test was run.

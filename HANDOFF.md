@@ -74,6 +74,10 @@ node tests/test_<name>.mjs    # one file; the teacher-side tests use a fake AWS 
 - **Stable (drop "beta"):** Priority 2 items "upgrade test in CI" and "least-privilege IAM or SSO" done, and one teacher other than the owner has installed, run a class and updated once without help.
 - Order of work: 4a and the 1.2.2 items first (small, visible), then the real-account rehearsals (they need the owner's test account and DNS), then the editor test.
 
+## 4c. Launching without an audience (details in `docs/STATE.md` section 5)
+
+The owner has a small following, so the plan is a few real testers, not reach: 3 to 5 outside people who run the install. To do, in order, after 1.3.0: add a "Testers wanted" section and a demo recording to the README; add an "I tried the install" issue template; open 5 to 8 `good first issue` / `help wanted` issues from the gaps in `docs/STATE.md`; invite 3 to 5 people personally; then post publicly (LinkedIn, dev.to, Hacker News "Show HN", r/aws, r/edtech). The assistant offered to draft the README section, the post and the issue texts; nothing is published without the owner's go-ahead.
+
 ## 5. Private facts (not in this repository)
 
 The owner's AWS account numbers, profile names, domain names and DNS records for the test platform, and the state of the test accounts, are in a git-ignored file in the private repository: `D:\Github_Codes\student-deploy\handoff.local`. Passwords and keys are not recorded anywhere; they live in AWS Secrets Manager and in the owner's own password handling.
