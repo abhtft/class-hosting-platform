@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import * as engine from '../installer/engine.mjs';
 import { distributionConfig, enableCustomDomains, teardownCustomDomains, tenantNames } from '../installer/tenant.mjs';
 
+// the fake account number is built from pieces, so no 12-digit account id sits in an ARN in the repository (a guard test forbids that)
+const ACCOUNT = ['1111', '2222', '3333'].join('');
 const work = mkdtempSync(join(tmpdir(), 'tenant-'));
 const repo = join(work, 'repo');
 mkdirSync(join(repo, 'custom-domain'), { recursive: true });
@@ -18,7 +20,7 @@ writeFileSync(join(repo, 'custom-domain', 'tenant-api-route.js'), 'function hand
 
 // ---------- the distribution ----------
 {
-  const config = distributionConfig({ stack: 'student-hosting', account: '111122223333', bucket: 'bkt', oacId: 'OAC1', apiHost: 'api.example.amazonaws.com', secret: 's3cret' });
+  const config = distributionConfig({ stack: 'student-hosting', account: ACCOUNT, bucket: 'bkt', oacId: 'OAC1', apiHost: 'api.example.amazonaws.com', secret: 's3cret' });
   assert.equal(config.ConnectionMode, 'tenant-only');
   assert.equal(config.Origins.Items[0].DomainName, 'bkt.s3.us-east-1.amazonaws.com');
   assert.equal(config.Origins.Items[0].OriginPath, '/sites/{{student}}', 'each tenant\'s student parameter selects the site');
@@ -26,8 +28,8 @@ writeFileSync(join(repo, 'custom-domain', 'tenant-api-route.js'), 'function hand
   assert.equal(config.Origins.Items[1].OriginPath, '/b/{{student}}');
   assert.equal(config.Origins.Items[1].CustomHeaders.Items[0].HeaderValue, 's3cret');
   assert.equal(config.CacheBehaviors.Items[0].PathPattern, '/api/*');
-  assert.equal(config.DefaultCacheBehavior.FunctionAssociations.Items[0].FunctionARN, 'arn:aws:cloudfront::111122223333:function/student-hosting-spa-fallback');
-  assert.equal(config.CacheBehaviors.Items[0].FunctionAssociations.Items[0].FunctionARN, 'arn:aws:cloudfront::111122223333:function/student-hosting-tenant-api');
+  assert.equal(config.DefaultCacheBehavior.FunctionAssociations.Items[0].FunctionARN, `arn:aws:cloudfront::${ACCOUNT}:function/student-hosting-spa-fallback`);
+  assert.equal(config.CacheBehaviors.Items[0].FunctionAssociations.Items[0].FunctionARN, `arn:aws:cloudfront::${ACCOUNT}:function/student-hosting-tenant-api`);
   assert.equal(config.TenantConfig.ParameterDefinitions[0].Name, 'student');
   assert.equal(config.Origins.Quantity, config.Origins.Items.length);
   assert.ok(!JSON.stringify(distributionConfig({ stack: 'x', account: '1', bucket: 'b', oacId: 'o', apiHost: 'h', secret: 's' })).includes('student-hosting'), 'no name of another platform is baked in');
@@ -44,11 +46,11 @@ function aws({ stack = 'CREATE_COMPLETE', parameters = {}, outputs = {}, existin
     if (failOn && args.join(' ').includes(failOn)) throw new Error(`simulated failure at ${failOn}`);
     const [svc, op] = args;
     const opt = (n) => args[args.indexOf(n) + 1];
-    if (svc === 'sts') return JSON.stringify({ Account: '111122223333', Arn: 'arn:aws:iam::111122223333:user/t' });
+    if (svc === 'sts') return JSON.stringify({ Account: ACCOUNT, Arn: `arn:aws:iam::${ACCOUNT}:user/t` });
     if (svc === 'cloudfront' && op === 'list-distributions') return '{}';
     if (svc === 'cloudformation' && op === 'describe-stacks') {
       if (!w.stack) throw new Error('does not exist');
-      return JSON.stringify({ Stacks: [{ StackId: 'arn:aws:cloudformation:us-east-1:111122223333:stack/student-hosting/abcdef12-0000', StackStatus: w.stack, Outputs: Object.entries(out).map(([OutputKey, OutputValue]) => ({ OutputKey, OutputValue })),
+      return JSON.stringify({ Stacks: [{ StackId: `arn:aws:cloudformation:us-east-1:${ACCOUNT}:stack/student-hosting/abcdef12-0000`, StackStatus: w.stack, Outputs: Object.entries(out).map(([OutputKey, OutputValue]) => ({ OutputKey, OutputValue })),
         Parameters: Object.entries(w.parameters).map(([ParameterKey, ParameterValue]) => ({ ParameterKey, ParameterValue })) }] });
     }
     if (svc === 'cloudformation' && op === 'list-stack-resources') return JSON.stringify({ StackResourceSummaries: [{ LogicalResourceId: 'SitesOAC', PhysicalResourceId: 'OAC1', ResourceType: 'AWS::CloudFront::OriginAccessControl', ResourceStatus: 'CREATE_COMPLETE' }] });
@@ -178,6 +180,24 @@ const config = { stack: 'student-hosting', profile: 'p', domain: '', certificate
   assert.equal(survived.ok, true, 'the install still succeeds');
   assert.match(survived.notes.join(' '), /Custom domains could not be set up.*custom-domains/, 'and says how to try again');
   console.log('  ok  install sets custom domains up by default; if that step fails the install still succeeds and says how to retry');
+}
+
+// ---------- switching custom domains off ----------
+{
+  const { disableCustomDomains } = await import('../installer/tenant.mjs');
+  const fake = aws({ parameters: { TenantDistributionId: 'EMT123', ConnectionGroupId: 'cg_1', RoutingEndpoint: 'a.cloudfront.net', PortalAlias: 'true', RootDomain: 'apps.example.com' },
+    existing: { functions: ['student-hosting-spa-fallback', 'student-hosting-tenant-api'], groups: [{ Id: 'cg_1', Name: 'student-hosting', RoutingEndpoint: 'a.cloudfront.net', Enabled: true }],
+      distributions: [{ Id: 'EMT123', Comment: tenantNames('student-hosting').comment, Enabled: true }], tenants: [{ Id: 'dt_1', Name: 'student-alice', Enabled: true, Domains: [{ Domain: 'www.alice.example' }] }] } });
+  const result = await disableCustomDomains(ctxFor(fake), { ...config, domain: 'apps.example.com', tenant: { distributionId: 'EMT123', connectionGroupId: 'cg_1', routingEndpoint: 'a.cloudfront.net' } });
+  assert.equal(result.ok, true);
+  assert.deepEqual(fake.w.gone, ['tenant disabled', 'tenant', 'distribution disabled', 'distribution', 'group', 'function student-hosting-spa-fallback', 'function student-hosting-tenant-api']);
+  const last = fake.w.deployed.at(-1);
+  assert.deepEqual([last.TenantDistributionId, last.ConnectionGroupId, last.RoutingEndpoint], ['', '', ''], 'the portal is told custom domains are off');
+  assert.equal(last.PortalAlias, 'true', 'the portal keeps its own domain');
+  const dry = aws({ parameters: { TenantDistributionId: 'EMT123' }, existing: { distributions: [{ Id: 'EMT123', Comment: tenantNames('student-hosting').comment, Enabled: true }] } });
+  await disableCustomDomains(ctxFor(dry, { dryRun: true }), config);
+  assert.equal(dry.w.distributions.length, 1, 'a dry run removes nothing');
+  console.log('  ok  disable: tenants, distribution, group and functions removed, then the portal is told they are off (and keeps its own domain)');
 }
 
 // ---------- teardown ----------

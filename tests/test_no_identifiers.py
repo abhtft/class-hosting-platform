@@ -50,7 +50,8 @@ def local_denylist():
 
 def main():
     patterns = private_patterns()
-    files = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout.decode("utf8").split("\0")
+    # tracked files AND new files not yet committed (and not git-ignored): a file must be checked before it is committed, not only in CI afterwards
+    files = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=ROOT, capture_output=True, check=True).stdout.decode("utf8").split("\0")
     deny = [v.lower() for v in local_denylist()]
     problems = []
     for rel in filter(None, files):

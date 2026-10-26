@@ -2,7 +2,12 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
-## 1.2.0
+## 1.2.1
+
+- The first release with custom domains in the install (the tag `v1.2.0` was created, but its release build stopped at a test that found a fake account number inside an ARN in a new test file, so no 1.2.0 release was ever published). Everything described for 1.2.0 below is in 1.2.1.
+- The check that keeps account numbers and domains out of the repository now also looks at new, not yet committed files, so such a slip is caught before a commit instead of afterwards in CI.
+
+## 1.2.0 (tagged, never published)
 
 - **Custom domains are part of the install.** A student can use their own domain (`www.theirname.com`): the installer creates what CloudFront needs (two functions, a connection group and a multi-tenant distribution, as in the hand-made original), the teacher page offers the **Custom domain** switch per student, and the student adds one CNAME. `custom-domains` sets it up on an existing platform or retries it; `destroy` removes it; `transfer` recreates it in the new account and lists each student's domain in the DNS file. Updates carry the custom-domain ids from the live stack, so an update can never switch the feature off.
 - The portal passes a connection group id when it creates a student's tenant (a platform with none keeps using CloudFront's default group, so installs made by hand are unchanged).

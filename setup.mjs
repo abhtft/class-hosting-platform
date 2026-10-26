@@ -13,7 +13,7 @@
 //   node setup.mjs setup                one-time setup of this computer: saves your AWS access (as its own profile) and adds the teacher tools to your editor
 //   node setup.mjs editor-update        move the editor's teacher tools to the newest release (asks first)
 //   node setup.mjs verify               does it really work? a throwaway student publishes a sample site; asks for your teacher login (used once, never saved); --no-login = public checks only
-//   node setup.mjs custom-domains       set up what students need to use their own domain (the install does this; use it to retry or on an older platform)
+//   node setup.mjs custom-domains       set up what students need to use their own domain (the install does this; use it to retry or on an older platform); --disable removes it again
 //   node setup.mjs status               what is installed, which version, which features
 //   node setup.mjs plan                 show what an update (or a feature switch: --enable ai / --disable ai) would change, change nothing
 //   node setup.mjs apply <plan-id>      run exactly that plan, then publish the portal
@@ -46,7 +46,7 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) { rest.push(a); continue; }
     const key = a.slice(2);
-    if (['dry-run', 'json', 'yes', 'everything', 'no-login', 'finish'].includes(key)) flags[key] = true;
+    if (['dry-run', 'json', 'yes', 'everything', 'no-login', 'finish', 'disable'].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { command: rest[0], args: rest.slice(1), flags };
@@ -273,6 +273,11 @@ export async function main(argv, overrides = {}) {
         return checked;
       }
       case 'custom-domains': {
+        if (flags.disable) {
+          if (flags.json) throw new engine.InstallError('Removing custom domains is done in your own terminal, after you confirm.', `Run: ${engine.cli(ctx)} custom-domains --disable`);
+          if (!ctx.dryRun && !flags.yes && !(await prompt.yes('Remove custom domains: every student\'s custom domain stops working and the CloudFront pieces are deleted (their DNS records are theirs to remove)?', 'n'))) return { ok: false };
+          return finish(await engine.removeCustomDomains(ctx));
+        }
         if (!ctx.dryRun && !flags.yes && !flags.json && !(await prompt.yes('Set up custom domains for students (a few CloudFront pieces in this AWS account, about 10 minutes)?', 'y'))) return { ok: false };
         return finish(await engine.setupCustomDomains(ctx));
       }

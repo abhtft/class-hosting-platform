@@ -146,6 +146,23 @@ export async function enableCustomDomains(ctx, config, { say = () => {} } = {}) 
 }
 
 
+/**
+ * Switch custom domains off: remove every student's custom domain and the pieces (see teardownCustomDomains), then update the stack so the portal no
+ * longer offers the feature. Students' own DNS records are theirs to remove. Safe to run again after a stop.
+ */
+export async function disableCustomDomains(ctx, config, { say = () => {} } = {}) {
+  let found;
+  try { found = stackOutputs(ctx); } catch { found = { status: null, outputs: {}, parameters: {} }; }
+  if (!found.status) throw new InstallError(`There is no stack "${ctx.stack}" in this account.`);
+  await teardownCustomDomains(ctx, { say });
+  if (ctx.dryRun) return { ok: true, dryRun: true, message: 'Dry run: custom domains would be removed.' };
+  say('Telling the portal that custom domains are off...');
+  const account = awsCall(ctx, ['sts', 'get-caller-identity'], { json: true }).Account;
+  const next = { ...config, tenant: null, features: (config.features ?? []).filter((f) => f !== 'customdomains') };
+  awsCall(ctx, deployArgs(ctx, packageTemplate(ctx, ensureArtifactBucket(ctx, account)), parametersFor(next, { aliasOn: Boolean(config.domain) && found.parameters.PortalAlias === 'true' })));
+  return { ok: true, message: 'Custom domains are switched off and their CloudFront pieces are removed.' };
+}
+
 /** Wait until a tenant or distribution reports Deployed (CloudFront changes take minutes). */
 async function untilDeployed(ctx, read, what, { tries = 120, wait = 15000 } = {}) {
   for (let i = 0; i < tries; i += 1) {

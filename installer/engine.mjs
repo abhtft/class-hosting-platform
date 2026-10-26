@@ -423,6 +423,18 @@ export async function setupCustomDomains(ctx) {
   return { ok: true, tenant: done.tenant, already: done.already ?? false, message: done.message };
 }
 
+/** `custom-domains --disable`: remove the custom-domain pieces and switch the feature off (the opposite of setupCustomDomains). */
+export async function removeCustomDomains(ctx) {
+  const state = adoptState(ctx);
+  if (!state) throw new InstallError('Nothing is installed here yet.');
+  const live = stackOutputs(ctx);
+  const config = normalise({ ...state, features: (state.features ?? []).filter((f) => f !== 'customdomains'), tenant: null, stack: state.stack, profile: ctx.profile || state.profile });
+  const { disableCustomDomains } = await import('./tenant.mjs');
+  const done = await disableCustomDomains({ ...ctx, stack: state.stack }, { ...config, domain: live.parameters.RootDomain || config.domain }, { say: ctx.progress });
+  if (!ctx.dryRun) writeState(ctx, { ...state, features: config.features, tenant: null });
+  return done;
+}
+
 // ---------- secrets (AI keys) ----------
 /** Store the AI keys in Secrets Manager (the name the template reads). Values come from a hidden prompt in the teacher's terminal, never from an editor. */
 export function saveAiSecret(ctx, { managementKey, googleKey, name = 'openrouter' }) {
