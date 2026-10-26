@@ -2,6 +2,11 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## Unreleased
+
+- **Teacher guide rewritten** ([docs/TEACHER_SETUP.md](docs/TEACHER_SETUP.md)): a complete, ordered guide (what you get and costs, how to run the newest or a pinned version, install with and without a domain including the three DNS records, first class, features, students' custom domains with the common mistakes seen in practice, updates, `verify`, the editor tools, backup and transfer, destroy, troubleshooting, a table of every command, and what the tool never does).
+- The README quickstart now uses the newest-version command (`?v=`), which avoids an `npx` copy that was downloaded earlier.
+
 ## 1.2.1
 
 - The first release with custom domains in the install (the tag `v1.2.0` was created, but its release build stopped at a test that found a fake account number inside an ARN in a new test file, so no 1.2.0 release was ever published). Everything described for 1.2.0 below is in 1.2.1.

@@ -2,13 +2,16 @@
 
 ## Get your own copy running (teachers)
 
-You need an AWS account, Node 20+ and the AWS CLI signed in (`aws configure`). Then one command, no download and no git:
+You need an AWS account. Easiest: open **AWS CloudShell** in the AWS console (already signed in; nothing to install) and paste these two lines. On your own computer you also need Node 20+ and the AWS CLI signed in (`aws configure`). No download, no git, no npm account:
 
 ```bash
-npx -y https://github.com/abhtft/class-hosting-platform/releases/latest/download/class-platform-teacher.tgz install
+PKG="https://github.com/abhtft/class-hosting-platform/releases/latest/download/class-platform-teacher.tgz?v=$(date +%s)"
+npx -y "$PKG" install
 ```
 
-Easiest: open **AWS CloudShell** in the AWS console (already signed in, nothing to install) and paste it there. It asks only for your teacher login (and whether you want your own domain), then installs everything into **your** account (10 to 15 minutes). AI, storage and the rest are switched on later. Later, each new release is one command (the release page shows it): `npx -y https://github.com/abhtft/class-hosting-platform/releases/download/v<new>/class-platform-teacher-<new>.tgz upgrade`. Step by step: [docs/TEACHER_SETUP.md](docs/TEACHER_SETUP.md).
+(The `?v=` makes `npx` fetch the newest release every time; PowerShell version and pinned versions are in the guide.) The install asks only for your teacher login (and whether you want your own domain), then builds everything in **your** AWS account in 10 to 15 minutes and checks it with a sample site. Every feature (student backends, class AI, Gemini, class storage, students' own domains) is installed and stays off for each student until you switch it on. Later: `npx -y "$PKG" upgrade` when a new release is out.
+
+**Everything a teacher does is in the [teacher guide](docs/TEACHER_SETUP.md):** installing, your first class, features, students' custom domains (with the common mistakes), updates, backups and moving to another AWS account, removing it, troubleshooting, and every command.
 
 ---
 
