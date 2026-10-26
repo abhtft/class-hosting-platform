@@ -45,7 +45,7 @@ node tests/test_<name>.mjs    # one file; the teacher-side tests use a fake AWS 
 
 ## 4. Open items, in the order I would do them
 
-1. **Release 1.2.2:** print the version on the first line of every command; warn when a copy is older than the newest release (`install`, `upgrade`); update the pinned example version in the guide.
+1. **Release 1.2.2** (include section 4a, the student agent's feature awareness): print the version on the first line of every command; warn when a copy is older than the newest release (`install`, `upgrade`); update the pinned example version in the guide.
 2. **Student page for custom domains:** when the CNAME points at the wrong address, say what it points at and what it must point at (the portal can look the CNAME up before asking CloudFront). The most common mistake seen was using the platform's *site* address instead of the custom-domain address.
 3. **Rename the teacher editor tools** with a distinct prefix (the student tool set also has `status`), show the AWS account number in every confirmation, and make the server instructions say "call status at the start of a session".
 4. **Rehearse export, import and transfer** on real accounts: `export`, `destroy --everything`, `install`, `import`, then check a student token and a published site; then a real `transfer` between two accounts.
@@ -53,6 +53,19 @@ node tests/test_<name>.mjs    # one file; the teacher-side tests use a fake AWS 
 6. **Publish on npm** (needs an npm account and an `NPM_TOKEN` repository secret; the release workflow already publishes when the secret exists) so the command becomes `npx class-platform-teacher@latest`.
 7. **The owner's production move** to a dedicated AWS account, using the same installer and the transfer command (the owner decides when; read-only on the old account).
 8. **Later:** least-privilege IAM or AWS SSO instead of AdministratorAccess; the CloudFront multi-tenant price check; an automatic upgrade test in CI (install the previous tag, upgrade, verify).
+
+## 4a. Designed, not yet built: the student's agent should know which features are on
+
+**Decision (owner asked, position agreed in discussion):** at build time the student's AI agent must know which features are on or off for *that* student, and it must learn this from the live portal, never from the rules file.
+
+**Why:** today `starter/rules/AGENTS.md` only says the teacher "can" switch on class AI and class storage. The agent cannot tell, so it can build a feature that deploys fine and then shows a "not enabled" error at runtime. The portal already knows: `/api/student/me` returns `ai` (available, enabled, provider, model), `backend`, `storage` and `custom_domain` per student. Not yet checked: whether the student MCP `status` tool (`starter/mcp/server.mjs`) or `npm run check` already print these.
+
+**Work to do (target 1.2.2):**
+1. Add a features block to the student MCP `status` tool and to `check`, read from `/api/student/me`.
+2. Add one rule to `starter/rules/AGENTS.md`: before planning anything that uses class AI, class storage, a backend or a custom domain, check the features block first. Do not put the on/off state itself in the rules (it goes stale and the file is shared by every student).
+3. When a feature is off: tell the student plainly, say to ask the teacher to switch it on, and build a version that works without it (for example `localStorage` instead of class storage, or a marked placeholder for the AI part). Never build something that will fail silently.
+4. Re-check on `deploy`: warn if the project uses a helper (`class_ai`, `class_storage`) whose feature is currently off, because the teacher can switch it off after the student started.
+5. Tests for the features block and the deploy warning; update `docs/TECHNICAL_SPECIFICATION.md` (student kit section), the student guide and `CHANGELOG.md`.
 
 ## 5. Private facts (not in this repository)
 
