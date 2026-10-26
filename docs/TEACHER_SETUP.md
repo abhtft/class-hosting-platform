@@ -100,4 +100,5 @@ An idle platform costs close to nothing (S3, a few DynamoDB tables on demand, Cl
 | "failed state (ROLLBACK_COMPLETE)" | `aws cloudformation delete-stack --stack-name <name>`, then install again |
 | "The AWS CLI is not installed" or "could not sign in" | Install the AWS CLI and run `aws configure` |
 | Certificate stays pending | The DNS validation record is missing or has a typo; AWS checks again within minutes |
+| `npx` runs an old version even though a newer release exists | npx remembers a downloaded address. The `latest` link is only for a first install on a computer; for anything else use the pinned address of the version you want (`.../download/v<version>/class-platform-teacher-<version>.tgz`), or clear the cache once: `npm cache clean --force` |
 | Plan "Blocked" | The update would replace data-holding resources. Nothing changed; open an issue with the plan |
