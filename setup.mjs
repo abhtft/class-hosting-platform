@@ -82,7 +82,11 @@ async function wizard(ctx, flags) {
   let profiles = [];
   try { profiles = execFileSync('aws', ['configure', 'list-profiles'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\s+/).map((x) => x.trim()).filter(Boolean); } catch { /* no AWS CLI yet: the check below says so */ }
   if (profiles.length) console.log(`AWS profiles on this computer: ${profiles.join(', ')}`);
-  answers.profile = flags.profile ?? await ask('AWS profile to use (empty = your default credentials)', ctx.profile);
+  // The bracketed default is only ever something YOU set on this computer: the AWS_PROFILE variable, or the profile of an earlier install here.
+  const remembered = process.env.AWS_PROFILE ? 'taken from your AWS_PROFILE setting' : 'remembered from an earlier install on this computer';
+  answers.profile = flags.profile ?? await ask(ctx.profile
+    ? `AWS profile to use (${remembered}; Enter keeps it, or type another name, or "default")`
+    : 'AWS profile to use (Enter = your default credentials, or type a profile name)', ctx.profile);
   answers.domain = flags.domain ?? await ask('Domain for student sites, e.g. apps.example.com (empty = free test addresses on cloudfront.net)', '');
   const features = [];
   console.log('\nOptional features (all can be switched on later with `node setup.mjs plan --enable <name>`):');
