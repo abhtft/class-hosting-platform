@@ -30,6 +30,8 @@ const answers = {
   apply: { ok: true, version: '1.1.0' },
   'finish-domain': { ok: true },
   publish: { ok: true, message: 'published' },
+  verify: { ok: true, publicOnly: true, message: 'The public checks passed.' },
+  'editor-update': { ok: true, version: '1.2.0', results: [{ editor: 'VS Code', action: 'update' }], message: 'Editor tools set to 1.2.0.' },
 };
 if (command === 'install') await new Promise((r) => setTimeout(r, 700));
 console.log(JSON.stringify(answers[command] ?? { ok: false, error: 'unknown' }));
@@ -69,9 +71,9 @@ const init = await s.rpc('initialize', { protocolVersion: '2025-06-18', capabili
 assert.equal(init.result.serverInfo.name, 'class-platform-teacher');
 assert.match(init.result.instructions, /never ask for them/);
 const listed = (await s.rpc('tools/list')).result.tools;
-assert.deepEqual(listed.map((t) => t.name).sort(), ['apply_update', 'check_environment', 'finish_domain', 'install', 'job_status', 'plan_update', 'publish_portal', 'status', 'teacher_login']);
+assert.deepEqual(listed.map((t) => t.name).sort(), ['apply_update', 'check_environment', 'finish_domain', 'install', 'job_status', 'plan_update', 'publish_portal', 'status', 'teacher_login', 'update_editor_tools', 'verify']);
 for (const forbidden of ['destroy', 'delete', 'secrets', 'password', 'iam', 'teacher_setup']) assert.ok(!listed.some((t) => t.name.includes(forbidden)), `no ${forbidden} tool`);
-for (const name of ['install', 'finish_domain', 'apply_update', 'publish_portal']) {
+for (const name of ['install', 'finish_domain', 'apply_update', 'publish_portal', 'update_editor_tools']) {
   const t = listed.find((x) => x.name === name);
   assert.deepEqual(t.inputSchema.required.includes('confirm'), true, `${name} needs confirm`);
   assert.match(t.description, /ask|IMPORTANT/i);
@@ -79,7 +81,7 @@ for (const name of ['install', 'finish_domain', 'apply_update', 'publish_portal'
 assert.equal((await s.rpc('ping')).result && 1, 1);
 assert.equal((await s.rpc('nothing/here')).error.code, -32601);
 assert.equal((await s.rpc('tools/call', { name: 'nope', arguments: {} })).error.code, -32602);
-console.log('  ok  protocol; nine tools; no deleting, no passwords or keys, no IAM; every changing tool needs confirm');
+console.log('  ok  protocol; eleven tools; no deleting, no passwords or keys, no IAM; every changing tool needs confirm');
 
 // ---------- read-only tools run the repository's own setup.mjs in JSON mode ----------
 const checked = await s.call('check_environment', { profile: 'new' });
@@ -87,6 +89,9 @@ assert.equal(checked.isError, false);
 assert.deepEqual(calls().pop(), ['check', '--profile', 'new', '--json']);
 const status = await s.call('status');
 assert.ok(!status.text.includes(KEY) && status.text.includes('***'), 'anything shaped like a key is masked');
+const checkedPublic = await s.call('verify');
+assert.match(checkedPublic.text, /public checks passed/);
+assert.deepEqual(calls().pop(), ['verify', '--json'], 'the IDE tool never gets the password: public checks only');
 const plan = await s.call('plan_update', { enable: 'gemini' });
 assert.match(plan.text, /abc12345def67890/);
 assert.deepEqual(calls().pop(), ['plan', '--enable', 'gemini', '--json']);
@@ -94,7 +99,7 @@ console.log('  ok  check, status and plan run setup.mjs --json with the right fl
 
 // ---------- everything that changes asks first ----------
 const before = calls().length;
-for (const [name, args] of [['install', {}], ['finish_domain', {}], ['apply_update', { plan_id: 'abc12345def67890' }], ['publish_portal', {}]]) {
+for (const [name, args] of [['install', {}], ['finish_domain', {}], ['apply_update', { plan_id: 'abc12345def67890' }], ['publish_portal', {}], ['update_editor_tools', {}]]) {
   const r = await s.call(name, args);
   assert.equal(r.isError, true, `${name} without confirm`);
   assert.match(r.text, /Ask|ask|Tell/, name);
@@ -124,6 +129,9 @@ assert.match(applied.text, /Started "apply_update"/);
 await wait(500);
 assert.deepEqual(calls().pop(), ['apply', 'abc12345def67890', '--json']);
 assert.match((await s.call('job_status')).text, /1\.1\.0/);
+const upd = await s.call('update_editor_tools', { confirm: true });
+assert.match(upd.text, /Editor tools set to 1\.2\.0/);
+assert.deepEqual(calls().pop(), ['editor-update', '--yes', '--json'], 'the editor entry is only changed after the teacher agreed');
 const dry = await s.call('install', { confirm: true, dry_run: true });
 assert.deepEqual(calls().pop(), ['install', '--dry-run', '--json'], 'a dry run is answered at once and not as a job');
 const login = await s.call('teacher_login', { username: 'ms-rao' });

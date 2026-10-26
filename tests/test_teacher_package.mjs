@@ -111,9 +111,9 @@ send({ id: 3, method: 'tools/call', params: { name: 'teacher_login', arguments: 
 for (let i = 0; i < 40 && lines.length < 3; i += 1) await new Promise((r) => setTimeout(r, 100));
 child.kill();
 assert.equal(lines.find((l) => l.id === 1).result.serverInfo.name, 'class-platform-teacher');
-assert.equal(lines.find((l) => l.id === 2).result.tools.length, 9);
+assert.equal(lines.find((l) => l.id === 2).result.tools.length, 11);
 assert.match(lines.find((l) => l.id === 3).result.content[0].text, /setup\.mjs teacher ms-rao|class-platform-teacher.*teacher ms-rao/);
-console.log('  ok  the mcp command serves all nine tools from the package folder itself');
+console.log('  ok  the mcp command serves all eleven tools from the package folder itself');
 
 try { rmSync(work, { recursive: true, force: true }); } catch { /* Windows may still hold the folder for a moment: the temp folder is cleaned later */ }
 console.log('test_teacher_package.mjs: all passed');

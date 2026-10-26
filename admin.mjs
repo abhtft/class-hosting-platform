@@ -99,6 +99,20 @@ if (command === 'add') {
   aws('cloudfront', 'create-invalidation', '--distribution-id', outputs.PortalDistributionId, '--paths', '/*');
   rmSync(kitTemp, { recursive: true, force: true });
   console.log(`Published ${files.length} files (including the student kit ${kit.version} and class-platform-mcp ${built.mcpVersion}). Portal: ${outputs.PortalUrl}`);
+} else if (command === 'verify-cleanup') {
+  // Remove what `setup.mjs verify` left behind: the throwaway student's token rows and its sample site. Only names that verify itself makes.
+  const slug = names[0] ?? '';
+  if (!/^zz-verify-[a-z0-9]{1,10}$/.test(slug)) {
+    console.error('verify-cleanup only removes the throwaway student that verify creates (zz-verify-...).');
+    process.exit(1);
+  }
+  const key = (pk) => JSON.stringify({ pk: { S: pk } });
+  const row = JSON.parse(aws('dynamodb', 'get-item', '--table-name', outputs.TokensTableName, '--key', key(`slug#${slug}`)));
+  const token = row.Item?.token?.S;
+  if (token) aws('dynamodb', 'delete-item', '--table-name', outputs.TokensTableName, '--key', key(`tok#${token}`));
+  if (row.Item) aws('dynamodb', 'delete-item', '--table-name', outputs.TokensTableName, '--key', key(`slug#${slug}`));
+  for (const prefix of ['sites', 'archive']) aws('s3', 'rm', `s3://${outputs.BucketName}/${prefix}/${slug}/`, '--recursive');
+  console.log(`Removed the throwaway student ${slug}.`);
 } else if (command === 'teacher-setup') {
   const username = names[0];
   if (!username || !/^[a-zA-Z0-9._-]{3,40}$/.test(username)) {
@@ -123,7 +137,7 @@ if (command === 'add') {
   aws('ssm', 'put-parameter', '--name', outputs.TeacherParameterName, '--type', 'String', '--overwrite', '--value', JSON.stringify(account));
   console.log(`Teacher login saved for "${username}" (takes effect within a minute).`);
 } else {
-  console.log('Usage: node admin.mjs add <name...> | remove <name...> | list | teacher-setup <username> | portal-publish');
+  console.log('Usage: node admin.mjs add <name...> | remove <name...> | list | teacher-setup <username> | portal-publish | verify-cleanup <zz-verify-name>');
 }
 
 function askHidden(prompt) {

@@ -2,6 +2,17 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## 1.1.0
+
+- **Simpler install.** It now asks only what must be decided: the AWS account (only when there is a real choice, never in AWS CloudShell), whether you want your own domain, and your teacher login. Features (AI, Gemini, storage, backends) and AI keys are switched on later with `plan --enable` and `secrets`.
+- **Works in AWS CloudShell**, the terminal inside the AWS console: no AWS CLI to install, no access key. Progress lines tell you what is happening, and a window closed in the middle of the 10 to 15 minute build is picked up by running the same command again.
+- **`destroy` really cleans up** (it used to fail on the bucket's old versions): all versions, the stack, the installer's staging bucket and the saved state; `destroy --everything` also removes the student data table, parameters and the AI keys secret, for test accounts.
+- Fixed the guided install ending with "unsettled top-level await" at the "Continue?" question after a hidden answer (found on a real Ubuntu terminal). A teacher password is now fully masked and typed twice; API keys show only their first four letters.
+- **`verify`**: a full check from the outside: a throwaway student publishes a sample site that must come up live, private pages must refuse visitors, every switched-on feature must be offered; run automatically at the end of the guided install and any time later. `destroy` shows what it will remove and asks for your teacher login. The install asks once whether you want release notices (default yes; nothing ever updates by itself).
+- **`setup`**: one command once per computer, like the students' setup: saves your AWS access as its own profile (after a backup, nothing else in your AWS files is touched) and adds the teacher tools to VS Code and Antigravity. The editor tool `update_editor_tools` later moves the editor entry to a new release by itself, after a yes.
+- **`export` / `import`**: back up everything a class made to a private folder, and add a backup to a platform (deletes nothing, safe to repeat). **`transfer --from --to`**: move the class to another AWS account in steps (install, copy, check, DNS file) with a `class-transfer-dns.csv` of every DNS change; the old account is only read. **Transfer, export and import were tested with simulated accounts only: rehearse them (export, destroy, install, import) before relying on them for a real class.**
+- Teacher action needed: none. Breaking changes: none.
+
 ## 1.0.2
 
 - After an upgrade, and in `status` when a newer release exists, the teacher is told the exact `editor` command that moves the editor's teacher tools to the new version (the teacher MCP passes this on).

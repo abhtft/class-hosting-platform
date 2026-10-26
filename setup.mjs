@@ -7,21 +7,34 @@
 //   node setup.mjs teacher <username>   set or reset the teacher login (asks for the password, hidden)
 //   node setup.mjs secrets              save the AI keys in AWS Secrets Manager (asks, hidden)
 //   node setup.mjs publish              publish the portal pages, the student kit and the MCP package again
+//   node setup.mjs export <folder>      back up everything the class made (tokens, stored student data, published files, teacher login) to a new private folder
+//   node setup.mjs import <folder>      add such a backup to this account's platform (deletes nothing; safe to repeat)
+//   node setup.mjs transfer --from <profile> --to <profile>   move the class to another AWS account, with a CSV of the DNS changes; the old account is only read
+//   node setup.mjs setup                one-time setup of this computer: saves your AWS access (as its own profile) and adds the teacher tools to your editor
+//   node setup.mjs editor-update        move the editor's teacher tools to the newest release (asks first)
+//   node setup.mjs verify               does it really work? a throwaway student publishes a sample site; asks for your teacher login (used once, never saved); --no-login = public checks only
 //   node setup.mjs status               what is installed, which version, which features
 //   node setup.mjs plan                 show what an update (or a feature switch: --enable ai / --disable ai) would change, change nothing
 //   node setup.mjs apply <plan-id>      run exactly that plan, then publish the portal
 //   node setup.mjs upgrade              plan, show, ask, apply (after `git pull`)
 //   node setup.mjs check                is this computer and AWS account ready
-//   node setup.mjs destroy              delete the stack (typed confirmation)
+//   node setup.mjs destroy [--everything]  delete the platform (typed confirmation); --everything also removes student data and the AI keys, for test accounts
 //
 // Flags: --profile <aws profile>  --stack <name>  --dry-run (print what would run)  --json (one JSON object, no questions; used by the teacher MCP)  --yes
 import { execFileSync } from 'node:child_process';
-import { createInterface } from 'node:readline/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as engine from './installer/engine.mjs';
-process.env.PORTAL_DEPLOY_NO_MAIN = '1'; // importing the student CLI for its hidden-input helpers must not start it
-const { editLine, maskSecret } = await import('./student/portal-deploy.mjs');
+import { createPrompter } from './installer/prompts.mjs';
+import { checkTeacherLogin } from './installer/verify.mjs';
+import { PROFILE_NAME, readGlobalConfig, saveProfile, writeGlobalConfig } from './installer/credentials.mjs';
+import { exportData, importData } from './installer/data.mjs';
+import { transfer } from './installer/transfer.mjs';
+import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+const prompt = createPrompter();
 
 const repo = dirname(fileURLToPath(import.meta.url));
 
@@ -32,7 +45,7 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) { rest.push(a); continue; }
     const key = a.slice(2);
-    if (['dry-run', 'json', 'yes'].includes(key)) flags[key] = true;
+    if (['dry-run', 'json', 'yes', 'everything', 'no-login', 'finish'].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { command: rest[0], args: rest.slice(1), flags };
@@ -40,89 +53,61 @@ export function parseArgs(argv) {
 
 export function makeContext(flags, overrides = {}) {
   const saved = engine.readState({ repo }) ?? {}; // what an earlier install chose, so later commands need no flags
-  const profile = flags.profile ?? process.env.AWS_PROFILE ?? saved.profile ?? '';
+  const profile = flags.profile ?? process.env.AWS_PROFILE ?? saved.profile ?? readGlobalConfig().profile ?? ''; // the profile `setup` saved is the last fallback
   const stack = flags.stack ?? process.env.STACK_NAME ?? saved.stack ?? 'student-hosting';
   const ctx = { repo, profile, stack, dryRun: Boolean(flags['dry-run']), would: [], now: () => new Date().toISOString(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-    aws: engine.realAws({ profile }), ...overrides };
+    aws: engine.realAws({ profile }), progress: (text) => (flags.json ? console.error(text) : console.log(text)), ...overrides };
   return ctx;
 }
 
-// ---------- terminal questions ----------
-async function readHidden(question) {
-  process.stdout.write(question);
-  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
-    const rl = createInterface({ input: process.stdin });
-    for await (const line of rl) { rl.close(); return line.trim(); }
-    return '';
-  }
-  return new Promise((resolve, reject) => {
-    let buffer = '';
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-    process.stdin.setEncoding('utf8');
-    const onData = (chunk) => {
-      const r = editLine(buffer, chunk);
-      if (r.abort) { cleanup(); reject(new Error('Cancelled.')); return; }
-      buffer = r.buffer;
-      process.stdout.write(`\r\u001b[2K${question}${maskSecret(buffer)}`);
-      if (r.done) { cleanup(); process.stdout.write('\n'); resolve(buffer.trim()); }
-    };
-    const cleanup = () => { process.stdin.off('data', onData); process.stdin.setRawMode(false); process.stdin.pause(); };
-    process.stdin.on('data', onData);
-  });
-}
-
 async function wizard(ctx, flags) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = async (q, d = '') => ((await rl.question(d ? `${q} [${d}] ` : `${q} `)).trim() || d);
-  const yes = async (q, d = 'n') => /^y/i.test(await ask(`${q} (y/n)`, d));
-  console.log('Class platform: guided install into your own AWS account\n');
-  console.log('You need: an AWS account, the AWS CLI signed in (aws configure), and optionally a domain name you control.\n');
+  const { ask, yes } = prompt;
+  console.log('Class platform: guided install into your own AWS account');
+  console.log('');
+  console.log('Only what must be decided now is asked: the AWS account, your teacher login, and whether you want your own domain.');
+  console.log('Features such as AI and storage are switched on later, once you have seen it work.');
+  console.log('');
   const answers = {};
+  // The AWS account. Nothing to ask in AWS CloudShell (already signed in as you), or when the choice is clear.
   let profiles = [];
   try { profiles = execFileSync('aws', ['configure', 'list-profiles'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\s+/).map((x) => x.trim()).filter(Boolean); } catch { /* no AWS CLI yet: the check below says so */ }
-  if (profiles.length) console.log(`AWS profiles on this computer: ${profiles.join(', ')}`);
-  // The bracketed default is only ever something YOU set on this computer: the AWS_PROFILE variable, or the profile of an earlier install here.
-  const remembered = process.env.AWS_PROFILE ? 'taken from your AWS_PROFILE setting' : 'remembered from an earlier install on this computer';
-  answers.profile = flags.profile ?? await ask(ctx.profile
-    ? `AWS profile to use (${remembered}; Enter keeps it, or type another name, or "default")`
-    : 'AWS profile to use (Enter = your default credentials, or type a profile name)', ctx.profile);
-  answers.domain = flags.domain ?? await ask('Domain for student sites, e.g. apps.example.com (empty = free test addresses on cloudfront.net)', '');
-  const features = [];
-  console.log('\nOptional features (all can be switched on later with `node setup.mjs plan --enable <name>`):');
-  if (await yes('  Student backends (a small server per student)')) features.push('backend');
-  if (features.includes('backend')) {
-    if (await yes('  Class AI (OpenRouter, capped per student)')) features.push('ai');
-    if (features.includes('ai') && await yes('  Google Gemini as a second AI provider')) features.push('gemini');
-    if (await yes('  Class storage (small database and files per student)')) features.push('storage');
+  if (flags.profile !== undefined) answers.profile = flags.profile;
+  else if (engine.inCloudShell() || ctx.profile || profiles.length <= 1) answers.profile = engine.inCloudShell() ? '' : ctx.profile;
+  else {
+    console.log(`AWS profiles on this computer: ${profiles.join(', ')}`);
+    answers.profile = await ask('Which one should the platform be installed with? (type its name; Enter = your default credentials)', '');
   }
-  answers.features = features;
-  answers.teacher = await ask('Teacher login name (3-40 letters, digits . _ -)', 'teacher');
-  const password = await readHidden('Teacher password (at least 10 characters, hidden): ');
-  const keys = {};
-  if (features.includes('ai')) {
-    console.log('\nAI keys are stored in AWS Secrets Manager, never in files. Press Enter to skip one and add it later with `node setup.mjs secrets`.');
-    keys.managementKey = await readHidden('OpenRouter management key (hidden): ');
-    if (features.includes('gemini')) keys.googleKey = await readHidden('Google Gemini API key (hidden): ');
+  // A domain cannot be added to an existing install later, so it is the one optional choice asked here.
+  const wantsDomain = flags.domain !== undefined ? Boolean(flags.domain) : await yes('Use your own domain name for student sites? (No = free test addresses; everything can still be tried)', 'n');
+  answers.domain = flags.domain ?? (wantsDomain ? await ask('Domain, for example apps.example.com:') : '');
+  answers.features = String(flags.features || '').split(',').filter(Boolean);
+  answers.teacher = await ask('Choose your teacher login name (3-40 letters, digits . _ -):', 'teacher');
+  const password = await prompt.newPassword('Choose your teacher password');
+  answers.updateNotices = await yes('Tell you when a new version is released? (a notice only: nothing ever updates by itself)', 'y');
+  // show the account before anything is created, so the wrong one is caught here
+  const account = engine.preflight({ ...ctx, profile: answers.profile, stack: ctx.stack, aws: engine.realAws({ profile: answers.profile }), dryRun: false, would: [] });
+  console.log('');
+  console.log(`This will install into AWS account ${account.account} (signed in as ${account.arn}${answers.profile ? `, profile ${answers.profile}` : ''}).`);
+  if (!(await yes('Continue?', 'n'))) throw new engine.InstallError('Stopped before anything was created.');
+  return { answers, password, keys: {} };
+}
+
+async function loadEditorSetup() {
+  for (const folder of ['mcp', 'teacher-mcp']) {
+    if (existsSync(join(repo, folder, 'setup.mjs'))) return import(pathToFileURL(join(repo, folder, 'setup.mjs')).href);
   }
-  // show the account before anything is created, so the wrong profile is caught here
-  let account;
-  try { account = engine.preflight({ ...ctx, profile: answers.profile, stack: ctx.stack, aws: engine.realAws({ profile: answers.profile }), dryRun: false, would: [] }); } catch (e) { rl.close(); throw e; }
-  console.log(`
-This will install into AWS account ${account.account} (signed in as ${account.arn}).`);
-  if (!(await yes('Continue?', 'n'))) { rl.close(); throw new engine.InstallError('Stopped before anything was created.'); }
-  rl.close();
-  return { answers, password, keys };
+  throw new engine.InstallError('The editor setup files are missing from this copy.');
 }
 
 const print = (data, flags) => {
+  if (data.results?.length) for (const r of data.results) console.log(`  ${r.editor}: ${r.action === 'same' ? 'already on this version' : r.action === 'manual' ? `left alone (${r.reason}); add this entry by hand: ${JSON.stringify(r.entry)}` : `${r.action}d${r.backup ? `, old file saved as ${r.backup}` : ''}`}`);
   if (flags.json) { process.stdout.write(`${JSON.stringify(data)}\n`); return; }
   if (data.would?.length) console.log(`Dry run: nothing was changed. These commands would run:\n  ${data.would.join('\n  ')}`);
   if (data.message) console.log(data.message);
   if (data.record) console.log(`\n  ${data.record.type}  ${data.record.name}\n  ->     ${data.record.value}`);
   if (data.records) for (const r of data.records) console.log(`  ${r.type}  ${r.name}  ->  ${r.value}   (${r.for})`);
   if (data.portalUrl) console.log(`\nYour portal: ${data.portalUrl}`);
-  if (data.checks?.length) for (const c of data.checks) console.log(`  ${c.ok ? 'ok ' : 'FAIL'} ${c.path} (${c.status})`);
+  if (data.checks?.length) for (const c of data.checks) console.log(c.name ? `  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `: ${c.detail}` : ''}` : `  ${c.ok ? 'ok ' : 'FAIL'} ${c.path} (${c.status})`);
   if (data.items?.length) for (const i of data.items) console.log(`  ${i.action.padEnd(7)} ${i.id} (${i.type}${i.replacement !== 'False' ? `, replacement: ${i.replacement}` : ''})`);
   if (data.next) console.log(`\nNext: ${data.next}`);
 };
@@ -144,27 +129,136 @@ export async function main(argv, overrides = {}) {
         if (result.needs === 'certificate') { print(result, flags); console.log('\nAfter the record is added (AWS checks it within minutes), run `node setup.mjs install --domain ' + answers.domain + '` again.'); return result; }
         if (result.needs === 'dns') {
           print(result, flags);
-          const rl = createInterface({ input: process.stdin, output: process.stdout });
-          await rl.question('\nPress Enter once the records are added (DNS can take a few minutes to spread)... ');
-          rl.close();
+          await prompt.ask('\nPress Enter once the records are added (DNS can take a few minutes to spread)...');
           result = await engine.finishDomain(ctx2);
         }
         if (password.length >= 10) engine.teacherLogin(ctx2, answers.teacher, password); else console.log('Teacher password was too short: set it later with `node setup.mjs teacher <name>`.');
         print(result, flags);
-        console.log(`\nSign in at the portal with "${answers.teacher}". Create a student token on the teacher page and give it to a student with the "Start here" command shown there.`);
+        if (result.portalUrl && !result.needs && password.length >= 10) {
+          console.log('');
+          console.log('Checking that everything works: a throwaway student publishes a sample site (removed again afterwards)...');
+          const checked = await engine.verifyInstall(ctx2, { login: { username: answers.teacher, password }, portal: result.portalUrl });
+          print({ checks: checked.checks, message: checked.message }, flags);
+        }
+        console.log('');
+        console.log(`Sign in at the portal with "${answers.teacher}". Create a student token on the teacher page and give it to a student with the "Start here" command shown there.`);
+        console.log(`Later, when you want more: switch a feature on with  ${engine.cli(ctx2)} plan --enable ai  (or storage, gemini, backend), then  apply <id>.  AI keys:  ${engine.cli(ctx2)} secrets.`);
         return result;
       }
       case 'finish-domain': return finish(await engine.finishDomain(ctx));
       case 'teacher': {
         if (!args[0]) throw new engine.InstallError('Usage: node setup.mjs teacher <username>');
         if (flags.json) throw new engine.InstallError('The teacher password is never typed through an editor.', `Run in your own terminal: node setup.mjs teacher ${args[0]}`);
-        return finish(engine.teacherLogin(ctx, args[0], process.env.TEACHER_PASSWORD || await readHidden('New teacher password (hidden): ')));
+        return finish(engine.teacherLogin(ctx, args[0], process.env.TEACHER_PASSWORD || await prompt.newPassword('New teacher password')));
       }
       case 'secrets': {
         if (flags.json) throw new engine.InstallError('AI keys are never typed through an editor.', 'Run in your own terminal: node setup.mjs secrets');
-        const managementKey = await readHidden('OpenRouter management key (hidden, empty to skip): ');
-        const googleKey = await readHidden('Google Gemini API key (hidden, empty to skip): ');
+        const managementKey = await prompt.hidden('OpenRouter management key (hidden, empty to skip): ', { prefix: 4 });
+        const googleKey = await prompt.hidden('Google Gemini API key (hidden, empty to skip): ', { prefix: 4 });
         return finish({ ...engine.saveAiSecret(ctx, { managementKey, googleKey }), message: 'Saved in AWS Secrets Manager.' });
+      }
+      case 'setup': {
+        if (flags.json) throw new engine.InstallError('Setup asks for your AWS access key, which is never typed through an editor.', `Run in your own terminal: ${engine.cli(ctx)} setup`);
+        console.log('Class platform: one-time setup of this computer');
+        console.log('');
+        let chosen = '';
+        if (engine.inCloudShell()) {
+          console.log('You are in AWS CloudShell: it is already signed in as you, so there is no AWS access to save.');
+        } else {
+          let profiles = [];
+          try { profiles = execFileSync('aws', ['configure', 'list-profiles'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\s+/).map((x) => x.trim()).filter(Boolean); } catch { /* no AWS CLI: said below */ }
+          if (profiles.length) console.log(`AWS profiles on this computer: ${profiles.join(', ')}`);
+          const answer = await prompt.ask(profiles.length
+            ? `Which AWS profile should the platform use? (a name from the list, or "new" to save an AWS access key as the profile ${PROFILE_NAME})`
+            : `No AWS profile found. Type "new" to save an AWS access key as the profile ${PROFILE_NAME}:`, profiles.includes(ctx.profile) ? ctx.profile : (profiles.length ? '' : 'new'));
+          if (answer === 'new') {
+            console.log('Create the key in the AWS console: IAM > Users > your user > Security credentials > Create access key (use case: Command Line Interface).');
+            const accessKeyId = (await prompt.ask('AWS access key id (starts with AKIA or ASIA):')).trim();
+            const secretAccessKey = await prompt.hidden('AWS secret access key (hidden): ');
+            const saved = saveProfile({ accessKeyId, secretAccessKey });
+            chosen = saved.profile;
+            console.log(`Saved as the profile "${chosen}" (the old files were backed up first).`);
+          } else chosen = answer;
+          const who = engine.preflight({ ...ctx, profile: chosen, aws: engine.realAws({ profile: chosen }), dryRun: false, would: [] });
+          console.log('');
+          console.log(`That signs in to AWS account ${who.account} as ${who.arn}.`);
+          if (!(await prompt.yes('Use it for the class platform?', 'y'))) throw new engine.InstallError('Stopped. Nothing was changed except the profile file backup, if you saved a key.');
+          writeGlobalConfig({ ...readGlobalConfig(), profile: chosen });
+        }
+        console.log('');
+        console.log('Now the teacher tools for your AI editor:');
+        const editorSetup = await loadEditorSetup();
+        await editorSetup.main([]);
+        console.log('');
+        console.log('Done. Restart your editor and tell the AI:  install my class platform   (it asks you before it changes anything).');
+        console.log('Passwords and API keys are never typed into the editor: the AI will tell you to run those steps in a terminal.');
+        return { ok: true, profile: chosen };
+      }
+      case 'editor-update': {
+        const info = engine.releaseInfo(ctx);
+        if (!info) throw new engine.InstallError('This copy was not made from a GitHub release, so its editor entry cannot be moved to a release.', 'Use the release address with `editor` instead.');
+        const latest = await engine.latestRelease(ctx);
+        const version = latest?.version ?? engine.repoVersion(ctx);
+        if (flags.json && !flags.yes) throw new engine.InstallError('Updating the editor entry needs the teacher to agree first.', 'Ask the teacher, then run it with --yes.');
+        if (!flags.yes && !(await prompt.yes(`Move the teacher tools in your editors to version ${version}?`, 'y'))) return { ok: false };
+        const editorSetup = await loadEditorSetup();
+        const results = editorSetup.updateAll({ version, repo: info.repo });
+        return finish({ ok: true, version, results, message: `Editor tools set to ${version}. Restart the editor (or refresh its MCP list) so the new version is used.` });
+      }
+      case 'export': {
+        if (!args[0]) throw new engine.InstallError('Usage: node setup.mjs export <new folder>', 'The folder must be new or empty. It will hold student AI keys and the teacher login hash: keep it private.');
+        return finish(exportData(ctx, resolve(args[0]), { say: ctx.progress }));
+      }
+      case 'import': {
+        if (!args[0]) throw new engine.InstallError('Usage: node setup.mjs import <backup folder>', 'Adds the backup to the platform in this account; it deletes nothing, and repeating it is safe.');
+        if (flags.json) throw new engine.InstallError('Importing is done in your own terminal, after you confirm.', `Run: ${engine.cli(ctx)} import ${args[0]}`);
+        if (!ctx.dryRun && !flags.yes && (await prompt.ask(`Add the backup in ${args[0]} to the platform "${ctx.stack}" in this AWS account? Type "import" to continue:`)) !== 'import') { console.log('Nothing was imported.'); return { ok: false }; }
+        return finish(importData(ctx, resolve(args[0]), { say: ctx.progress }));
+      }
+      case 'transfer': {
+        if (flags.json) throw new engine.InstallError('A transfer needs account numbers and your teacher login typed by you, which is never done through an editor.', `Run in your own terminal: ${engine.cli(ctx)} transfer --from <profile> --to <profile>`);
+        if (!flags.from || !flags.to) throw new engine.InstallError('Usage: node setup.mjs transfer --from <source AWS profile> --to <target AWS profile>  [--csv file.csv] [--finish]', 'Both accounts need a profile (aws configure --profile <name>). --finish is the last run, after the DNS switch.');
+        const side = (profile) => ({ ...ctx, profile, aws: overrides.aws ?? engine.realAws({ profile }), progress: ctx.progress });
+        const from = side(flags.from);
+        const to = { ...side(flags.to), stack: flags['target-stack'] ?? ctx.stack };
+        const [a, b] = [engine.preflight(from), engine.preflight(to)];
+        console.log('');
+        console.log(`Source: AWS account ${a.account} (${a.arn}), platform "${from.stack}"${a.stackStatus ? '' : ' (NOT FOUND)'}`);
+        console.log(`Target: AWS account ${b.account} (${b.arn})${b.stackStatus ? `, a platform "${to.stack}" already exists there` : ', empty'}`);
+        console.log('');
+        console.log('The old account is only read. Stop students from publishing while this runs: anything published after the copy is not included.');
+        const typedSource = await prompt.ask('Type the SOURCE account number to confirm:');
+        const typedTarget = await prompt.ask('Type the TARGET account number to confirm:');
+        const username = await prompt.ask('Teacher login name:', 'teacher');
+        const password = await prompt.hidden('Teacher password (hidden): ');
+        const sourcePortal = engine.stackOutputs(from).outputs.PortalUrl;
+        if ((await checkTeacherLogin(sourcePortal, username, password)) === 'denied') { console.log('That teacher login was not accepted. Nothing was changed.'); process.exitCode = 1; return { ok: false }; }
+        const csvPath = resolve(flags.csv ?? 'class-transfer-dns.csv');
+        const done = await transfer({ source: from, target: to, confirm: { source: typedSource, target: typedTarget }, login: { username, password }, csvPath, say: ctx.progress, finish: Boolean(flags.finish) });
+        if (done.needs === 'certificate') {
+          console.log('');
+          console.log(done.message);
+          console.log(`  ${done.rows[0].type}  ${done.rows[0].name}  ->  ${done.rows[0].new_value}`);
+          return done;
+        }
+        print({ checks: done.verified?.checks, message: done.message }, flags);
+        console.log('');
+        console.log(`DNS changes written to ${csvPath} (open it in a spreadsheet). In AWS CloudShell: Actions > Download file.`);
+        console.log(`When the check above passed and DNS has been switched, run this again with --finish to attach your domain to the new platform, then keep the old one a week before ${engine.cli(ctx)} destroy.`);
+        console.log(`The AI keys secret is not copied: run  ${engine.cli(ctx)} secrets --profile ${flags.to}  for the new account.`);
+        return done;
+      }
+      case 'verify': {
+        let login = null;
+        if (!flags.json && !flags['no-login']) {
+          const username = flags.user ?? await prompt.ask('Teacher login name:', 'teacher');
+          const password = process.env.TEACHER_PASSWORD || await prompt.hidden('Teacher password (hidden, used once, never saved): ');
+          login = { username, password };
+        }
+        const checked = await engine.verifyInstall(ctx, { login });
+        finish({ ...checked, ok: checked.ok });
+        if (!checked.ok) process.exitCode = 1;
+        return checked;
       }
       case 'status': return finish(await engine.status(ctx));
       case 'publish': return finish({ ok: true, ...engine.adminScript(ctx, ['portal-publish']) && {}, message: ctx.dryRun ? undefined : 'Portal pages, student kit and MCP package published.' });
@@ -178,18 +272,31 @@ export async function main(argv, overrides = {}) {
         const planned = await engine.plan(ctx);
         print(planned, flags);
         if (flags.json || planned.blocked || planned.empty || ctx.dryRun) return planned;
-        const rl = createInterface({ input: process.stdin, output: process.stdout });
-        const go = flags.yes || /^y/i.test((await rl.question('\nApply this update? (y/n) ')).trim());
-        rl.close();
+        const go = flags.yes || await prompt.yes('\nApply this update?');
         return go ? finish(await engine.apply(ctx, planned.planId)) : planned;
       }
       case 'destroy': {
         if (flags.json) throw new engine.InstallError('Deleting the stack is only done by typing the name in your own terminal.', 'Run: node setup.mjs destroy');
-        const rl = createInterface({ input: process.stdin, output: process.stdout });
-        const typed = (await rl.question(`Type the stack name (${ctx.stack}) to delete it and everything students published: `)).trim();
-        rl.close();
-        if (typed !== ctx.stack) { console.log('Not deleted.'); return { ok: false }; }
-        return finish(engine.destroy(ctx));
+        const inv = engine.inventory(ctx);
+        console.log('');
+        if (inv.exists) {
+          console.log(`This will delete the platform "${ctx.stack}"${inv.portalUrl ? ` (${inv.portalUrl})` : ''}:`);
+          console.log(`  ${inv.students ?? 'an unknown number of'} student${inv.students === 1 ? '' : 's'}, ${inv.distributions} CloudFront distributions, ${inv.buckets} bucket${inv.buckets === 1 ? '' : 's'} (every published site), ${inv.functions} functions, ${inv.tables} table${inv.tables === 1 ? '' : 's'}`);
+          console.log(flags.everything ? '  ALSO: the student data table, the saved parameters and the AI keys secret (--everything).' : '  Kept: the student data table and the AI keys secret (add --everything to remove those too).');
+        } else console.log(`There is no platform stack "${ctx.stack}" here; only leftovers (such as the installer's staging bucket) are cleaned.`);
+        console.log('');
+        if (inv.exists && inv.portalUrl && !flags.yes) { // the teacher login proves this is the teacher, not a slip of the keyboard
+          const username = await prompt.ask('Teacher login name:', 'teacher');
+          const password = await prompt.hidden('Teacher password (hidden): ');
+          const result = await checkTeacherLogin(inv.portalUrl, username, password);
+          if (result === 'denied') { console.log('That teacher login was not accepted. Nothing was deleted.'); process.exitCode = 1; return { ok: false }; }
+          if (result === 'unreachable') console.log('The portal did not answer, so the login could not be checked; the typed confirmation below is still required.');
+        }
+        const phrase = flags.everything ? 'delete everything' : ctx.stack;
+        const what = flags.everything ? 'Type "delete everything" to continue:' : `Type the stack name (${ctx.stack}) to continue:`;
+        const typed = flags.yes ? phrase : await prompt.ask(what);
+        if (typed !== phrase) { console.log('Not deleted.'); return { ok: false }; }
+        return finish(engine.destroy(ctx, { everything: Boolean(flags.everything) }));
       }
       default:
         console.log('Unknown command. Run: node setup.mjs --help (see the top of setup.mjs).');

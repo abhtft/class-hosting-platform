@@ -8,7 +8,7 @@ You need an AWS account, Node 20+ and the AWS CLI signed in (`aws configure`). T
 npx -y https://github.com/abhtft/class-hosting-platform/releases/latest/download/class-platform-teacher.tgz install
 ```
 
-It asks for your AWS profile, an optional domain, which features you want and your teacher login, then installs everything into **your** account (10 to 15 minutes). Later, each new release is one command (the release page shows it): `npx -y https://github.com/abhtft/class-hosting-platform/releases/download/v<new>/class-platform-teacher-<new>.tgz upgrade`. Step by step: [docs/TEACHER_SETUP.md](docs/TEACHER_SETUP.md).
+Easiest: open **AWS CloudShell** in the AWS console (already signed in, nothing to install) and paste it there. It asks only for your teacher login (and whether you want your own domain), then installs everything into **your** account (10 to 15 minutes). AI, storage and the rest are switched on later. Later, each new release is one command (the release page shows it): `npx -y https://github.com/abhtft/class-hosting-platform/releases/download/v<new>/class-platform-teacher-<new>.tgz upgrade`. Step by step: [docs/TEACHER_SETUP.md](docs/TEACHER_SETUP.md).
 
 ---
 

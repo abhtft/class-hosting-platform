@@ -4,6 +4,7 @@
 // `node setup.mjs <command> --json`. It adds no powers of its own.
 //
 //   check_environment   is this computer and AWS account ready                                   (read only)
+//   verify              public checks that the portal answers and nothing private is open (the full check, with a sample site, is run in the terminal)
 //   status              what is installed, which version, which features, is an update waiting   (read only)
 //   install             first install into your AWS account (try mode, or with a domain)       asks you first, runs in the background
 //   finish_domain       step two of a domain install, after the DNS records are added           asks you first, runs in the background
@@ -84,6 +85,12 @@ const TOOLS = [
   { name: 'status', description: 'Say what is installed in the AWS account, its version, which features are on, the portal address, and whether a newer release is out. If `newerRelease` is true, tell the teacher to run `upgradeCommand` and then `editorCommand` in their own terminal (the second one updates these editor tools to the new version; restart the editor after it). Changes nothing.',
     inputSchema: { type: 'object', properties: { path: PATH, profile: PROFILE }, additionalProperties: false },
     run: async (a) => show(await runSetup(repoFor(a.path), 'status', flagsFor(a))) },
+  { name: 'verify', description: 'Check that the installed platform really works from outside: the portal pages open, the student kit and MCP package are published, private pages need a login. Public checks only: the full check (a throwaway student publishes a sample site) needs the teacher password, which is typed in the teacher\'s own terminal with `verify`. Changes nothing.',
+    inputSchema: { type: 'object', properties: { path: PATH, profile: PROFILE }, additionalProperties: false },
+    run: async (a) => show(await runSetup(repoFor(a.path), 'verify', flagsFor(a))) },
+  { name: 'update_editor_tools', description: 'Move these editor tools to the newest release: rewrites the teacher\'s editor settings entry (VS Code and Antigravity), after a backup, so the next start uses the new version. IMPORTANT: tell the teacher which version it will move to (status shows it) and call this with confirm=true only after they say yes. Afterwards tell them to restart the editor.',
+    inputSchema: { type: 'object', properties: { confirm: CONFIRM, path: PATH }, required: ['confirm'], additionalProperties: false },
+    run: async (a) => (a.confirm === true ? show(await runSetup(repoFor(a.path), 'editor-update', ['--yes'], { timeoutMs: 60000 })) : { ok: false, text: 'Not updated. Tell the teacher which version the editor tools will move to, ask, then call again with confirm=true.' }) },
   { name: 'install', description: 'Install the platform into the teacher\'s AWS account (CloudFront, S3, Lambda, DynamoDB; costs are small and idle cost is near zero). IMPORTANT: first run check_environment, tell the teacher which AWS account it will use, and call this with confirm=true only after they say yes. With no domain it uses free cloudfront.net addresses (best for a first try). With a domain it first returns a DNS record for the certificate, then the DNS records for the sites; the teacher adds them at their DNS host. Runs in the background: use job_status.',
     inputSchema: { type: 'object', properties: { confirm: CONFIRM, path: PATH, profile: PROFILE, stack: { type: 'string', description: 'Stack name (default student-hosting)' },
       domain: { type: 'string', description: 'Optional domain for student sites, for example apps.example.com' }, features: { type: 'array', items: { type: 'string', enum: FEATURES }, description: 'Optional features to switch on (default none)' }, dry_run: { type: 'boolean', description: 'only list what would run' } }, required: ['confirm'], additionalProperties: false },

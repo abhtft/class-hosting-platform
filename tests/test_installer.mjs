@@ -2,7 +2,7 @@
 // the checks that fail early with a hint, plan and apply (bound to the plan that was shown, refusing data-holding replacements), feature switches,
 // dry runs that change nothing, and that secrets never appear in what is reported.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as engine from '../installer/engine.mjs';
@@ -21,8 +21,18 @@ function fakeAws(world = {}) {
     const [svc, op] = args;
     const opt = (name) => args[args.indexOf(name) + 1];
     if (svc === 'sts') return JSON.stringify({ Account: w.account, Arn: `arn:aws:iam::${w.account}:user/me` });
+    if (svc === 'cloudformation' && op === 'list-stack-resources') { if (!w.stack) throw new Error('Stack does not exist'); return JSON.stringify({ StackResourceSummaries: w.resources ?? [] }); }
+    if (svc === 'cloudformation' && op === 'delete-stack') { w.stack = null; (w.resources ?? []).filter((r) => !w.retain?.includes(r.PhysicalResourceId)).forEach((r) => { w.gone = [...(w.gone ?? []), r.PhysicalResourceId]; }); return ''; }
+    if (svc === 's3api' && op === 'list-object-versions') { const v = w.versions?.[opt('--bucket')] ?? []; return JSON.stringify({ Versions: v.slice(0, 100) }); }
+    if (svc === 's3api' && op === 'delete-objects') { const gone = new Set(JSON.parse(opt('--delete')).Objects.map((o) => o.VersionId)); w.versions[opt('--bucket')] = w.versions[opt('--bucket')].filter((o) => !gone.has(o.VersionId)); return ''; }
+    if (svc === 's3api' && op === 'delete-bucket') { if ((w.versions?.[opt('--bucket')] ?? []).length) throw new Error('BucketNotEmpty'); w.buckets.delete(opt('--bucket')); return ''; }
+    if (svc === 'dynamodb' && op === 'describe-table') { if (!w.tables?.has(opt('--table-name'))) throw new Error('ResourceNotFound'); return '{}'; }
+    if (svc === 'dynamodb' && op === 'delete-table') { w.tables.delete(opt('--table-name')); return ''; }
+    if (svc === 'ssm' && op === 'get-parameter') { if (!w.params?.has(opt('--name'))) throw new Error('ParameterNotFound'); return '{}'; }
+    if (svc === 'ssm' && op === 'delete-parameter') { w.params.delete(opt('--name')); return ''; }
+    if (svc === 'secretsmanager' && op === 'delete-secret') { delete w.secrets[opt('--secret-id')]; return ''; }
     if (svc === 'cloudfront') { if (w.cloudfrontError) throw new Error(w.cloudfrontError); return '{}'; }
-    if (svc === 's3api' && op === 'head-bucket') { if (!w.buckets.has(opt('--bucket'))) throw new Error('404'); return ''; }
+    if (svc === 's3api' && op === 'head-bucket') { if (!w.buckets.has(opt('--bucket')) || (w.gone ?? []).includes(opt('--bucket'))) throw new Error('404'); return ''; }
     if (svc === 's3api' && op === 'create-bucket') { w.buckets.add(opt('--bucket')); return ''; }
     if (svc === 's3api') return '';
     if (svc === 'acm' && op === 'list-certificates') return JSON.stringify({ CertificateSummaryList: w.certs.map((c) => ({ DomainName: c.name, CertificateArn: c.arn })) });
@@ -112,7 +122,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   reset();
   await fails(() => engine.install(context(fakeAws({ cloudfrontError: 'Your account must be verified before you can add new CloudFront resources' })).ctx, {}), /not verified this account for CloudFront/);
   await fails(() => engine.install(context(fakeAws({ cloudfrontError: 'An error occurred (AccessDenied) when calling' })).ctx, {}), /AdministratorAccess/);
-  await fails(() => engine.install(context(fakeAws({ stack: 'ROLLBACK_COMPLETE' })).ctx, {}), /delete-stack/);
+  await fails(() => engine.install(context(fakeAws({ stack: 'ROLLBACK_COMPLETE' })).ctx, {}), / destroy/);
   const broken = context(fakeAws());
   broken.ctx.aws = (args) => { if (args[0] === 'sts') throw new Error('Unable to locate credentials'); return '{}'; };
   await fails(() => engine.install(broken.ctx, {}), /aws configure/);
@@ -157,6 +167,82 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.equal((await engine.status(ctx)).upgradeAvailable, true);
   assert.match((await engine.status(ctx)).message, /1\.1\.0.*1\.0\.0/);
   console.log('  ok  status reads the account, lists the features and notices a newer version in the folder');
+}
+
+// ---------- an install whose window was closed carries on; the progress lines tell the teacher what is happening ----------
+{
+  reset();
+  const fake = fakeAws();
+  const said = [];
+  const { ctx } = context(fake, { progress: (t) => said.push(t) });
+  await engine.install(ctx, { features: [] });
+  assert.ok(said.some((t) => /10 to 15 minutes.*run the same command again/.test(t)) && said.some((t) => /Publishing the portal/.test(t)), said.join(' | '));
+  // simulate: the window closed during the deploy (state says deploying) but AWS finished
+  reset();
+  const f2 = fakeAws({ stack: 'CREATE_COMPLETE' });
+  const c2 = context(f2);
+  mkdirSync(join(repo, '.class-platform'), { recursive: true });
+  writeFileSync(join(repo, '.class-platform', 'install.json'), JSON.stringify({ stack: 'student-hosting', profile: 'new', domain: '', certificateArn: '', features: [], phase: 'deploying', account: '111122223333' }));
+  const resumed = await engine.install(c2.ctx, {});
+  assert.equal(resumed.ok, true);
+  assert.ok(!names(f2.calls).includes('cloudformation deploy'), 'a finished stack is not deployed again');
+  assert.deepEqual(c2.adminCalls.map((c) => c.args), [['portal-publish']], 'the portal is published');
+  assert.equal(stateOf().phase, 'ready');
+  // still being built by the earlier window: wait for it
+  reset();
+  const f3 = fakeAws({ stack: 'CREATE_IN_PROGRESS' });
+  const c3 = context(f3, { progress: () => {} });
+  f3.fn.__wait = true;
+  const origin = f3.fn;
+  const waiting = (args) => { if (args[1] === 'wait') { f3.w.stack = 'CREATE_COMPLETE'; } return origin(args); };
+  c3.ctx.aws = waiting;
+  mkdirSync(join(repo, '.class-platform'), { recursive: true });
+  writeFileSync(join(repo, '.class-platform', 'install.json'), JSON.stringify({ stack: 'student-hosting', profile: 'new', domain: '', certificateArn: '', features: [], phase: 'deploying', account: '111122223333' }));
+  await engine.install(c3.ctx, {});
+  assert.ok(f3.calls.some((a) => a[1] === 'wait' && a.includes('stack-create-complete')), 'it waits for the stack the earlier window started');
+  console.log('  ok  progress lines are shown; a closed window is resumed (finished or still building); nothing is deployed twice');
+}
+
+// ---------- destroy leaves the account clean ----------
+{
+  const resources = [
+    { ResourceType: 'AWS::S3::Bucket', PhysicalResourceId: 'sites-b', ResourceStatus: 'CREATE_COMPLETE' },
+    { ResourceType: 'AWS::DynamoDB::Table', PhysicalResourceId: 'tokens-t', ResourceStatus: 'CREATE_COMPLETE' },
+    { ResourceType: 'AWS::DynamoDB::Table', PhysicalResourceId: 'data-t', ResourceStatus: 'CREATE_COMPLETE' },
+    { ResourceType: 'AWS::SSM::Parameter', PhysicalResourceId: '/student-deploy/keys', ResourceStatus: 'CREATE_COMPLETE' },
+    { ResourceType: 'AWS::Lambda::Function', PhysicalResourceId: 'fn', ResourceStatus: 'CREATE_COMPLETE' }];
+  const make = () => fakeAws({ stack: 'CREATE_COMPLETE', resources, retain: ['data-t'], tables: new Set(['data-t']), params: new Set(),
+    buckets: new Set(['sites-b', 'student-hosting-artifacts-111122223333']),
+    versions: { 'sites-b': Array.from({ length: 230 }, (_, i) => ({ Key: `f${i}`, VersionId: `v${i}` })), 'student-hosting-artifacts-111122223333': [{ Key: 'code.zip', VersionId: 'a1' }] },
+    secrets: { openrouter: '{"X":"y"}' } });
+  // default: keeps what holds data
+  reset();
+  let fake = make();
+  let { ctx } = context(fake, { progress: () => {} });
+  let out = engine.destroy(ctx);
+  assert.equal(fake.w.stack, null, 'the stack is deleted');
+  assert.equal((fake.w.versions['sites-b'] ?? []).length, 0, 'every version of the sites bucket was removed first (the stack could not be deleted otherwise)');
+  assert.ok(!fake.w.buckets.has('student-hosting-artifacts-111122223333'), 'the installer\'s own staging bucket is removed');
+  assert.deepEqual(out.kept.sort(), ['secret openrouter (your AI keys)', 'table data-t'], out.kept.join());
+  assert.ok(fake.w.tables.has('data-t') && fake.w.secrets.openrouter, 'the data table and the AI keys are kept by default');
+  // everything: a test account is left as it was before the install
+  reset();
+  fake = make();
+  ({ ctx } = context(fake, { progress: () => {} }));
+  out = engine.destroy(ctx, { everything: true });
+  assert.deepEqual(out.kept, []);
+  assert.ok(!fake.w.tables.has('data-t') && !fake.w.secrets.openrouter && !fake.w.buckets.has('student-hosting-artifacts-111122223333'), 'nothing is left');
+  assert.ok(!existsSync(join(repo, '.class-platform', 'install.json')), 'the saved install state is removed, so the next install starts clean');
+  // an install after destroy is accepted (a missing stack is not "already exists")
+  const again = await engine.install(context(fake, { progress: () => {} }).ctx, {});
+  assert.equal(again.ok, true);
+  // dry run changes nothing
+  fake = make();
+  ({ ctx } = context(fake, { dryRun: true, progress: () => {} }));
+  engine.destroy(ctx, { everything: true });
+  assert.equal(fake.w.stack, 'CREATE_COMPLETE', 'a dry run deletes nothing');
+  assert.equal(fake.w.versions['sites-b'].length, 230);
+  console.log('  ok  destroy: all bucket versions, the stack, the staging bucket; data table and AI keys kept unless --everything; state removed; dry run safe');
 }
 
 // ---------- a newer GitHub release is announced with the exact command ----------
@@ -274,6 +360,44 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.ok(ctx.would.some((c) => c.includes('cloudformation deploy')) && ctx.would.some((c) => c.includes('portal-publish')));
   assert.ok(!existsSync(join(repo, '.class-platform', 'install.json')), 'a dry run writes no state');
   console.log('  ok  dry run reads the account but changes and writes nothing');
+}
+
+// ---------- destroy: what it is about to remove, shown first ----------
+{
+  const resources = [
+    { ResourceType: 'AWS::S3::Bucket', PhysicalResourceId: 'b1', ResourceStatus: 'CREATE_COMPLETE', LogicalResourceId: 'SitesBucket' },
+    { ResourceType: 'AWS::CloudFront::Distribution', PhysicalResourceId: 'd1', ResourceStatus: 'CREATE_COMPLETE', LogicalResourceId: 'Distribution' },
+    { ResourceType: 'AWS::CloudFront::Distribution', PhysicalResourceId: 'd2', ResourceStatus: 'CREATE_COMPLETE', LogicalResourceId: 'PortalDistribution' },
+    { ResourceType: 'AWS::DynamoDB::Table', PhysicalResourceId: 'tok', ResourceStatus: 'CREATE_COMPLETE', LogicalResourceId: 'TokensTable' },
+    { ResourceType: 'AWS::Lambda::Function', PhysicalResourceId: 'f1', ResourceStatus: 'CREATE_COMPLETE', LogicalResourceId: 'Fn' }];
+  const fake = fakeAws({ stack: 'CREATE_COMPLETE', resources });
+  const inner = fake.fn;
+  fake.fn = (args) => (args[0] === 'dynamodb' && args[1] === 'scan' ? JSON.stringify({ Count: 7 }) : inner(args));
+  const inv = engine.inventory(context(fake).ctx);
+  assert.deepEqual([inv.exists, inv.students, inv.buckets, inv.distributions, inv.tables, inv.functions], [true, 7, 1, 2, 1, 1]);
+  assert.equal(inv.portalUrl, 'https://dp.cloudfront.net/');
+  assert.equal(engine.inventory(context(fakeAws()).ctx).exists, false, 'no stack, nothing to show');
+  console.log('  ok  destroy first shows how many students, distributions, buckets, tables and functions it will remove');
+}
+
+// ---------- the update-notice choice made at install ----------
+{
+  assert.equal(engine.normalise({}).updateNotices, true, 'the default is yes');
+  assert.equal(engine.normalise({ updateNotices: false }).updateNotices, false);
+  writeFileSync(join(repo, 'release.json'), JSON.stringify({ repo: 'someone/class-platform', version: '1.1.0' }));
+  let asked = 0;
+  const fake = fakeAws({ stack: 'UPDATE_COMPLETE', parameters: {} });
+  const answer = async () => { asked += 1; return { status: 200, json: async () => ({ tag_name: 'v9.0.0' }) }; };
+  reset();
+  mkdirSync(join(repo, '.class-platform'), { recursive: true });
+  writeFileSync(join(repo, '.class-platform', 'install.json'), JSON.stringify({ stack: 'student-hosting', profile: 'new', domain: '', certificateArn: '', features: [], phase: 'ready', installedVersion: '1.1.0', updateNotices: false }));
+  const quiet = await engine.status(context(fake, { fetch: answer }).ctx);
+  assert.equal(asked, 0, 'a teacher who said no is never checked for news');
+  assert.equal(quiet.newerRelease, false);
+  writeFileSync(join(repo, '.class-platform', 'install.json'), JSON.stringify({ stack: 'student-hosting', profile: 'new', domain: '', certificateArn: '', features: [], phase: 'ready', installedVersion: '1.1.0', updateNotices: true }));
+  assert.equal((await engine.status(context(fake, { fetch: answer }).ctx)).newerRelease, true);
+  rmSync(join(repo, 'release.json'));
+  console.log('  ok  update notices: default yes; a teacher who said no is not checked for news and sees no notice');
 }
 
 // ---------- secrets ----------

@@ -5,9 +5,10 @@
 // Python in one folder, so `aws cloudformation package` + `deploy` is enough; see docs/NEW_ACCOUNT_AND_TRANSFER.md section 4).
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runVerify } from './verify.mjs';
 
 export const REGION = 'us-east-1'; // CloudFront certificates must live here, so the whole stack does
 export const STATEFUL = new Set(['AWS::DynamoDB::Table', 'AWS::S3::Bucket', 'AWS::SSM::Parameter', 'AWS::SecretsManager::Secret', 'AWS::CloudFront::Distribution']);
@@ -15,7 +16,7 @@ export const FEATURES = { backend: 'BackendEnabled', ai: 'AiEnabled', gemini: 'A
 const NEEDS = { ai: ['backend'], gemini: ['backend', 'ai'], storage: ['backend'] };
 const STACK_RE = /^[A-Za-z][A-Za-z0-9-]{0,40}$/;
 const DOMAIN_RE = /^(?=.{4,100}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
-const MUTATING = /^(create|put|delete|request|execute|update|remove|empty|import|tag)-|^(mb|rb|rm|sync|cp|package|deploy|wait)$/;
+const MUTATING = /^(create|put|delete|request|execute|update|remove|empty|import|tag)-|^batch-write|^(mb|rb|rm|sync|cp|package|deploy|wait)$/;
 
 export class InstallError extends Error {
   constructor(message, hint) { super(message); this.hint = hint; }
@@ -35,10 +36,13 @@ export function realAws({ profile, region = REGION, exec = execFileSync } = {}) 
   };
 }
 
+/** AWS CloudShell is the terminal built into the AWS console: already signed in as the teacher, so no profile or key is needed there. */
+export const inCloudShell = () => process.env.AWS_EXECUTION_ENV === 'CloudShell';
+
 export const isMutating = (args) => MUTATING.test(args[1] ?? '') || (args[0] === 'cloudformation' && ['package', 'deploy'].includes(args[1]));
 
 /** Run an AWS call. In a dry run anything that would change something is only reported. */
-function call(ctx, args, { json = false } = {}) {
+export function awsCall(ctx, args, { json = false } = {}) {
   if (ctx.dryRun && isMutating(args)) {
     ctx.would.push(`aws ${args.join(' ')}`);
     return json ? {} : '';
@@ -46,6 +50,8 @@ function call(ctx, args, { json = false } = {}) {
   const out = ctx.aws(json ? [...args, '--output', 'json'] : args);
   return json ? (out.trim() ? JSON.parse(out) : {}) : out;
 }
+
+const call = awsCall;
 
 // ---------- configuration ----------
 /** Where the install state lives: next to the clone, or (when run from the npm package, whose folder is a read-only cache) in the teacher's home folder. */
@@ -97,7 +103,7 @@ export function normalise(input) {
   if (!STACK_RE.test(stack)) throw new InstallError('The stack name must start with a letter and use letters, digits and "-" (up to 41 characters).');
   const domain = (input.domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '');
   if (domain && !DOMAIN_RE.test(domain)) throw new InstallError(`"${input.domain}" is not a valid domain name (for example apps.example.com).`);
-  return { stack, profile: input.profile || '', domain, features: [...features].sort(), certificateArn: input.certificateArn || '' };
+  return { stack, profile: input.profile || '', domain, features: [...features].sort(), certificateArn: input.certificateArn || '', updateNotices: input.updateNotices !== false };
 }
 
 /** The CloudFormation parameters for a configuration. `aliasOn` is the second step of the domain install (see PortalAlias in template.yaml). */
@@ -111,7 +117,7 @@ export function parametersFor(config, { aliasOn = false } = {}) {
 /** Is this computer and account ready? Returns what it found; throws InstallError with a hint when something is wrong. */
 export function preflight(ctx) {
   const major = Number(process.versions.node.split('.')[0]);
-  if (major < 20) throw new InstallError(`Node ${process.versions.node} is too old.`, 'Install Node 20 or newer from https://nodejs.org/.');
+  if (major < 20) throw new InstallError(`Node ${process.versions.node} is too old.`, inCloudShell() ? 'In AWS CloudShell try: sudo dnf install -y nodejs22   (or nodejs20), then run the command again.' : 'Install Node 20 or newer from https://nodejs.org/.');
   let identity;
   try { identity = call(ctx, ['sts', 'get-caller-identity'], { json: true }); } catch (e) {
     if (e instanceof InstallError && e.hint) throw e;
@@ -200,11 +206,23 @@ export async function smoke(ctx, portalUrl) {
  * (`needs: 'dns'`); `finishDomain` then attaches the portal's address. A wizard calls both in a row; an editor tool calls them separately.
  */
 export async function install(ctx, input) {
+  const say = ctx.progress ?? (() => {});
   const config = normalise({ ...input, profile: ctx.profile, stack: ctx.stack });
-  const found = preflight(ctx);
-  if (found.stackStatus === 'ROLLBACK_COMPLETE') throw new InstallError(`The stack "${ctx.stack}" is in a failed state (ROLLBACK_COMPLETE) from an earlier attempt.`, `Delete it first: aws cloudformation delete-stack --stack-name ${ctx.stack}${ctx.profile ? ` --profile ${ctx.profile}` : ''}`);
-  if (found.stackStatus && !found.stackStatus.endsWith('_FAILED') && !/ROLLBACK/.test(found.stackStatus)) throw new InstallError(`The stack "${ctx.stack}" already exists (${found.stackStatus}).`, `Use \`${cli(ctx)} upgrade\` to change or update it.`);
+  let found = preflight(ctx);
+  if (found.stackStatus === 'CREATE_IN_PROGRESS') { // an earlier session was closed while AWS was still building the stack
+    say('An earlier install is still building the stack. Waiting for it to finish...');
+    call(ctx, ['cloudformation', 'wait', 'stack-create-complete', '--stack-name', ctx.stack]);
+    found = preflight(ctx);
+  }
+  if (found.stackStatus === 'ROLLBACK_COMPLETE') throw new InstallError(`The stack "${ctx.stack}" is in a failed state (ROLLBACK_COMPLETE) from an earlier attempt.`, `Delete it first: ${cli(ctx)} destroy`);
+  const earlier = readState(ctx);
+  const resuming = found.stackStatus === 'CREATE_COMPLETE' && earlier?.phase === 'deploying';
+  if (found.stackStatus && !resuming && !found.stackStatus.endsWith('_FAILED') && !/ROLLBACK/.test(found.stackStatus)) throw new InstallError(`The stack "${ctx.stack}" already exists (${found.stackStatus}).`, `Use \`${cli(ctx)} upgrade\` to change or update it.`);
   const result = { ok: true, account: found.account, stack: ctx.stack, steps: [], notes: found.notes };
+  if (resuming) { // the stack finished while this window was closed: carry on from there
+    say('The stack from the earlier run is ready. Carrying on...');
+    return afterDeploy(ctx, earlier, found, result);
+  }
   if (config.domain) {
     const cert = await ensureCertificate(ctx, config.domain);
     result.certificate = cert;
@@ -216,11 +234,20 @@ export async function install(ctx, input) {
   }
   const bucket = ensureArtifactBucket(ctx, found.account);
   const packaged = packageTemplate(ctx, bucket);
+  say('Creating your platform in AWS. This takes 10 to 15 minutes (CloudFront is slow): leave this window open. If it closes, run the same command again and it carries on.');
+  writeState(ctx, { ...config, account: found.account, phase: 'deploying', installedVersion: repoVersion(ctx) });
   call(ctx, deployArgs(ctx, packaged, parametersFor(config)));
+  return afterDeploy(ctx, config, found, result);
+}
+
+/** The stack exists: remember it, then either ask for the DNS records (domain install) or publish the portal. */
+async function afterDeploy(ctx, config, found, result) {
+  const say = ctx.progress ?? (() => {});
   result.steps.push('stack deployed');
   const { outputs } = ctx.dryRun ? { outputs: {} } : stackOutputs(ctx);
   writeState(ctx, { ...config, account: found.account, phase: config.domain ? 'dns' : 'ready', installedVersion: repoVersion(ctx), installedAt: ctx.now() });
   if (config.domain) return { ...result, needs: 'dns', records: dnsRecords(config.domain, outputs), message: 'Add these DNS records, then finish the domain step.' };
+  say('Publishing the portal pages, the student kit and the MCP package...');
   return { ...result, ...(await finishInstall(ctx, config, outputs)) };
 }
 
@@ -286,7 +313,7 @@ export async function status(ctx) {
   const now = stackOutputs({ ...ctx, stack: stackName });
   const features = Object.entries(FEATURES).filter(([, p]) => now.parameters[p] === 'true').map(([f]) => f);
   const upgrade = info.installedVersion !== info.repoVersion; // an adopted install has no recorded version: the next plan will say what differs
-  const latest = await latestRelease(ctx);
+  const latest = state.updateNotices === false ? null : await latestRelease(ctx); // the teacher chose at install whether to be told about new releases
   const newer = latest && newerThan(latest.version, info.repoVersion);
   return { ...info, installed: true, stack: stackName, stackStatus: now.status, portalUrl: now.outputs.PortalUrl ?? null, domain: now.parameters.RootDomain || null, features, phase: state.phase,
     upgradeAvailable: upgrade, latestVersion: latest?.version ?? null, newerRelease: Boolean(newer), upgradeCommand: newer ? latest.command : null, editorCommand: newer ? latest.editorCommand : null,
@@ -378,11 +405,88 @@ export function checkEnvironment(ctx) {
   return { ...out, account: found.account, identity: found.arn, stackStatus: found.stackStatus, notes: found.notes, message: `Ready. AWS account ${found.account}${found.stackStatus ? `, stack ${ctx.stack}: ${found.stackStatus}` : ', no stack yet'}.` };
 }
 
-/** Delete the stack. Buckets are emptied first (CloudFormation cannot delete a full bucket); tables and secrets marked Retain stay and are reported. */
-export function destroy(ctx) {
-  const { outputs } = stackOutputs(ctx);
-  if (outputs.BucketName) call(ctx, ['s3', 'rm', `s3://${outputs.BucketName}`, '--recursive']);
-  call(ctx, ['cloudformation', 'delete-stack', '--stack-name', ctx.stack]);
-  call(ctx, ['cloudformation', 'wait', 'stack-delete-complete', '--stack-name', ctx.stack]);
-  return { ok: true, message: `Stack ${ctx.stack} deleted. Resources marked Retain (the data tables) and any DNS records and the AI secret are still there on purpose; remove them by hand if you want a clean account.` };
+/** What `destroy` is about to remove, in numbers a teacher understands. Read only. */
+export function inventory(ctx) {
+  let resources = [];
+  try { resources = call(ctx, ['cloudformation', 'list-stack-resources', '--stack-name', ctx.stack], { json: true }).StackResourceSummaries ?? []; } catch { return { exists: false }; }
+  const live = resources.filter((r) => r.ResourceStatus !== 'DELETE_COMPLETE');
+  const count = (type) => live.filter((r) => r.ResourceType === type).length;
+  const tokens = live.find((r) => r.LogicalResourceId === 'TokensTable')?.PhysicalResourceId;
+  let students = null;
+  if (tokens) {
+    try {
+      students = call(ctx, ['dynamodb', 'scan', '--table-name', tokens, '--select', 'COUNT', '--filter-expression', 'begins_with(pk, :p)', '--expression-attribute-values', JSON.stringify({ ':p': { S: 'slug#' } })], { json: true }).Count ?? null;
+    } catch { /* the count is only for the preview */ }
+  }
+  let portalUrl = null;
+  try { portalUrl = stackOutputs(ctx).outputs.PortalUrl ?? null; } catch { /* no outputs */ }
+  return { exists: true, portalUrl, students, buckets: count('AWS::S3::Bucket'), tables: count('AWS::DynamoDB::Table'), distributions: count('AWS::CloudFront::Distribution'), functions: count('AWS::Lambda::Function'), parameters: count('AWS::SSM::Parameter') };
+}
+
+/** Run the checks against the installed platform. `login` is {username, password} (used once, never stored) or null for the public checks only. */
+export async function verifyInstall(ctx, { login = null, portal } = {}) {
+  const found = stackOutputs(ctx);
+  if (!found.status) throw new InstallError(`There is no stack "${ctx.stack}" in this account.`, `Run \`${cli(ctx)} install\` first.`);
+  const url = portal ?? found.outputs.PortalUrl;
+  const features = Object.entries(FEATURES).filter(([, p]) => found.parameters[p] === 'true').map(([f]) => f);
+  const result = await runVerify({ portal: url, login, features, repo: ctx.repo, fetchImpl: ctx.fetch ?? fetch, sleep: ctx.sleep, publish: ctx.publish, cleanup: async (slug) => { adminScript(ctx, ['verify-cleanup', slug]); } });
+  return { ...result, portalUrl: url };
+}
+
+/** Delete every version and delete marker in a bucket (a versioned bucket cannot be deleted, or its stack removed, while it holds any). */
+export function emptyBucket(ctx, bucket) {
+  if (ctx.dryRun) { ctx.would.push(`empty bucket ${bucket} (all versions)`); return; }
+  for (let round = 0; round < 100000; round += 1) {
+    const page = call(ctx, ['s3api', 'list-object-versions', '--bucket', bucket, '--max-items', '100'], { json: true });
+    const objects = [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])].map((o) => ({ Key: o.Key, VersionId: o.VersionId }));
+    if (!objects.length) return;
+    call(ctx, ['s3api', 'delete-objects', '--bucket', bucket, '--delete', JSON.stringify({ Objects: objects, Quiet: true })]);
+  }
+}
+
+const exists = (ctx, args) => { try { call(ctx, args); return true; } catch { return false; } };
+
+/**
+ * Delete the platform. The sites bucket is emptied first, versions included (CloudFormation cannot remove a bucket that holds any). The installer's own
+ * staging bucket always goes too. Resources the stack keeps on purpose (the student data table) and the AI secret stay unless `everything` is set, which
+ * leaves the account as it was before the install: use it for a test account, not for a class that has data.
+ */
+export function destroy(ctx, { everything = false } = {}) {
+  const say = ctx.progress ?? (() => {});
+  const account = call(ctx, ['sts', 'get-caller-identity'], { json: true }).Account;
+  let resources = [];
+  try { resources = call(ctx, ['cloudformation', 'list-stack-resources', '--stack-name', ctx.stack], { json: true }).StackResourceSummaries ?? []; } catch { /* no stack: only leftovers to clean */ }
+  const of = (type) => resources.filter((r) => r.ResourceType === type && r.ResourceStatus !== 'DELETE_COMPLETE').map((r) => r.PhysicalResourceId);
+  const buckets = of('AWS::S3::Bucket');
+  const tables = of('AWS::DynamoDB::Table');
+  const parameters = of('AWS::SSM::Parameter');
+  if (resources.length) {
+    say('Emptying the sites bucket (all versions)...');
+    for (const bucket of buckets) emptyBucket(ctx, bucket);
+    say('Deleting the stack. CloudFront takes a few minutes to remove...');
+    call(ctx, ['cloudformation', 'delete-stack', '--stack-name', ctx.stack]);
+    call(ctx, ['cloudformation', 'wait', 'stack-delete-complete', '--stack-name', ctx.stack]);
+  }
+  const kept = [];
+  for (const bucket of buckets) { // a bucket the stack keeps (Retain) is still there after the stack is gone
+    if (!exists(ctx, ['s3api', 'head-bucket', '--bucket', bucket])) continue;
+    if (everything) { emptyBucket(ctx, bucket); call(ctx, ['s3api', 'delete-bucket', '--bucket', bucket]); } else kept.push(`bucket ${bucket}`);
+  }
+  for (const table of tables) {
+    if (!exists(ctx, ['dynamodb', 'describe-table', '--table-name', table])) continue;
+    if (everything) call(ctx, ['dynamodb', 'delete-table', '--table-name', table]); else kept.push(`table ${table}`);
+  }
+  for (const name of parameters) {
+    if (!exists(ctx, ['ssm', 'get-parameter', '--name', name])) continue;
+    if (everything) call(ctx, ['ssm', 'delete-parameter', '--name', name]); else kept.push(`parameter ${name}`);
+  }
+  const staging = `${ctx.stack.toLowerCase()}-artifacts-${account}`;
+  if (exists(ctx, ['s3api', 'head-bucket', '--bucket', staging])) { emptyBucket(ctx, staging); call(ctx, ['s3api', 'delete-bucket', '--bucket', staging]); }
+  const hasSecret = exists(ctx, ['secretsmanager', 'describe-secret', '--secret-id', 'openrouter']);
+  if (hasSecret && everything) call(ctx, ['secretsmanager', 'delete-secret', '--secret-id', 'openrouter', '--force-delete-without-recovery']);
+  else if (hasSecret) kept.push('secret openrouter (your AI keys)');
+  if (!ctx.dryRun) rmSync(join(stateDir(ctx), 'install.json'), { force: true });
+  return { ok: true, kept, message: kept.length
+    ? `Deleted the platform ${ctx.stack}. Kept on purpose (data you may want): ${kept.join(', ')}. For a completely clean account run destroy again with --everything. DNS records you added are yours to remove.`
+    : `Deleted the platform ${ctx.stack} and everything the install created. DNS records you added are yours to remove.` };
 }

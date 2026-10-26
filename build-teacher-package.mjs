@@ -25,7 +25,9 @@ const FILES = ['template.yaml', 'admin.mjs', 'setup.mjs', 'portal-downloads.json
 const SKIP = [/^starter\/eval\//, /(^|\/)__pycache__\//, /\.pyc$/, /\.local$/, /(^|\/)test_/];
 const MCP = ['server.mjs', 'setup.mjs', 'jsonc.mjs']; // from teacher-mcp/, placed in mcp/
 
-const tracked = (paths) => execFileSync('git', ['ls-files', '-z', '--', ...paths], { cwd: here, encoding: 'utf8' }).split('\0').filter(Boolean);
+// Files git tracks, plus new files not yet committed that are not git-ignored (so a local build matches what the commit will contain). The release is built
+// in CI from a clean checkout, where only committed files exist.
+const tracked = (paths) => execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', ...paths], { cwd: here, encoding: 'utf8' }).split('\0').filter(Boolean);
 
 export function packageFiles() {
   const files = [...tracked(FOLDERS), ...FILES].filter((f) => !SKIP.some((re) => re.test(f)));

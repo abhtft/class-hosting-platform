@@ -71,6 +71,20 @@ export function apply(change) {
   return backup;
 }
 
+/**
+ * Move every editor entry to a given release, without questions (the caller has already asked the teacher). Each settings file is backed up first;
+ * a file with comments is never rewritten (it is reported so the entry can be pasted by hand). `list` is the editors to look at.
+ */
+export function updateAll({ version, repo, platform = process.platform, list = editors() } = {}) {
+  const entry = entryFor(version, platform, repo);
+  return list.filter((e) => existsSync(e.file) || existsSync(e.installedAt)).map((editor) => {
+    const change = plan(editor, entry);
+    if (change.action === 'same') return { editor: editor.name, action: 'same' };
+    if (change.action === 'manual') return { editor: editor.name, action: 'manual', reason: change.reason, entry: change.wanted };
+    return { editor: editor.name, action: change.action, backup: apply(change) };
+  });
+}
+
 export async function main(argv) {
   const has = (flag) => argv.includes(flag);
   const option = (flag) => (has(flag) ? argv[argv.indexOf(flag) + 1] : undefined);
