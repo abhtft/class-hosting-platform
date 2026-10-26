@@ -1,6 +1,6 @@
 # Handoff: where the project stands, how to work on it, what is next
 
-For a new session or a new maintainer. Read this first, then `docs/TEACHER_ARCHITECTURE.md` (how the teacher side is built), the top of `CHANGELOG.md`, and `docs/TECHNICAL_SPECIFICATION.md` section 4.16. No account numbers, domains or keys are in this repository on purpose; the owner keeps those in a private, git-ignored file (see "Private facts" below).
+For a new session or a new maintainer. Read this first, then `docs/STATE.md` (honest assessment: strengths, gaps by priority, ship stages), `docs/TEACHER_ARCHITECTURE.md` (how the teacher side is built), the top of `CHANGELOG.md`, and `docs/TECHNICAL_SPECIFICATION.md` section 4.16. No account numbers, domains or keys are in this repository on purpose; the owner keeps those in a private, git-ignored file (see "Private facts" below).
 
 ## 1. State at the time of writing
 
@@ -66,6 +66,13 @@ node tests/test_<name>.mjs    # one file; the teacher-side tests use a fake AWS 
 3. When a feature is off: tell the student plainly, say to ask the teacher to switch it on, and build a version that works without it (for example `localStorage` instead of class storage, or a marked placeholder for the AI part). Never build something that will fail silently.
 4. Re-check on `deploy`: warn if the project uses a helper (`class_ai`, `class_storage`) whose feature is currently off, because the teacher can switch it off after the student started.
 5. Tests for the features block and the deploy warning; update `docs/TECHNICAL_SPECIFICATION.md` (student kit section), the student guide and `CHANGELOG.md`.
+
+## 4b. Shipping plan (details in `docs/STATE.md`)
+
+- **Today: public beta (1.2.x).** Say so in the README, with what is proven and what is not. Do not call `transfer` safe yet.
+- **Next release, 1.3.0 (release candidate):** Priority 1 of `docs/STATE.md` = student agent feature awareness (4a), real-account rehearsal of `export`/`import`/`transfer`, the teacher editor tools tried in a real editor, the wrong-CNAME message on the student custom-domain page, and the version print/old-copy warning (item 1 below). Announce publicly at this release.
+- **Stable (drop "beta"):** Priority 2 items "upgrade test in CI" and "least-privilege IAM or SSO" done, and one teacher other than the owner has installed, run a class and updated once without help.
+- Order of work: 4a and the 1.2.2 items first (small, visible), then the real-account rehearsals (they need the owner's test account and DNS), then the editor test.
 
 ## 5. Private facts (not in this repository)
 
