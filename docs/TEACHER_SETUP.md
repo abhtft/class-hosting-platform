@@ -27,7 +27,7 @@ You do **not** need the SAM CLI, Docker or Python.
 npx -y <package> install
 ```
 
-It asks, in this order: the AWS profile, an optional domain, which optional features to switch on (all default off), your teacher login name and password (hidden), and, if you chose AI, the AI keys (hidden, stored in AWS Secrets Manager, never in a file). It then checks the account, deploys (about 10 to 15 minutes, CloudFront is slow), publishes the portal pages, the student kit and the MCP package, and checks that the portal answers. Try `<package> install --dry-run` first to see every AWS command it would run without running any.
+It asks, in this order: the AWS profile (it lists the profiles it finds; empty means your default credentials), an optional domain, which optional features to switch on (all default off), your teacher login name and password (hidden), and, if you chose AI, the AI keys (hidden, stored in AWS Secrets Manager, never in a file). **Before it creates anything it shows the AWS account number and user it will use and asks you to confirm**, so a wrong profile is caught early. It then checks the account, deploys (about 10 to 15 minutes, CloudFront is slow), publishes the portal pages, the student kit and the MCP package, and checks that the portal answers. Try `<package> install --dry-run` first to see every AWS command it would run without running any.
 
 **With a domain** (for example `apps.example.com`) there are two pauses, because DNS is yours:
 1. It requests a certificate and prints **one DNS record**; add it at your DNS host, wait a few minutes, run the same command again.

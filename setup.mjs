@@ -15,6 +15,7 @@
 //   node setup.mjs destroy              delete the stack (typed confirmation)
 //
 // Flags: --profile <aws profile>  --stack <name>  --dry-run (print what would run)  --json (one JSON object, no questions; used by the teacher MCP)  --yes
+import { execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -78,7 +79,10 @@ async function wizard(ctx, flags) {
   console.log('Class platform: guided install into your own AWS account\n');
   console.log('You need: an AWS account, the AWS CLI signed in (aws configure), and optionally a domain name you control.\n');
   const answers = {};
-  answers.profile = flags.profile ?? await ask('AWS profile to use (empty = your default)', ctx.profile);
+  let profiles = [];
+  try { profiles = execFileSync('aws', ['configure', 'list-profiles'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split(/\s+/).map((x) => x.trim()).filter(Boolean); } catch { /* no AWS CLI yet: the check below says so */ }
+  if (profiles.length) console.log(`AWS profiles on this computer: ${profiles.join(', ')}`);
+  answers.profile = flags.profile ?? await ask('AWS profile to use (empty = your default credentials)', ctx.profile);
   answers.domain = flags.domain ?? await ask('Domain for student sites, e.g. apps.example.com (empty = free test addresses on cloudfront.net)', '');
   const features = [];
   console.log('\nOptional features (all can be switched on later with `node setup.mjs plan --enable <name>`):');
@@ -97,6 +101,12 @@ async function wizard(ctx, flags) {
     keys.managementKey = await readHidden('OpenRouter management key (hidden): ');
     if (features.includes('gemini')) keys.googleKey = await readHidden('Google Gemini API key (hidden): ');
   }
+  // show the account before anything is created, so the wrong profile is caught here
+  let account;
+  try { account = engine.preflight({ ...ctx, profile: answers.profile, stack: ctx.stack, aws: engine.realAws({ profile: answers.profile }), dryRun: false, would: [] }); } catch (e) { rl.close(); throw e; }
+  console.log(`
+This will install into AWS account ${account.account} (signed in as ${account.arn}).`);
+  if (!(await yes('Continue?', 'n'))) { rl.close(); throw new engine.InstallError('Stopped before anything was created.'); }
   rl.close();
   return { answers, password, keys };
 }
