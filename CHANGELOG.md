@@ -2,6 +2,12 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## 1.0.1
+
+- Guided install: lists the AWS profiles it finds, shows the AWS account and user it will use and asks you to confirm before creating anything, and says where a bracketed profile default comes from (your `AWS_PROFILE` setting or an earlier install on this computer).
+- Repository: the README is restored (it had been blanked by the first merge).
+- Teacher action needed: none. Breaking changes: none.
+
 ## 1.0.0
 
 - First release: student sites, tokens, teacher page, student backends, class AI (OpenRouter, Google Gemini through a platform proxy), class storage, student kit and MCP package.
