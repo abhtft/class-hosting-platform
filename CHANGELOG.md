@@ -2,6 +2,13 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## 1.1.1
+
+- **Every feature is installed by default** (student backends, class AI, Google Gemini, class storage), so the teacher page offers each of them. A feature stays off for every student until you switch it on for that student; `--features backend,storage` (or `--features none`) installs fewer, and `plan --enable a,b` / `plan --disable a` change it later. The teacher page says how to switch features on when none are installed yet.
+- A missing AI key is now a plain instruction ("save it once, in a terminal, with the secrets command") instead of a server error, for OpenRouter and for Gemini.
+- The domain install now prints the right command for the package (not `node setup.mjs`) and lists all three DNS records up front.
+- Teacher action needed: none. To get the features on an existing install: `plan --enable backend,ai,gemini,storage`, then `apply <id>`.
+
 ## 1.1.0
 
 - **Simpler install.** It now asks only what must be decided: the AWS account (only when there is a real choice, never in AWS CloudShell), whether you want your own domain, and your teacher login. Features (AI, Gemini, storage, backends) and AI keys are switched on later with `plan --enable` and `secrets`.

@@ -228,6 +228,25 @@ status, body = proxy(*CHAT, stored(tid2)["gkey"], {"messages": [{"role": "user",
 assert status == 403 and body["error"]["code"] == "not_enabled", "a Gemini key does nothing for an OpenRouter student"
 print("  ok  moving between providers swaps the environment, disables/re-enables the OpenRouter key, resets the model")
 
+# ---------- 8b. switching to Gemini without a saved Google key is said plainly ----------
+import types  # noqa: E402
+
+real_boto3, real_secret = sys.modules.get("boto3"), dict(gemini._secret)
+
+
+def _missing(*a, **k):
+    raise RuntimeError("ResourceNotFoundException arn:aws:secretsmanager:us-east-1:1:secret:openrouter")
+
+
+sys.modules["boto3"] = types.SimpleNamespace(client=lambda name, **k: types.SimpleNamespace(get_secret_value=_missing))
+gemini._secret.update(value=None, at=0.0)
+tid3, session3, slug3 = new_student("Carol")
+status, body = ai_set(tid3, enabled=True, provider="gemini")
+assert status == 503 and "secrets command" in json.dumps(body) and "arn:aws" not in json.dumps(body), (status, body)
+sys.modules["boto3"] = real_boto3 if real_boto3 else sys.modules.pop("boto3", None)
+gemini._secret.update(real_secret)
+print("  ok  a Gemini switch without a saved Google key is a plain 503 instruction, with no AWS detail")
+
 # ---------- 9. nothing secret in any response ----------
 blob = "\n".join(EXPOSED)
 assert GOOGLE_KEY not in blob and "ga_" + slug + "." not in blob, "no key material in any teacher response"

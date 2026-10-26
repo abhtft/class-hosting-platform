@@ -12,7 +12,9 @@ import { runVerify } from './verify.mjs';
 
 export const REGION = 'us-east-1'; // CloudFront certificates must live here, so the whole stack does
 export const STATEFUL = new Set(['AWS::DynamoDB::Table', 'AWS::S3::Bucket', 'AWS::SSM::Parameter', 'AWS::SecretsManager::Secret', 'AWS::CloudFront::Distribution']);
+// every feature is installed by default; each stays OFF for every student until the teacher switches it on for that student
 export const FEATURES = { backend: 'BackendEnabled', ai: 'AiEnabled', gemini: 'AiGeminiEnabled', storage: 'StorageEnabled' };
+export const ALL_FEATURES = ['backend', 'ai', 'gemini', 'storage'];
 const NEEDS = { ai: ['backend'], gemini: ['backend', 'ai'], storage: ['backend'] };
 const STACK_RE = /^[A-Za-z][A-Za-z0-9-]{0,40}$/;
 const DOMAIN_RE = /^(?=.{4,100}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
@@ -98,7 +100,7 @@ export const repoVersion = (ctx) => { try { return readFileSync(join(ctx.repo, '
 
 /** Check the choices and return them in their final form. Everything a teacher can choose is here. */
 export function normalise(input) {
-  const features = new Set(input.features ?? []);
+  const features = new Set(input.features ?? ALL_FEATURES); // none given = all (the teacher can still choose fewer with --features)
   for (const f of [...features]) {
     if (!FEATURES[f]) throw new InstallError(`Unknown feature "${f}".`, `Choose from: ${Object.keys(FEATURES).join(', ')}.`);
     for (const need of NEEDS[f] ?? []) features.add(need); // gemini brings ai and backend, ai brings backend
@@ -379,9 +381,10 @@ export async function apply(ctx, id) {
 /** Feature switch = a plan with that feature turned on or off. */
 export const featurePlan = (ctx, feature, on) => {
   const state = readState(ctx) ?? adoptState(ctx);
-  if (!FEATURES[feature]) throw new InstallError(`Unknown feature "${feature}".`, `Choose from: ${Object.keys(FEATURES).join(', ')}.`);
+  const wanted = (Array.isArray(feature) ? feature : [feature]).filter(Boolean);
+  for (const name of wanted) if (!FEATURES[name]) throw new InstallError(`Unknown feature "${name}".`, `Choose from: ${Object.keys(FEATURES).join(', ')}.`);
   const features = new Set(state?.features ?? []);
-  if (on) features.add(feature); else features.delete(feature);
+  for (const name of wanted) { if (on) features.add(name); else features.delete(name); }
   return plan(ctx, { features: [...features] });
 };
 

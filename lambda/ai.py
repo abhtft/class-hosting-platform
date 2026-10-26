@@ -212,6 +212,11 @@ def set_ai(item, body, now):
     limit_micro = changes.get("limit_micro", current.get("limit_micro", round(default_limit_usd() * MICRO)))
     period = changes.get("period", current.get("period", "month"))
     chosen = changes.get("provider", provider(item))
+    if want_on and chosen == "gemini":
+        try:
+            gemini.google_key()
+        except gemini.GeminiError as e:
+            raise PortalError(503, str(e))
     # the OpenRouter key works only while AI is on, the token is active AND this student uses OpenRouter
     desired_disabled = not (want_on and chosen == "openrouter" and portal.status_of(item, now) == "active")
     try:
@@ -230,6 +235,8 @@ def set_ai(item, body, now):
             if fields:
                 openrouter.update_key(key_hash, **fields)
     except openrouter.OpenRouterError as e:
+        if e.status == 503:  # the key is not saved yet: a plain instruction, not a provider error
+            raise PortalError(503, str(e))
         raise PortalError(502, f"OpenRouter refused the change: {e}")
     saved = {**changes, "limit_micro": limit_micro, "period": period}
     if want_on:

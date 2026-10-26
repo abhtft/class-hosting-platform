@@ -55,11 +55,18 @@ def cost_micro(model, usage):
     return math.ceil(prompt * price_in + output * price_out)
 
 
+KEYS_MISSING = "The Google Gemini key is not set up yet. The teacher saves it once, in a terminal, with the secrets command."
+
+
 def google_key():
     if _secret["value"] is None or time.time() - _secret["at"] > KEY_CACHE_SECONDS:
         import boto3
-        raw = boto3.client("secretsmanager").get_secret_value(SecretId=os.environ["AI_SECRET_NAME"])["SecretString"]
-        _secret["value"], _secret["at"] = json.loads(raw)["GOOGLE_API_KEY"], time.time()
+        try:
+            raw = boto3.client("secretsmanager").get_secret_value(SecretId=os.environ["AI_SECRET_NAME"])["SecretString"]
+            value = json.loads(raw)["GOOGLE_API_KEY"]
+        except Exception:  # not set up (or not readable): said plainly, with no detail
+            raise GeminiError(503, KEYS_MISSING)
+        _secret["value"], _secret["at"] = value, time.time()
     return _secret["value"]
 
 

@@ -29,11 +29,18 @@ class OpenRouterError(Exception):
         self.status = status
 
 
+KEYS_MISSING = "The OpenRouter key is not set up yet. The teacher saves it once, in a terminal, with the secrets command."
+
+
 def management_key():
     if _secret["value"] is None or time.time() - _secret["at"] > KEY_CACHE_SECONDS:
         import boto3
-        raw = boto3.client("secretsmanager").get_secret_value(SecretId=os.environ["AI_SECRET_NAME"])["SecretString"]
-        _secret["value"], _secret["at"] = json.loads(raw)["OPENROUTER_MANAGEMENT_KEY"], time.time()
+        try:
+            raw = boto3.client("secretsmanager").get_secret_value(SecretId=os.environ["AI_SECRET_NAME"])["SecretString"]
+            value = json.loads(raw)["OPENROUTER_MANAGEMENT_KEY"]
+        except Exception:  # no secret yet, no such field, no permission: all mean "not set up", and no detail may leak
+            raise OpenRouterError(503, KEYS_MISSING)
+        _secret["value"], _secret["at"] = value, time.time()
     return _secret["value"]
 
 

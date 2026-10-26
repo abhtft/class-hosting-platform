@@ -36,7 +36,7 @@ Only what has to be decided now:
 
 Then it checks the account, builds the platform (10 to 15 minutes, CloudFront is slow), publishes the portal pages, the student kit and the MCP package, and **runs the full check**: a throwaway student publishes a small sample site, which must come up live (see `verify` below). Try `<package> install --dry-run` first to see every AWS command it would run, without running any.
 
-Everything else is switched on **later**, once you have seen it work: AI, storage, Gemini and backends with `<package> plan --enable <name>` (then `apply <id>`), and the AI keys with `<package> secrets` (hidden). Power users can still give every choice as flags: `--domain apps.example.com --features ai,storage --profile name`.
+**Every feature is installed** (student backends, class AI, Google Gemini, class storage). Nothing changes for a student until **you switch a feature on for that student** on the teacher page, so having them all available costs almost nothing. The two AI features need your keys: save them once with `<package> secrets` (hidden prompts); until then, switching AI on for a student answers with a plain instruction instead of an error. To install fewer, use `--features backend,storage` (or `--features none`); to change later, `<package> plan --disable ai` (or `--enable ...`, several names separated by commas) and then `apply <id>`. Other flags: `--domain apps.example.com --profile name`.
 
 **With a domain** (for example `apps.example.com`) there are two pauses, because DNS is yours:
 1. It requests a certificate and prints **one DNS record**; add it at your DNS host, wait a few minutes, run the same command again.

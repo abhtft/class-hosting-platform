@@ -253,7 +253,7 @@ function drawerContent(t) {
         h('dt', {}, 'Last deploy'), h('dd', {}, t.last_deploy_at ? date(t.last_deploy_at) : 'never')),
       live ? h('div', { class: 'btns' }, btn('Extend…', () => extend(t)), !t.archived ? btn('Take offline…', () => offline(t)) : null, btn('Revoke…', () => revoke(t), 'danger')) : h('p', { class: 'small muted', style: 'margin:0' }, 'This token is revoked. Features are locked.')),
     h('h3', { class: 'section-title' }, 'Features'),
-    ...features);
+    ...(features.length ? features : [h('p', { class: 'small muted', style: 'margin:0' }, 'No optional features are switched on for this platform yet. Switch them on in your terminal with:  plan --enable backend,ai,gemini,storage  and then  apply <id>  (see the teacher guide). Each one stays off for every student until you switch it on here.')]));
 }
 
 function storageFeature(t, live, btn) {

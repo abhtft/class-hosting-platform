@@ -245,6 +245,34 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   console.log('  ok  destroy: all bucket versions, the stack, the staging bucket; data table and AI keys kept unless --everything; state removed; dry run safe');
 }
 
+// ---------- every feature is installed by default; "none" and explicit lists still work ----------
+{
+  assert.deepEqual(engine.normalise({}).features, ['ai', 'backend', 'gemini', 'storage'], 'no choice given: every feature is available (each stays off per student)');
+  assert.deepEqual(engine.normalise({ features: [] }).features, [], 'an explicit empty list means none');
+  const { parseFeatures } = await import('../setup.mjs');
+  assert.deepEqual(parseFeatures('none'), []);
+  assert.deepEqual(parseFeatures('ai, storage'), ['ai', 'storage']);
+  reset();
+  const fake = fakeAws();
+  await engine.install(context(fake).ctx, {});
+  const deploy = fake.calls.find((a) => a[1] === 'deploy');
+  for (const p of ['BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=true', 'StorageEnabled=true']) assert.ok(deploy.includes(p), p);
+  reset();
+  const lean = fakeAws();
+  await engine.install(context(lean).ctx, { features: [] });
+  assert.ok(lean.calls.find((a) => a[1] === 'deploy').includes('StorageEnabled=false'), 'a teacher who chose none gets none');
+  // several features switched on in one plan
+  reset();
+  const base = fakeAws({ stack: 'UPDATE_COMPLETE', nextChanges: [{ Action: 'Add', LogicalResourceId: 'X', ResourceType: 'AWS::Lambda::Function' }] });
+  mkdirSync(join(repo, '.class-platform'), { recursive: true });
+  writeFileSync(join(repo, '.class-platform', 'install.json'), JSON.stringify({ stack: 'student-hosting', profile: 'new', domain: '', certificateArn: '', features: [], phase: 'ready', installedVersion: '1.1.0' }));
+  await engine.featurePlan(context(base).ctx, ['backend', 'ai', 'gemini', 'storage'], true);
+  const planned = base.calls.filter((a) => a[1] === 'deploy').pop();
+  for (const p of ['BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=true', 'StorageEnabled=true']) assert.ok(planned.includes(p), p);
+  await fails(() => engine.featurePlan(context(base).ctx, ['storage', 'teleport'], true), /Unknown feature/);
+  console.log('  ok  every feature is installed by default (off per student); "none" and explicit lists work; several features can be switched on in one plan');
+}
+
 // ---------- a newer GitHub release is announced with the exact command ----------
 {
   const fake = fakeAws({ stack: 'UPDATE_COMPLETE', parameters: {} });

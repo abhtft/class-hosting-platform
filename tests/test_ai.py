@@ -277,6 +277,27 @@ assert call("PUT", "/api/student/backend/env", {"name": "OPENAI_API_KEY", "value
 os.environ["AI_ENABLED"] = "true"
 print("  ok  without AI_ENABLED nothing is offered or reserved")
 
+# ---------- 14b. the AI keys are not saved yet: a plain instruction, never a server error ----------
+import types  # noqa: E402
+
+real_boto3, real_secret = sys.modules.get("boto3"), dict(openrouter._secret)
+
+
+def _missing(*a, **k):
+    raise RuntimeError("An error occurred (ResourceNotFoundException) when calling GetSecretValue: arn:aws:secretsmanager:us-east-1:1:secret:openrouter")
+
+
+sys.modules["boto3"] = types.SimpleNamespace(client=lambda name, **k: types.SimpleNamespace(get_secret_value=_missing))
+openrouter._secret.update(value=None, at=0.0)
+tid_nokey, session_nokey, slug_nokey = new_student("Nokey", backend=False)
+status, body = ai_set(tid_nokey, enabled=True)
+assert status == 503, (status, body)
+assert "secrets command" in json.dumps(body) and "arn:aws" not in json.dumps(body) and "ResourceNotFound" not in json.dumps(body), body
+assert not (stored_ai(tid_nokey).get("key") or stored_ai(tid_nokey).get("hash")), "nothing half-made is stored"
+sys.modules["boto3"] = real_boto3 if real_boto3 else sys.modules.pop("boto3", None)
+openrouter._secret.update(real_secret)
+print("  ok  without saved AI keys the teacher gets a plain instruction (503), with no AWS detail, and nothing half-made")
+
 # ---------- 15. nothing secret ever left the API ----------
 blob = "\n".join(EXPOSED)
 assert KEY_PREFIX not in blob and "mgmt-secret" not in blob, "no key material in any response"

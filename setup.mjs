@@ -51,6 +51,9 @@ export function parseArgs(argv) {
   return { command: rest[0], args: rest.slice(1), flags };
 }
 
+/** --features a,b  (none given = every feature; "none" = no optional feature) */
+export const parseFeatures = (text) => (String(text) === 'none' ? [] : String(text).split(',').map((x) => x.trim()).filter(Boolean));
+
 export function makeContext(flags, overrides = {}) {
   const saved = engine.readState({ repo }) ?? {}; // what an earlier install chose, so later commands need no flags
   const profile = flags.profile ?? process.env.AWS_PROFILE ?? saved.profile ?? readGlobalConfig().profile ?? ''; // the profile `setup` saved is the last fallback
@@ -65,7 +68,7 @@ async function wizard(ctx, flags) {
   console.log('Class platform: guided install into your own AWS account');
   console.log('');
   console.log('Only what must be decided now is asked: the AWS account, your teacher login, and whether you want your own domain.');
-  console.log('Features such as AI and storage are switched on later, once you have seen it work.');
+  console.log('Every feature (backends, class AI, Gemini, class storage) is installed; each stays off for every student until you switch it on for that student. AI needs your keys: run the secrets command after the install.');
   console.log('');
   const answers = {};
   // The AWS account. Nothing to ask in AWS CloudShell (already signed in as you), or when the choice is clear.
@@ -80,7 +83,7 @@ async function wizard(ctx, flags) {
   // A domain cannot be added to an existing install later, so it is the one optional choice asked here.
   const wantsDomain = flags.domain !== undefined ? Boolean(flags.domain) : await yes('Use your own domain name for student sites? (No = free test addresses; everything can still be tried)', 'n');
   answers.domain = flags.domain ?? (wantsDomain ? await ask('Domain, for example apps.example.com:') : '');
-  answers.features = String(flags.features || '').split(',').filter(Boolean);
+  answers.features = flags.features === undefined ? undefined : parseFeatures(flags.features); // none given: every feature is installed
   answers.teacher = await ask('Choose your teacher login name (3-40 letters, digits . _ -):', 'teacher');
   const password = await prompt.newPassword('Choose your teacher password');
   answers.updateNotices = await yes('Tell you when a new version is released? (a notice only: nothing ever updates by itself)', 'y');
@@ -120,7 +123,7 @@ export async function main(argv, overrides = {}) {
     switch (command) {
       case 'wizard': case 'install': {
         if (flags.json || !process.stdin.isTTY || command === 'install' && (flags.domain !== undefined || flags.features !== undefined || flags.yes)) { // no terminal, or all choices given as flags: no questions
-          return finish(await engine.install(ctx, { domain: flags.domain, features: (flags.features || '').split(',').filter(Boolean), certificateArn: flags['certificate-arn'] }));
+          return finish(await engine.install(ctx, { domain: flags.domain, features: flags.features === undefined ? undefined : parseFeatures(flags.features), certificateArn: flags['certificate-arn'] }));
         }
         const { answers, password, keys } = await wizard(ctx, flags);
         const ctx2 = { ...ctx, profile: answers.profile, aws: overrides.aws ?? engine.realAws({ profile: answers.profile }) };
@@ -150,7 +153,7 @@ export async function main(argv, overrides = {}) {
         }
         console.log('');
         console.log(`Sign in at the portal with "${answers.teacher}". Create a student token on the teacher page and give it to a student with the "Start here" command shown there.`);
-        console.log(`Later, when you want more: switch a feature on with  ${engine.cli(ctx2)} plan --enable ai  (or storage, gemini, backend), then  apply <id>.  AI keys:  ${engine.cli(ctx2)} secrets.`);
+        console.log(`Every feature is installed. For each student, switch on what you want on the teacher page. The AI features need your keys first:  ${engine.cli(ctx2)} secrets.  To remove features you do not want:  plan --disable <name>  then  apply <id>.`);
         return result;
       }
       case 'finish-domain': return finish(await engine.finishDomain(ctx));
@@ -273,7 +276,7 @@ export async function main(argv, overrides = {}) {
       case 'check': return finish(engine.checkEnvironment(ctx));
       case 'plan': {
         const feature = flags.enable ?? flags.disable;
-        return finish(feature ? await engine.featurePlan(ctx, feature, Boolean(flags.enable)) : await engine.plan(ctx));
+        return finish(feature ? await engine.featurePlan(ctx, parseFeatures(feature), Boolean(flags.enable)) : await engine.plan(ctx));
       }
       case 'apply': return finish(await engine.apply(ctx, args[0]));
       case 'upgrade': {
