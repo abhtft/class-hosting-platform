@@ -24,7 +24,7 @@ const config = (() => {
 const FRONTEND = config.frontend || 'frontend';
 const BACKEND = config.backend || 'backend';
 const LIMITS = { files: 500, unzippedBytes: 50 * 1024 * 1024, zippedBytes: 5 * 1024 * 1024 }; // the platform's backend limits
-const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'out', '__pycache__', '.venv', '.idea', '.vscode']);
+const SKIP = new Set(['node_modules', '.git', '.kit-backup', 'dist', 'build', 'out', '__pycache__', '.venv', '.idea', '.vscode']);
 const ENTRIES = { 'index.mjs': 'node', 'index.js': 'node', 'app.py': 'python' };
 
 const results = [];

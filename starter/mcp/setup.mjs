@@ -1,15 +1,15 @@
 // `class-platform-mcp setup`: one command, once per computer.
-//   1. saves the student's token in ~/.class-platform/token (masked prompt; checked with the portal; never inside a project)
-//   2. finds the editors that are installed (VS Code, Antigravity), shows exactly what it will add to each one's MCP settings,
-//      asks, makes a backup, and merges ONE entry called "class-platform" (other servers are never touched)
+//   Finds the editors that are installed (VS Code, Antigravity), shows exactly what it will add to each one's MCP settings,
+//   asks, makes a backup, and merges ONE entry called "class-platform" (other servers are never touched).
+//   It does NOT save a token: the token belongs to a project (`npm run login` inside it saves it in that project's .env.local),
+//   so two editor windows can never end up signed in as the same student by accident.
 //
-//   npx -y <portal>/class-platform-mcp.tgz setup [--yes] [--dry-run] [--no-token] [--editors vscode,antigravity|none] [--portal <url>]
+//   npx -y <portal>/class-platform-mcp.tgz setup [--yes] [--dry-run] [--editors vscode,antigravity|none] [--portal <url>]
 //
 // It never overwrites a file it cannot understand: a settings file with comments (JSONC) is left alone and the exact text to add is printed instead.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { parseJsonc } from './jsonc.mjs';
@@ -17,6 +17,12 @@ import { parseJsonc } from './jsonc.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORTAL = 'https://deploy.example.edu';
 const NAME = 'class-platform';
+
+/** Older versions saved one token for the whole computer. It is no longer read; say so when the file is still there. */
+const oldTokenNotice = () => {
+  const file = join(process.env.CLASS_PLATFORM_HOME || join(homedir(), '.class-platform'), 'token');
+  return existsSync(file) ? `An old computer-wide token file exists (${file}). It is no longer used. You can delete it.` : '';
+};
 
 const packageVersion = () => { try { return JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version; } catch { return '0.0.0'; } };
 
@@ -88,21 +94,10 @@ export async function main(argv) {
   const say = (text = '') => console.log(text);
   say('Class platform: one-time setup for this computer\n');
 
-  // 1. the token, once for every project
-  if (has('--no-token') || dryRun) {
-    say('Token: skipped.');
-  } else {
-    const env = { ...process.env, PORTAL_URL: portal };
-    const saved = spawnSync(process.execPath, [join(here, 'portal-deploy.mjs'), 'status'], { env, encoding: 'utf8' });
-    if (saved.status === 0) {
-      say(`Token: already saved and valid. (${saved.stdout.trim().split('\n')[0]})`);
-    } else {
-      const login = spawnSync(process.execPath, [join(here, 'portal-deploy.mjs'), 'login', '--global'], { env, stdio: 'inherit' });
-      if (login.status !== 0) { say('\nSetup stopped: the token was not saved. Run the command again with the token your teacher gave you.'); process.exitCode = 1; return; }
-    }
-  }
+  say('Token: not saved here. In each class project run  npm run login  once (it saves the token in that project\'s .env.local).');
+  if (oldTokenNotice()) say(`\n${oldTokenNotice()}`);
 
-  // 2. the editors
+  // the editors
   const version = await latestVersion(portal);
   const entry = entryFor(version, portal);
   const wanted = (option('--editors') ?? 'all').split(',').map((x) => x.trim());
@@ -129,5 +124,5 @@ export async function main(argv) {
     say(`\nTo add it yourself, put this entry into the editor's MCP settings (inside "servers" for VS Code, inside "mcpServers" for Antigravity):`);
     say(JSON.stringify({ [NAME]: entry }, null, 2));
   }
-  say('\nNext: restart the editor (or refresh its MCP list). Then open an EMPTY folder and tell the AI:  set up my class project');
+  say('\nNext: restart the editor (or refresh its MCP list). Then open an EMPTY folder and tell the AI:  set up my class project\nThen, in that folder\'s terminal:  npm run login  (paste the token your teacher gave you).');
 }

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -119,6 +119,45 @@ try {
   const forced = platform(edited, 'update', '--apply', '--force', '--portal', portal);
   assert.doesNotMatch(read(join(edited, 'AGENTS.md')), /My own extra rule/, '--force replaces it');
   say('an edited managed file is skipped (and reported) unless --force; a deleted one is restored');
+
+  // ---- sync: the teacher's platform decides; no questions; every replaced file is saved first ----
+  const remoteInfo = await (await fetch(`${portal}/kit-version.json`)).json();
+  assert.ok(remoteInfo.managed && Object.keys(remoteInfo.managed).length > 10, 'the portal publishes a hash for every file the kit owns');
+  assert.ok('AGENTS.md' in remoteInfo.managed && 'portal-deploy.mjs' in remoteInfo.managed && 'tools/platform.mjs' in remoteInfo.managed);
+  assert.ok(!('frontend/src/App.tsx' in remoteInfo.managed) && !('backend/app.py' in remoteInfo.managed), "the student's own files are never in the list");
+  const { kitDrift } = await (async () => { process.env.PORTAL_DEPLOY_NO_MAIN = '1'; return import(`${pathToFileURL(join(repo, 'student', 'portal-deploy.mjs')).href}?drift`); })();
+  const synced = fresh('synced');
+  assert.deepEqual(kitDrift(synced, remoteInfo.managed), [], 'a fresh kit matches the portal');
+  const crlf = fresh('crlf');
+  writeFileSync(join(crlf, 'AGENTS.md'), read(join(crlf, 'AGENTS.md')).replace(/\n/g, '\r\n'));
+  assert.deepEqual(kitDrift(crlf, remoteInfo.managed), [], 'a Windows line-ending copy is the same file');
+  assert.match(platform(crlf, 'sync', '--portal', portal).text, /0 file\(s\) updated/, 'sync leaves a line-ending-only difference alone');
+  writeFileSync(join(synced, 'AGENTS.md'), `${read(join(synced, 'AGENTS.md'))}\nMY OWN RULE.\n`);
+  writeFileSync(join(synced, 'tools', 'doctor.mjs'), '// my doctor\n');
+  rmSync(join(synced, 'CLAUDE.md')); // deleted on purpose (an editor migrated it, or the student did): stays deleted
+  const gone = join(synced, 'tools', 'check.mjs');
+  rmSync(gone);
+  writeFileSync(join(synced, 'frontend', 'src', 'App.tsx'), '// MY OWN APP\n');
+  assert.deepEqual(kitDrift(synced, remoteInfo.managed).sort(), ['AGENTS.md', 'tools/doctor.mjs'], 'drift = edited kit files; deleted ones the project once had are not drift');
+  const result = platform(synced, 'sync', '--portal', portal);
+  assert.equal(result.status, 0, result.text);
+  assert.match(result.text, /Your kit now matches your teacher's platform/);
+  assert.match(result.text, /saved in \.kit-backup\/\d{8}-\d{6}\//);
+  assert.match(result.text, /2 of them had been edited by you/);
+  assert.doesNotMatch(read(join(synced, 'AGENTS.md')), /MY OWN RULE/, 'sync replaces an edited kit file (the teacher wins)');
+  assert.equal(read(join(synced, 'tools', 'doctor.mjs')), read(join(current, 'tools', 'doctor.mjs')));
+  assert.ok(!existsSync(join(synced, 'CLAUDE.md')) && !existsSync(gone), 'a kit file that was deleted stays deleted');
+  assert.equal(read(join(synced, 'frontend', 'src', 'App.tsx')), '// MY OWN APP\n', "the student's code is never touched");
+  const backupDir = join(synced, '.kit-backup', readdirSync(join(synced, '.kit-backup'))[0]);
+  assert.match(read(join(backupDir, 'AGENTS.md')), /MY OWN RULE/, 'the edited copy is saved before it is replaced');
+  assert.equal(read(join(backupDir, 'tools', 'doctor.mjs')), '// my doctor\n');
+  assert.deepEqual(kitDrift(synced, remoteInfo.managed), [], 'after a sync nothing drifts');
+  assert.match(platform(synced, 'sync', '--portal', portal).text, /0 file\(s\) updated/, 'a second sync has nothing to do');
+  const goodKitZip = Buffer.from(await (await fetch(`${portal}/starter-kit.zip`)).arrayBuffer());
+  const badHash = await hostile(goodKitZip, 'f'.repeat(64));
+  const refusedSync = await platformAsync(fresh('refused'), 'sync', '--portal', badHash);
+  assert.notEqual(refusedSync.status, 0, 'a kit that does not match its published hash is never applied');
+  say('sync: the portal lists the kit-owned file hashes; an edited kit file is replaced after a backup, a deleted one stays deleted, line endings do not matter, student code is untouched, a bad hash is refused');
 
   // ---- package.json: the kit's scripts that are missing are added; the student's own are never changed ----
   const scripty = fresh('scripty');

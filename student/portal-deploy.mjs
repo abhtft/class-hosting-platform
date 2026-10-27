@@ -6,16 +6,17 @@
 //   node portal-deploy.mjs --skip-build    deploy the frontend's existing build folder
 //   node portal-deploy.mjs --frontend web --backend api    use other folder names
 //   node portal-deploy.mjs status          is the saved token valid, and for how long (deploys nothing)
-//   node portal-deploy.mjs login --global save your token once for this whole computer (~/.class-platform/token), used by every project
-//   node portal-deploy.mjs login           save your token once (asks for it, checks it, writes .env.local); `npm run login`
+//   node portal-deploy.mjs login           save your token for THIS project (asks for it, checks it, writes .env.local); `npm run login`
 //
 // Expected layout:   frontend/  your app (built with `npm run build` into dist/, build/ or out/)
 //                    backend/   index.mjs (Node) or app.py (Python) at its top level
 // Either folder may be missing: only the one you have is published.
 //
-// Your token is read from PORTAL_TOKEN (environment, .env.local or .env). Never commit it.
+// Your token is read from PORTAL_TOKEN (environment), .env.local or .env of the project you run this in. Never commit it. There is no
+// computer-wide token: every project has its own, so two windows can never end up signed in as the same student by accident.
 // No npm install needed - only Node 20+. In GitHub Actions store the token as the secret PORTAL_TOKEN.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -41,25 +42,27 @@ function fail(message) {
   throw new Stop(message);
 }
 
+let tokenSource = ''; // where the token that readToken() returned came from, so every command can say so
+
+/** The token of THIS project: PORTAL_TOKEN, then .env.local, then .env (all in the folder the command runs in). */
 function readToken() {
-  if (process.env.PORTAL_TOKEN) return process.env.PORTAL_TOKEN.trim();
+  if (process.env.PORTAL_TOKEN) { tokenSource = 'the PORTAL_TOKEN environment variable'; return process.env.PORTAL_TOKEN.trim(); }
   for (const file of ['.env.local', '.env']) {
     if (!existsSync(file)) continue;
     const match = readFileSync(file, 'utf8').match(/^\s*PORTAL_TOKEN\s*=\s*["']?([^"'\s]+)/m);
-    if (match) return match[1];
+    if (match) { tokenSource = file; return match[1]; }
   }
-  // last: the token saved once for the whole computer (`login --global`, or `class-platform-mcp setup`). Never inside a project, so it cannot be committed.
-  try {
-    const saved = readFileSync(join(homeFolder(), 'token'), 'utf8').trim();
-    if (saved) return saved;
-  } catch { /* none saved */ }
   return null;
 }
 
-/** Where the computer-wide token lives. CLASS_PLATFORM_HOME overrides it (tests, or a shared computer). */
-function homeFolder() {
-  return process.env.CLASS_PLATFORM_HOME || join(homedir(), '.class-platform');
+/** Older versions saved one token for the whole computer. It is no longer read: it made two windows share one student. Returns a notice, or ''. */
+export function oldTokenNotice() {
+  const file = join(process.env.CLASS_PLATFORM_HOME || join(homedir(), '.class-platform'), 'token');
+  return existsSync(file) ? `An old computer-wide token file exists (${file}). It is no longer used. Delete it, and run  npm run login  inside this project.` : '';
 }
+
+/** What every "no token" message says. */
+const NO_TOKEN = () => `No token found in this project. Run  npm run login  here once (it asks for your token and saves it in .env.local).${oldTokenNotice() ? `\n  ${oldTokenNotice()}` : ''}`;
 
 /** Applies one chunk of typed or pasted keys to the line being typed. Enter ends it, Backspace deletes, Ctrl+C cancels, other control keys are ignored. */
 export function editLine(buffer, chunk) {
@@ -154,29 +157,60 @@ export function featureWarnings(token, used) {
   return [...used].filter((id) => byId[id] && !byId[id].on).map((id) => `Your backend uses ${names[id]}, but it is ${byId[id].detail}. It will answer "not enabled" until your teacher switches it on. Ask your teacher, or build a version without it.`);
 }
 
+// ---------- the kit follows the teacher's platform ----------
+// The teacher's portal publishes, in kit-version.json, a hash for every file the kit owns. Before a deploy or a status, a project that has the
+// kit compares its own copies; when any differ it asks tools/platform.mjs to bring them in line (the old copies are saved), then runs the same
+// command again. The student is never asked. Offline, on a portal without the list, or outside a kit project: silent and unchanged.
+const sha256 = (buffer) => {
+  const text = buffer.includes(0) ? buffer : Buffer.from(buffer.toString('utf8').replace(/\r\n/g, '\n')); // Windows checkouts may use CRLF: same file
+  return createHash('sha256').update(text).digest('hex');
+};
+
+/** The kit files whose content differs from the portal's list `managed` ({ path: sha256 }). A file the project once had and then deleted is left deleted. */
+export function kitDrift(root, managed) {
+  const installed = (() => { try { return JSON.parse(readFileSync(join(root, 'kit-manifest.json'), 'utf8')).files ?? {}; } catch { return {}; } })();
+  return Object.entries(managed ?? {}).filter(([path, hash]) => {
+    const file = join(root, path);
+    if (!existsSync(file)) return !(path in installed);
+    return sha256(readFileSync(file)) !== hash;
+  }).map(([path]) => path);
+}
+
+/** Returns true when the kit was updated and this command was run again (the caller must stop: that run did the work). */
+async function syncKit() {
+  if (process.env.PLATFORM_KIT_SYNC === 'off' || process.env.PLATFORM_KIT_SYNCED) return false;
+  if (!existsSync('platform.json') || !existsSync(join('tools', 'platform.mjs'))) return false; // not a kit project (a bare copy of this file)
+  let remote;
+  try {
+    const response = await fetch(`${PORTAL_URL}/kit-version.json`, { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) return false;
+    remote = await response.json();
+  } catch { return false; }
+  if (!remote?.managed || !kitDrift(process.cwd(), remote.managed).length) return false;
+  console.log('▶ Your kit is not the same as your teacher\'s platform. Bringing it in line first...');
+  const updated = spawnSync(process.execPath, [join('tools', 'platform.mjs'), 'sync', '--portal', PORTAL_URL], { stdio: 'inherit' });
+  if (updated.status !== 0) fail('Your kit is out of step with your teacher\'s platform and could not be brought in line (see above). Nothing was done. Try again; if it repeats, tell your teacher.');
+  const again = spawnSync(process.execPath, [process.argv[1], ...args], { stdio: 'inherit', env: { ...process.env, PLATFORM_KIT_SYNCED: '1' } });
+  process.exitCode = again.status ?? 1;
+  return true;
+}
+
 /** `status`: signs in with the saved token and says how long it is valid. Deploys nothing. */
 async function status() {
   const saved = readToken();
-  if (!saved) fail('No token found. Run  npm run login  once (it asks for your token and saves it).');
+  if (!saved) fail(NO_TOKEN());
   const info = await signIn(saved);
   const { token } = info;
-  console.log(`Signed in as ${info.name} (${info.slug}). Token status: ${token.status}; valid for ${info.daysLeft} more day${info.daysLeft === 1 ? '' : 's'}; ${token.can_deploy ? 'it can deploy.' : 'it CANNOT deploy right now: ask your teacher.'}`);
+  console.log(`Signed in as ${info.name} (${info.slug}). Token status: ${token.status}; valid for ${info.daysLeft} more day${info.daysLeft === 1 ? '' : 's'}; ${token.can_deploy ? 'it can deploy.' : 'it CANNOT deploy right now: ask your teacher.'} Token from ${tokenSource}.`);
   for (const line of featureLines(token)) console.log(line);
 }
 
 /** `login`: ask for the token, check it with the portal, save it to .env.local. The token is never printed. */
 async function login(given) {
+  if (flag('--global')) fail('Saving one token for the whole computer was removed: it let two windows share one student by accident. Run  npm run login  inside each project instead (it saves the token in that project\'s .env.local).');
   if (!given) console.log('Paste your portal token (the one your teacher gave you) and press Enter. You will see mds_ and one * per character: the rest is hidden on purpose.');
   const token = (given ?? await ask('Token: ', { hidden: true })).replace(/^["']|["']$/g, '');
   if (!/^[\w.~-]{8,}$/.test(token)) fail('That does not look like a portal token (it starts with mds_ and has no spaces). Copy it again from your teacher or the portal.');
-  const everywhere = flag('--global');
-  if (everywhere) {
-    const info = await signIn(token);
-    mkdirSync(homeFolder(), { recursive: true });
-    writeFileSync(join(homeFolder(), 'token'), `${token}\n`, { mode: 0o600 });
-    console.log(`✔ Saved. Signed in as ${info.name} (${info.slug}); the token is valid for ${info.daysLeft} more day${info.daysLeft === 1 ? '' : 's'}. It is stored in ${join(homeFolder(), 'token')}, outside any project, so every project on this computer can use it.`);
-    return;
-  }
   // never write a secret to a file that git would pick up: .env.local must be ignored
   if (spawnSync('git', ['check-ignore', '-q', '.env.local']).status === 1) fail('.env.local is not ignored by git, so saving the token there could publish it. Add the lines  .env  and  .env.*  to .gitignore (npm run check explains), then run this again.');
   const info = await signIn(token);
@@ -343,6 +377,7 @@ async function deployBackend(session, dir) {
 // ---------- main ----------
 async function main() {
   if (args[0] === 'login') return login(option('--token'));
+  if (await syncKit()) return;
   if (args[0] === 'status') return status();
   const only = option('--only');
   if (only && !['frontend', 'backend'].includes(only)) fail('--only must be "frontend" or "backend".');
@@ -356,14 +391,14 @@ async function main() {
 
   let saved = readToken();
   if (!saved) {
-    if (!process.stdin.isTTY) fail('No token found. Run  npm run login  once (it asks for your token and saves it), or set PORTAL_TOKEN. In GitHub Actions add it as a repository secret named PORTAL_TOKEN.');
+    if (!process.stdin.isTTY) fail(`${NO_TOKEN()}\n  In GitHub Actions add the token as a repository secret named PORTAL_TOKEN.`);
     console.log('No token saved yet, so let us do that now.');
     await login();
     saved = readToken();
   }
   const { session, token, daysLeft } = await signIn(saved);
   if (!token.can_deploy) fail(`Your token cannot deploy right now (status: ${token.status}). Ask your teacher, or request regeneration on the portal.`);
-  console.log(`▶ Signed in as ${token.student_name || token.slug} (${token.slug}). Token valid for ${daysLeft} more day${daysLeft === 1 ? '' : 's'}.`);
+  console.log(`▶ Signed in as ${token.student_name || token.slug} (${token.slug}). Token valid for ${daysLeft} more day${daysLeft === 1 ? '' : 's'} (token from ${tokenSource}).`);
   if (daysLeft <= 3) console.warn('⚠ Your token expires soon. Request regeneration on the portal so deploys keep working.');
   if (doBackend) for (const warning of featureWarnings(token, helpersUsed(backendDir))) console.warn(`⚠ ${warning}`);
 

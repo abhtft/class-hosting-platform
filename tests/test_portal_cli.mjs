@@ -255,6 +255,36 @@ try {
     assert.match(statusRun.stdout, /Features for you/);
     assert.match(statusRun.stdout, /✔ Backend/);
   });
+  // 8. the token belongs to the project: its source is named, an old computer-wide file is never read, `login --global` is gone
+  check('status names where the token came from', () => assert.match(statusRun.stdout, /Token from the PORTAL_TOKEN environment variable\./));
+  const oldHome = join(work, 'old-home');
+  mkdirSync(oldHome, { recursive: true });
+  writeFileSync(join(oldHome, 'token'), `${tokens.Alice}\n`);
+  const noTokenDir = join(work, 'no-token');
+  mkdirSync(noTokenDir, { recursive: true });
+  const bare = (args, extraEnv = {}, input = '') => spawnSync('node', [join(root, 'student', 'portal-deploy.mjs'), ...args], {
+    cwd: noTokenDir, encoding: 'utf8', input, env: { ...process.env, PORTAL_DEPLOY_NO_MAIN: '', PORTAL_URL: URL, PORTAL_TOKEN: '', CLASS_PLATFORM_HOME: oldHome, ...extraEnv },
+  });
+  const oldFile = bare(['status']);
+  check('an old computer-wide token file signs nobody in; it is only mentioned', () => {
+    assert.notEqual(oldFile.status, 0);
+    assert.match(oldFile.stderr, /No token found in this project/);
+    assert.match(oldFile.stderr, /old computer-wide token file exists.*no longer used/);
+    assert.doesNotMatch(oldFile.stdout + oldFile.stderr, /Signed in as/);
+  });
+  const globalLogin = bare(['login', '--global'], {}, `${tokens.Alice}\n`);
+  check('login --global was removed, with the reason, and writes nothing', () => {
+    assert.notEqual(globalLogin.status, 0);
+    assert.match(globalLogin.stderr, /whole computer was removed.*npm run login/s);
+    assert.equal(existsSync(join(noTokenDir, '.env.local')), false);
+    assert.equal(readFileSync(join(oldHome, 'token'), 'utf8').trim(), tokens.Alice, 'the old file is left as it was');
+  });
+  writeFileSync(join(noTokenDir, '.env.local'), `PORTAL_TOKEN=${tokens.Alice}\n`);
+  const local = bare(['status']);
+  check('with a project .env.local the status says so', () => {
+    assert.equal(local.status, 0, local.stdout + local.stderr);
+    assert.match(local.stdout, /Token from \.env\.local\./);
+  });
   const aiProject = project('alice-ai');
   writeFileSync(join(aiProject, 'backend', 'app.py'), `${readFileSync(join(aiProject, 'backend', 'app.py'), 'utf8')}\nfrom class_ai import ask\n`);
   const aiRun = spawnSync('node', [join(root, 'student', 'portal-deploy.mjs'), '--skip-build'], {

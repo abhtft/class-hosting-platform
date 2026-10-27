@@ -210,6 +210,19 @@ After an update, move your editor tools to the same version (the `apply` message
 <package> editor-update              # or ask the AI: "update my editor tools"
 ```
 
+### 8.1 Your students follow your version, and how to go back
+The student kit (the rules for their AI editor, `tools/`, the deploy script and the class AI and storage helpers) comes from **your** portal, and a student's project **keeps itself in line with it**. Before a `deploy` or a `status`, the project compares its own kit files with the ones your portal publishes; if any differ it replaces them first (nobody is asked), keeps a copy of every replaced file in the project's `.kit-backup/` folder, and then carries on. Only the kit's own files change, never the student's code. A student who edited a kit file loses that edit (the copy is in `.kit-backup/`), which is the point: every student behaves the way your platform expects. So after you update (section 8), students follow on their next command.
+
+A student's token is **per project**: they run `npm run login` inside each project, and it is saved in that project's `.env.local`. There is no computer-wide token, so two windows can never end up signed in as the same student by accident.
+
+**If a new student kit causes trouble, go back.** Publish the previous release again; every student's next command syncs back to it:
+```bash
+npx -y https://github.com/abhtft/class-hosting-platform/releases/download/v<previous version>/class-platform-teacher-<previous version>.tgz publish --profile <name>
+```
+(`upgrade` and `apply` print this exact command, with your previous version filled in.) This puts back the portal pages, the student kit and the editor package; it does not change the AWS stack. Try each release on a throwaway student first.
+
+A project made with a much older kit (before 1.8.0) cannot do this by itself yet: its student runs `npm run platform -- update --apply` once, and from then on it follows you.
+
 ## 9. Check that it works: verify
 
 ```bash

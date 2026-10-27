@@ -5,13 +5,15 @@
 //   node tools/platform.mjs update             show what would change (nothing is written)
 //   node tools/platform.mjs update --apply     write the changes
 //   node tools/platform.mjs update --apply --force   also replace platform files you edited yourself
+//   node tools/platform.mjs sync               make every platform file match the teacher's platform, no questions (what `npm run deploy` does by itself):
+//                                              files you edited are replaced, and every replaced file is first copied to .kit-backup/<time>/
 //
 // What it can change: only the platform-managed files listed in platform.json ("managed"): the rules for your AI editor, tools/,
 // the deploy workflow, portal-deploy.mjs and class_ai. Never frontend/, your backend code, .env files or anything else.
 // Safety: it downloads over HTTPS from your portal, checks the zip against the hash the portal publishes, refuses any path that is
 // not a managed file, and shows you the list before writing (nothing is written without --apply).
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { missingScripts } from './update-notice.mjs';
@@ -22,6 +24,8 @@ const command = args[0] ?? 'status';
 const option = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const root = resolve(option('--root', resolve(dirname(fileURLToPath(import.meta.url)), '..')));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
+/** The same file with Windows line endings is the same file (a checkout may convert them), so compare text files with LF. */
+const lf = (data) => (data.includes(0) ? data : Buffer.from(data.toString('utf8').replace(/\r\n/g, '\n')));
 const readJson = (path, fallback = {}) => { try { return JSON.parse(readFileSync(join(root, path), 'utf8')); } catch { return fallback; } };
 
 /** fail() ends the run by throwing, so the process exits by itself (calling process.exit() while network connections are still closing
@@ -52,10 +56,11 @@ async function main() {
     console.log(platform.kitVersion === remoteInfo.kitVersion && !lacking.length ? '✔ Up to date.' : platform.kitVersion === remoteInfo.kitVersion ? '' : 'A newer kit is available: run  node tools/platform.mjs update');
     return;
   }
-  if (command !== 'update') fail('Usage: node tools/platform.mjs status | update [--apply] [--force]');
+  if (command !== 'update' && command !== 'sync') fail('Usage: node tools/platform.mjs status | update [--apply] [--force] | sync');
 
-  const apply = args.includes('--apply');
-  const force = args.includes('--force');
+  const syncing = command === 'sync'; // no questions: apply, replace edited files too, keep a copy of everything replaced
+  const apply = syncing || args.includes('--apply');
+  const force = syncing || args.includes('--force');
   const zip = await download('starter-kit.zip');
   if (sha(zip) !== remoteInfo.zipSha256) fail('The downloaded kit does not match the hash the portal published, so nothing was changed. Try again; if it repeats, tell your teacher.');
   let files;
@@ -71,9 +76,9 @@ async function main() {
   for (const [path, data] of [...files].sort(([a], [b]) => (a < b ? -1 : 1))) {
     if (!isManaged(path)) continue;
     const target = join(root, path);
-    if (!existsSync(target)) { plan.push({ path, data, state: 'new' }); continue; }
+    if (!existsSync(target)) { plan.push({ path, data, state: syncing && path in installed ? 'deleted' : 'new' }); continue; } // sync leaves a file you (or your editor) deleted deleted
     const local = readFileSync(target);
-    if (sha(local) === sha(data)) plan.push({ path, data, state: 'same' });
+    if (sha(lf(local)) === sha(lf(data))) plan.push({ path, data, state: 'same' });
     else if (installed[path] && sha(local) !== installed[path] && !force) plan.push({ path, data, state: 'edited' });
     else plan.push({ path, data, state: 'update' });
   }
@@ -81,8 +86,8 @@ async function main() {
 
   // scripts: add the ones package.json lacks (never change or remove one the student has; only plain `node tools/...` commands from the portal)
   const newScripts = missingScripts(root, remoteInfo);
-  const label = { new: 'new      ', update: 'changed  ', same: 'same     ', edited: 'EDITED by you (skipped; --force replaces it)' };
-  for (const item of plan.filter((i) => i.state !== 'same')) console.log(`  ${label[item.state].padEnd(9)} ${item.path}`);
+  const label = { new: 'new      ', update: 'changed  ', same: 'same     ', edited: force ? 'replaced (you had edited it)' : 'EDITED by you (skipped; --force replaces it)', deleted: 'deleted by you (left deleted)' };
+  for (const item of plan.filter((i) => i.state !== 'same' && !(syncing && i.state === 'deleted'))) console.log(`  ${label[item.state].padEnd(9)} ${item.path}`);
   for (const path of obsolete) console.log(`  no longer in the kit (left alone): ${path}`);
   const toWrite = plan.filter((i) => i.state === 'new' || i.state === 'update');
   const skipped = plan.filter((i) => i.state === 'edited');
@@ -93,9 +98,21 @@ async function main() {
     console.log(toWrite.length || platform.kitVersion !== remoteInfo.kitVersion || Object.keys(newScripts).length ? '\nNothing was written. Run again with --apply to update.' : '\nNothing to do.');
     return;
   }
+  // every file that is replaced is first copied to .kit-backup/<time>/<path>, so nothing a student or an AI editor changed is ever lost
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14).replace(/^(\d{8})/, '$1-');
+  const backupRoot = join('.kit-backup', stamp);
+  let backedUp = 0;
+  let editedReplaced = 0;
   for (const item of toWrite) {
-    mkdirSync(dirname(join(root, item.path)), { recursive: true });
-    writeFileSync(join(root, item.path), item.data);
+    const target = join(root, item.path);
+    if (existsSync(target)) {
+      if (installed[item.path] && sha(readFileSync(target)) !== installed[item.path]) editedReplaced++;
+      mkdirSync(dirname(join(root, backupRoot, item.path)), { recursive: true });
+      copyFileSync(target, join(root, backupRoot, item.path));
+      backedUp++;
+    }
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, item.data);
     installed[item.path] = sha(item.data);
   }
   if (Object.keys(newScripts).length) {
@@ -108,7 +125,9 @@ async function main() {
   const manifest = readJson('kit-manifest.json', { files: {} });
   writeFileSync(join(root, 'kit-manifest.json'), `${JSON.stringify({ ...manifest, kitVersion: remoteInfo.kitVersion, files: installed }, null, 2)}\n`);
   writeFileSync(join(root, 'platform.json'), `${JSON.stringify({ ...platform, kitVersion: skipped.length ? platform.kitVersion : remoteInfo.kitVersion, managed }, null, 2)}\n`);
-  console.log(`\n✔ Updated ${toWrite.length} file(s)${skipped.length ? `; ${skipped.length} edited file(s) kept as they are (kit version stays ${platform.kitVersion})` : ` to kit ${remoteInfo.kitVersion}`}. Run: npm run check`);
+  const saved = backedUp ? ` The ${backedUp} old file(s) are saved in ${backupRoot.replace(/\\/g, '/')}/${editedReplaced ? ` (${editedReplaced} of them had been edited by you)` : ''}.` : '';
+  if (syncing) console.log(`\n✔ Your kit now matches your teacher's platform (kit ${remoteInfo.kitVersion}): ${toWrite.length} file(s) updated.${saved}`);
+  else console.log(`\n✔ Updated ${toWrite.length} file(s)${skipped.length ? `; ${skipped.length} edited file(s) kept as they are (kit version stays ${platform.kitVersion})` : ` to kit ${remoteInfo.kitVersion}`}.${saved} Run: npm run check`);
 }
 
 main().catch((error) => {

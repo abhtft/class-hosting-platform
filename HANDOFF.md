@@ -5,7 +5,7 @@ For a new session or a new maintainer. Read this first, then `docs/STATE.md` (ho
 ## 1. State at the time of writing
 
 - **Repository:** `github.com/abhtft/class-hosting-platform` (public), branch `main`, local clone `D:\Github_Codes\class-hosting-platform-github`. This is the **only** place to develop now. The older private repository (`D:\Github_Codes\student-deploy`) is a backup and holds the owner's production configuration; its content was carried into this repository.
-- **Latest release:** `v1.2.1` (GitHub Release with `class-platform-teacher-1.2.1.tgz`, an alias `class-platform-teacher.tgz` and `sha256sums.txt`). `main` is ahead by documentation only (the teacher guide rewrite, the README quickstart). `v1.2.0` has no release files: its CI run failed on an identifier check, which `v1.2.1` fixed.
+- **Latest release:** `v1.2.3` (GitHub Release with `class-platform-teacher-1.2.3.tgz`, an alias `class-platform-teacher.tgz` and `sha256sums.txt`). `main` is ahead by **unreleased** work: the project-local token (4d) and the automatic kit sync with teacher rollback (4e, first part), both described in `CHANGELOG.md` under Unreleased and **not yet tested on a real account**. `v1.2.0` has no release files: its CI run failed on an identifier check, which `v1.2.1` fixed.
 - **What exists** (all in this repository):
   - the platform itself (`template.yaml`, `lambda/`, `web/`, `starter/` student kit, `student/` helpers);
   - the teacher tooling: `setup.mjs` and `installer/` (install, plan and apply, verify, destroy, export and import, transfer, credentials, prompts, custom domains in `tenant.mjs`), `teacher-mcp/` (the editor tools), `teacher-package/` and `build-teacher-package.mjs` (the npm/GitHub package), `.github/workflows/release.yml` (tag, test, build, attest, release);
@@ -78,7 +78,7 @@ node tests/test_<name>.mjs    # one file; the teacher-side tests use a fake AWS 
 
 The owner has a small following, so the plan is a few real testers, not reach: 3 to 5 outside people who run the install. To do, in order, after 1.3.0: add a "Testers wanted" section and a demo recording to the README; add an "I tried the install" issue template; open 5 to 8 `good first issue` / `help wanted` issues from the gaps in `docs/STATE.md`; invite 3 to 5 people personally; then post publicly (LinkedIn, dev.to, Hacker News "Show HN", r/aws, r/edtech). The assistant offered to draft the README section, the post and the issue texts; nothing is published without the owner's go-ahead.
 
-## 4d. Decided: the student token lives only in the project's `.env.local` (target 1.3.0)
+## 4d. Decided and BUILT (unreleased): the student token lives only in the project's `.env.local` (target 1.3.0)
 
 **Decision (owner, after discussion):** drop the computer-wide token file (`~/.class-platform/token`). Reason: two editor windows on the same computer silently shared one token (last login won), and a shared or lab computer would hand the next person the previous student's token. The cost is one `npm run login` per project, which is accepted.
 
@@ -88,6 +88,22 @@ The owner has a small following, so the plan is a few real testers, not reach: 3
 3. A one-time notice when an old `~/.class-platform/token` exists: it is no longer read, here is how to delete it, and to run `npm run login` in the project.
 4. Keep the existing protections: `npm run login` refuses to write `.env.local` unless git ignores it, `check` flags a tracked token, agents must never open `.env.local`.
 5. Update `starter/mcp/bin.mjs`, `starter/mcp/setup.mjs`, `student/portal-deploy.mjs`, the student guide, `AGENTS.md`, `docs/TECHNICAL_SPECIFICATION.md` (student kit section), the tests (`test_mcp_package.mjs`, `test_portal_cli.mjs`) and `CHANGELOG.md`.
+
+## 4e. Decided; parts 2, 3 and 6 BUILT (unreleased): the teacher's portal is the only authority on versions (target 1.3.0)
+
+**Status:** built and covered by tests (`test_kit_update.mjs`, `test_mcp.mjs`, `test_portal_cli.mjs`, `test_installer.mjs`, `test_kit.mjs`): the portal publishes a hash per kit-owned file; a project syncs itself before `deploy` and `status` (`tools/platform.mjs sync`, backups in `.kit-backup/`); `upgrade` and `apply` print the rollback command (`publish` of the previous release); the editor `status` tool syncs first. **Still to build:** (1) the portal refusing a stale client (a Lambda change that needs the kit hash on the server side, so it needs a real-account test), (4) one version number and one tag with the migration past kit 1.8.0, (5) the thin launcher package. Projects on a kit older than 1.8.0 need one manual `npm run platform -- update --apply`; only item (1) would catch them automatically.
+
+**Decision (owner, agreed in discussion):** the student's kit and tools always match their teacher's platform. A student has no version choice, is not asked, and there is no freeze. Cause: in the first real test of 1.2.2 a project kept an old kit and its agent ignored the new rules, because the kit version had not been bumped and nothing forced a sync.
+
+**Design, in build order:**
+1. **The portal checks every request.** Student tools send the kit's version and content hash; a stale client gets "kit out of date" back instead of the work being done. This also covers an old `portal-deploy.mjs` in a GitHub Actions deploy.
+2. **The kit repairs itself on use.** On "out of date" the tool replaces the kit's own files (the managed list only, never the student's code or `.env`), retries the same command and prints one line. The teacher's copy wins over a student-edited managed file; the old copy is saved first (for example `.kit-backup/`).
+3. **Teacher rollback.** The previous kit stays published; the teacher can republish it with one command. Automatic sync is only safe because a bad release can be undone quickly. Test each release on a throwaway student first.
+4. **One version number and one tag** for platform, kit and editor package, stamped from `VERSION` at build time. Sync is decided by content hash, not by comparing numbers. One-time migration: the kit is at 1.7.0 and the platform at 1.2.3, so the first unified number must be above 1.7.0 (for example 1.8.0 or 2.0.0), or the notice must already compare by hash.
+5. **A thin, stable launcher for the editor package** that downloads the current package from the teacher's portal (checked against the published hash) and runs it, so editors never pin a stale package and `npx` cache problems disappear.
+6. **The rules file is refreshed at the start of each agent session** (the editor tool's first `status` call syncs it), since editors read `AGENTS.md` from disk.
+
+**Known costs:** a bad release reaches every student at once (hence rollback); the sync needs the portal; changes can arrive mid-work. The trust model is unchanged (students already run their teacher's code); keep the hash check and HTTPS from the student's own portal.
 
 ## 5. Private facts (not in this repository)
 

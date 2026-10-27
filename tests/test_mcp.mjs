@@ -62,7 +62,7 @@ try {
   const token = out.match(/Alice\s+(mds_\S+)/)[1];
 
   const kit = join(work, 'kit');
-  buildKit(kit);
+  buildKit(kit, { portalUrl: URL }); // built like the portal builds it, so the kit matches what the portal publishes
   const vscode = JSON.parse(readFileSync(join(kit, '.vscode', 'mcp.json'), 'utf8'));
   assert.equal(vscode.servers['class-platform'].type, 'stdio');
   assert.ok(vscode.servers['class-platform'].args.some((a) => a.endsWith('tools/mcp.mjs')));
@@ -156,20 +156,31 @@ try {
   wf(manifestPath, JSON.stringify(manifest, null, 2));
   wf(join(kit, 'backend', 'app.py'), `${rf(join(kit, 'backend', 'app.py'), 'utf8')}\n# my own change
 `);
+  // the kit follows the teacher's platform by itself: status brings it in line first (nobody is asked), keeps a copy of what it replaced, never touches the student's code
   const old = await mcp.tool('status');
-  assert.match(old.content[0].text, /Kit: A newer class kit is available \(you have 1\.0\.0.*use update_kit/s);
-  const notYet = await mcp.tool('update_kit', {});
-  assert.equal(notYet.isError, true);
-  assert.match(notYet.content[0].text, /Not updated.*confirm=true/s);
-  assert.equal(rf(doctor, 'utf8'), older, 'nothing changes without a yes');
-  const updated = await mcp.tool('update_kit', { confirm: true });
-  assert.equal(updated.isError, false, updated.content[0].text);
-  assert.match(updated.content[0].text, /Updated .* file\(s\).*Restart this tool server/s);
+  assert.equal(old.isError, false, old.content[0].text);
+  assert.match(old.content[0].text, /Bringing it in line first/);
+  assert.match(old.content[0].text, /Your kit now matches your teacher's platform/);
+  assert.match(old.content[0].text, /Signed in as .*alice/i, 'and then it does what it was asked');
   assert.equal(rf(doctor, 'utf8'), pristine, "the kit's own file is back to the portal's version");
   assert.match(rf(join(kit, 'backend', 'app.py'), 'utf8'), /# my own change/, "the student's code is never touched");
   assert.equal(JSON.parse(rf(platformPath, 'utf8')).kitVersion, wasVersion);
-  assert.match((await mcp.tool('status')).content[0].text, /up to date/);
-  say('status reports an out-of-date kit; update_kit needs a yes, updates only the kit files and leaves the student code alone');
+  const { readdirSync: ls } = await import('node:fs');
+  const backups = ls(join(kit, '.kit-backup'));
+  assert.equal(backups.length, 1, `one backup folder per sync: ${JSON.stringify(backups)} ${JSON.stringify(ls(join(kit, '.kit-backup', backups[0])))}`);
+  assert.equal(rf(join(kit, '.kit-backup', backups[0], 'tools', 'doctor.mjs'), 'utf8'), older, 'the replaced file was saved first');
+  const second = await mcp.tool('status');
+  assert.doesNotMatch(second.content[0].text, /Bringing it in line/, 'a kit that matches is left alone');
+  assert.match(second.content[0].text, /up to date/);
+  say('status brings an out-of-date kit in line by itself, saves the old copy, leaves the student code alone, and does nothing when the kit already matches');
+  // the manual route still exists and still needs a yes
+  const notYet = await mcp.tool('update_kit', {});
+  assert.equal(notYet.isError, true);
+  assert.match(notYet.content[0].text, /Not updated.*confirm=true/s);
+  const updated = await mcp.tool('update_kit', { confirm: true });
+  assert.equal(updated.isError, false, updated.content[0].text);
+  assert.match(updated.content[0].text, /Updated .* file\(s\).*Restart this tool server/s);
+  say('update_kit (the manual route) still needs a yes');
 
   mcp.close();
   // a rejected token is explained, not dumped

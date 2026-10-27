@@ -85,7 +85,10 @@ export function buildKit(out, { force = false, portalUrl = '' } = {}) {
   // what the portal publishes next to the zip (kit-version.json): the oldest kit it still fully supports, and the package.json scripts the kit owns
   const pkgScripts = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8')).scripts ?? {};
   const scripts = Object.fromEntries((platform.managedScripts ?? []).filter((name) => name in pkgScripts).map((name) => [name, pkgScripts[name]]));
-  return { out, version: platform.kitVersion, minKit: platform.minKit ?? '0', scripts, files: Object.keys(files).length + 1 };
+  // the hash of every file the kit OWNS (platform.json "managed"): published in kit-version.json so a project can tell, without downloading anything, whether its copies match
+  const owned = (path) => (platform.managed ?? []).some((m) => (m.endsWith('/') ? path.startsWith(m) : path === m));
+  const managed = Object.fromEntries(Object.entries(files).filter(([path]) => owned(path)));
+  return { out, version: platform.kitVersion, minKit: platform.minKit ?? '0', scripts, managed, files: Object.keys(files).length + 1 };
 }
 
 /** Build the kit and write it as ONE zip file (deterministic: the same kit always gives the same bytes). Returns {version, sha256, files}. */
@@ -93,12 +96,12 @@ export function buildKitZip(zipFile, { portalUrl = '' } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'kit-zip-'));
   try {
     const kit = join(temp, 'kit');
-    const { version, minKit, scripts } = buildKit(kit, { portalUrl });
+    const { version, minKit, scripts, managed } = buildKit(kit, { portalUrl });
     const entries = listFiles(kit).map((f) => ({ name: relative(kit, f).split(sep).join('/'), data: readFileSync(f) }));
     const zip = zipEntries(entries);
     mkdirSync(dirname(resolve(zipFile)), { recursive: true });
     writeFileSync(zipFile, zip);
-    return { version, minKit, scripts, sha256: createHash('sha256').update(zip).digest('hex'), files: entries.length };
+    return { version, minKit, scripts, managed, sha256: createHash('sha256').update(zip).digest('hex'), files: entries.length };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

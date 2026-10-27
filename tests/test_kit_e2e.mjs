@@ -58,7 +58,7 @@ ${out}`);
   const studentSession = (await post('/api/student/login', { token })).body.session;
 
   const kit = join(work, 'kit');
-  buildKit(kit);
+  buildKit(kit, { portalUrl: URL }); // built like the portal builds it
   const install = spawnSync('npm ci --no-audit --no-fund', { cwd: join(kit, 'frontend'), encoding: 'utf8', shell: true });
   assert.equal(install.status, 0, install.stdout + install.stderr);
   const deploy = (dir, ...extra) => spawnSync(process.execPath, [join(dir, 'portal-deploy.mjs'), ...extra], {

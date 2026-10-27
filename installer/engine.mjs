@@ -398,8 +398,11 @@ export async function apply(ctx, id) {
   adminScript({ ...ctx, stack: saved.config.stack }, ['portal-publish']);
   const release = releaseInfo(ctx);
   const editorCommand = release?.url ? `npx -y ${release.url} editor` : null; // the editor's teacher tools stay on the version they were set up with until this is run
-  return { ok: true, version: saved.toVersion, portalUrl: outputs.PortalUrl, editorCommand,
-    message: `Updated to ${saved.toVersion} and published the portal pages, the student kit and the MCP package.${editorCommand ? ` To make your editor's teacher tools use this version too, run: ${editorCommand}` : ''}` };
+  // going back: publishing the PREVIOUS release puts its portal pages, student kit and editor package back, and every student's next command syncs to it
+  const rollbackCommand = release?.repo && /^\d+\.\d+\.\d+$/.test(String(saved.fromVersion ?? '')) && saved.fromVersion !== saved.toVersion
+    ? `npx -y https://github.com/${release.repo}/releases/download/v${saved.fromVersion}/class-platform-teacher-${saved.fromVersion}.tgz publish` : null;
+  return { ok: true, version: saved.toVersion, portalUrl: outputs.PortalUrl, editorCommand, rollbackCommand,
+    message: `Updated to ${saved.toVersion} and published the portal pages, the student kit and the MCP package.${editorCommand ? ` To make your editor's teacher tools use this version too, run: ${editorCommand}` : ''}${rollbackCommand ? ` If students report a problem with the new student kit, put the previous kit back (it takes effect on their next command): ${rollbackCommand}` : ''}` };
 }
 
 /** Feature switch = a plan with that feature turned on or off. */

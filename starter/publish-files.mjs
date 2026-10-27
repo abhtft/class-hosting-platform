@@ -18,7 +18,7 @@ export function buildPublishFiles(dir, portalUrl) {
   const base = String(portalUrl).replace(/\/$/, '');
   mkdirSync(dir, { recursive: true });
   const kit = buildKitZip(join(dir, 'starter-kit.zip'), { portalUrl: base });
-  writeFileSync(join(dir, 'kit-version.json'), `${JSON.stringify({ kit: 'class-platform-starter', kitVersion: kit.version, minKit: kit.minKit, scripts: kit.scripts, zipSha256: kit.sha256, files: kit.files }, null, 2)}\n`);
+  writeFileSync(join(dir, 'kit-version.json'), `${JSON.stringify({ kit: 'class-platform-starter', kitVersion: kit.version, minKit: kit.minKit, scripts: kit.scripts, managed: kit.managed, zipSha256: kit.sha256, files: kit.files }, null, 2)}\n`);
   const pinned = `class-platform-mcp-${buildMcpPackageVersion()}.tgz`;
   const pack = buildMcpPackage(join(dir, pinned), { portalUrl: base });
   copyFileSync(join(dir, pinned), join(dir, 'class-platform-mcp.tgz'));

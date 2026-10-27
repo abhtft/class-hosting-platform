@@ -4,7 +4,7 @@
 //   - the server finds the open folder through the editor's "roots" (and a `path` argument wins)
 //   - init_project writes the starter into an empty folder (asks first, refuses a folder with files)
 //   - check_project / deploy work in a folder with NO kit files (the package carries its own check and deploy)
-//   - the token comes from the computer-wide store; `setup` saves it and adds the server to VS Code and Antigravity safely
+//   - the token belongs to the PROJECT (.env.local, saved by `npm run login`); `setup` only adds the server to VS Code and Antigravity safely
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -141,26 +141,38 @@ try {
   assert.equal(wrong.isError, true, 'a path argument wins over the open folder: an empty folder is not a valid project');
   say('without kit files the bundled check and deploy are used; `path` overrides the open folder; update_kit says there is nothing to update');
 
-  // ---------- the token: saved once for the computer, used by every project ----------
+  // ---------- the token: it belongs to one project ----------
   const before = await a.tool('status');
   assert.equal(before.isError, true);
-  assert.match(before.content[0].text, /No token found/);
-  const login = spawnSync(process.execPath, [bin, 'login'], { env, input: `${alice}\n`, encoding: 'utf8' });
+  assert.match(before.content[0].text, /No token found in this project/);
+  // an old computer-wide token file is no longer read: it is only mentioned, so nobody is signed in by accident
+  mkdirSync(classHome, { recursive: true });
+  writeFileSync(join(classHome, 'token'), `${alice}\n`);
+  const stillNone = await a.tool('status');
+  assert.equal(stillNone.isError, true, 'the old computer-wide token file must not sign anyone in');
+  assert.match(stillNone.content[0].text, /old computer-wide token file exists/);
+  rmSync(classHome, { recursive: true, force: true });
+  const removed = spawnSync(process.execPath, [bin, 'login'], { env, input: `${alice}\n`, encoding: 'utf8' });
+  assert.notEqual(removed.status, 0, 'class-platform-mcp login (one token for the computer) was removed');
+  assert.match(removed.stderr, /npm run login/);
+  assert.ok(!existsSync(join(classHome, 'token')), 'nothing is written to the home folder');
+  const login = spawnSync(process.execPath, [join(projectA, 'portal-deploy.mjs'), 'login'], { cwd: projectA, env, input: `${alice}\n`, encoding: 'utf8' });
   assert.equal(login.status, 0, login.stdout + login.stderr);
   assert.ok(!login.stdout.includes(alice), 'the token is never printed');
-  assert.match(readFileSync(join(classHome, 'token'), 'utf8'), new RegExp(alice));
-  assert.ok(!existsSync(join(projectA, '.env.local')), 'nothing is written into the project');
+  assert.match(readFileSync(join(projectA, '.env.local'), 'utf8'), new RegExp(alice), 'the project login saves the token in the project');
+  assert.ok(!existsSync(join(classHome, 'token')), 'and nowhere else');
   const after = await a.tool('status');
   assert.equal(after.isError, false, after.content[0].text);
   assert.match(after.content[0].text, /Signed in as .*alice/i);
+  assert.match(after.content[0].text, /Token from \.env\.local/, 'status says where the token came from');
   assert.ok(!JSON.stringify(after).includes(alice));
-  say('`login` saves the token once in the home folder (not in a project); every project and the status tool use it, and it is never printed');
+  say('the token belongs to the project: `npm run login` saves it in .env.local, an old computer-wide file is not read, `login` for the computer is gone, status says where the token came from');
 
   const deployed = await a.tool('deploy', { confirm: true, only: 'backend' });
   assert.equal(deployed.isError, false, deployed.content[0].text);
   assert.match(deployed.content[0].text, /Backend ready/);
   assert.equal((await fetch(`${base}/b/alice/health`)).status, 200);
-  say('deploy publishes the new project\'s backend with the computer-wide token');
+  say('deploy publishes the new project\'s backend with the project\'s token');
 
   // ---------- a newer package is mentioned by status ----------
   const fake = createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ version: '9.9.9', alias: 'http://example.invalid/class-platform-mcp.tgz' })); });
@@ -197,11 +209,12 @@ try {
   rmSync(classHome, { recursive: true, force: true });
   r = setup(['--yes'], `${alice}\n`);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.ok(existsSync(join(classHome, 'token')), 'setup also saved the token');
+  assert.ok(!existsSync(join(classHome, 'token')), 'setup no longer saves a token anywhere');
+  assert.match(r.stdout, /npm run login/, 'setup tells the student to log in inside each project');
   assert.ok(!r.stdout.includes(alice));
   assert.deepEqual(readJson(vscode.file).servers['class-platform'], { type: 'stdio', command: expectedCommand, args: expectedArgs });
   assert.deepEqual(readJson(antigravity.file).mcpServers['class-platform'], { command: expectedCommand, args: expectedArgs });
-  say('setup: saves the token, then creates the VS Code (servers, type stdio) and Antigravity (mcpServers) entries with the pinned URL; dry run, no terminal and --editors none write nothing');
+  say('setup: saves no token and says to log in per project, then creates the VS Code (servers, type stdio) and Antigravity (mcpServers) entries with the pinned URL; dry run, no terminal and --editors none write nothing');
 
   r = setup(['--yes', '--no-token']);
   assert.equal((r.stdout.match(/already set up/g) ?? []).length, 2);

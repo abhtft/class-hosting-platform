@@ -381,8 +381,13 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   writeFileSync(join(repo, 'release.json'), JSON.stringify({ repo: 'someone/class-platform', version: '1.2.0', tag: 'v1.2.0', url: 'https://github.com/someone/class-platform/releases/download/v1.2.0/class-platform-teacher-1.2.0.tgz' }));
   const fake = fakeAws({ stack: 'UPDATE_COMPLETE', nextChanges: [{ Action: 'Modify', LogicalResourceId: 'PortalFunction', ResourceType: 'AWS::Lambda::Function', Replacement: 'False' }] });
   const { ctx } = context(fake);
+  const was = readFileSync(join(repo, 'VERSION'), 'utf8');
+  writeFileSync(join(repo, 'VERSION'), '1.2.0\n'); // this copy is newer than what the account runs (1.1.0): the update has a "previous release" to go back to
   const p = await engine.plan(ctx);
   const done = await engine.apply(ctx, p.planId);
+  writeFileSync(join(repo, 'VERSION'), was);
+  assert.equal(done.rollbackCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v1.1.0/class-platform-teacher-1.1.0.tgz publish');
+  assert.match(done.message, /put the previous kit back.*v1\.1\.0.*publish/);
   assert.equal(done.editorCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v1.2.0/class-platform-teacher-1.2.0.tgz editor');
   assert.match(done.message, /make your editor's teacher tools use this version too, run: npx -y .*tgz editor/);
   rmSync(join(repo, 'release.json'));

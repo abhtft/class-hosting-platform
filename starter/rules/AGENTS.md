@@ -41,7 +41,7 @@ route, `localStorage`, class storage (`class_storage`) or an external HTTP servi
 
 ## Check which features are on before you plan
 
-The teacher switches class AI, class storage, the backend and a custom domain on **per student**, and can switch them off again. This file cannot say what is on for this student, and you must not guess. **Before planning or writing anything that uses class AI, class storage, a backend or a custom domain, find out:** call the `status` tool (or run `node portal-deploy.mjs status`) and read the "Features for you" block. It is read live from the portal.
+The teacher switches class AI, class storage, the backend and a custom domain on **per student**, and can switch them off again. This file cannot say what is on for this student, and you must not guess. **Before planning or writing anything that uses class AI, class storage, a backend or a custom domain, find out:** call the `status` tool (or run `node portal-deploy.mjs status`) and read the "Features for you" block. It is read live from the portal, and it also brings the kit (including this file) up to date, so **call it first in every session**. If it reports that the kit was updated, re-read this file before you continue.
 
 - **Feature on (✔):** build with it as described in this file.
 - **Feature off (✖):** tell the student plainly which feature is off and that only their teacher can switch it on. Then build a version that works without it, and say what the app cannot do yet. For example: `localStorage` instead of class storage (and say the data stays in that browser), or a clearly marked placeholder where the AI answer would go. Never build something that will deploy and then fail with "not enabled".
@@ -123,7 +123,7 @@ Choose the simplest option that fits and **tell the student its limits**:
 | `npm run check` | The platform check: layout, limits, imports, secrets. **Run it before every commit.** |
 | `npm run build` | Builds the site into `frontend/dist`. |
 | `npm run doctor` | Checks Node, Python and git on the computer. |
-| `npm run login` | **The student runs this themselves, once.** It asks for the portal token (hidden), checks it and saves it in `.env.local`. |
+| `npm run login` | **The student runs this themselves, once per project.** It asks for the portal token (hidden), checks it and saves it in this project's `.env.local`. There is no computer-wide token. |
 | `npm run deploy` | Publishes the backend, then the frontend, straight from this computer. |
 | `npm run mcp-config` | Prints the settings that connect an AI editor's tool server (see "Deploying"). |
 
@@ -146,7 +146,7 @@ When the student says "deploy", "publish" or "put it online":
 
 **If your editor has the `class-platform` tools** (VS Code: the project's `.vscode/mcp.json`; Antigravity: the student pasted the snippet from `npm run mcp-config`), use them instead of the terminal: `check_project`, then ask the student "publish now?", then `deploy` with `confirm=true` only after they say yes; `status` tells whether the token is valid. The tools refuse to deploy a project that fails the check. The token still comes from `npm run login`; the tools never ask for it.
 
-**Keeping the kit current.** `npm run check` and `npm run deploy` print one line when a newer class kit exists (and the `status` tool says so). Tell the student in plain words, and offer to update: with the tools, call `update_kit` with `confirm=true` after a yes; otherwise `npm run platform -- update --apply` (add `-- update` alone first to preview). It only replaces the kit's own files, never the student's code, and it keeps any kit file the student edited. After an update run `npm run check`.
+**The kit follows the teacher's platform, automatically.** `npm run deploy` and the `status` tool first compare this project's kit files (these rules, `tools/`, the deploy script, the helpers) with the teacher's portal and, when they differ, bring them in line before doing anything else. Nobody is asked. Only the kit's own files are replaced, never the student's code or `.env` files, and every replaced file is first copied to `.kit-backup/<time>/`. If you edited a kit file, your edit is replaced (the old copy is in `.kit-backup/`): do not edit kit files, put your own code in `frontend/` and `backend/`. If the sync says it could not finish, tell the student what it printed; do not work around it. `update_kit` and `npm run platform -- update --apply` still exist for a manual run.
 
 Deploying from GitHub (push to `main`) is the alternative for students who use GitHub; it does not need `npm run login`.
 

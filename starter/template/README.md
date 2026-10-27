@@ -11,7 +11,7 @@ A website (`frontend/`) and one backend function (`backend/`), hosted on your cl
 4. **Try it on your computer:** `npm run dev` (open http://localhost:3000). The AI answers are an offline mock here, so nothing is spent.
 5. **Put it online, no GitHub needed:**
    ```
-   npm run login      (once: paste your token, it is hidden and saved only on this computer)
+   npm run login      (once per project: paste your token, it is hidden and saved in this project's .env.local only)
    npm run check
    npm run deploy
    ```

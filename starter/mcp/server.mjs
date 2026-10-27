@@ -6,12 +6,12 @@
 //   init_project    write the class starter (site, backend, rules, helpers) into an EMPTY folder (it asks you for a yes first)
 //   check_project   the same as `npm run check`
 //   deploy          check first, then the same as `npm run deploy` (it asks you for a yes before it publishes)
-//   status          is your saved token valid, and for how many days; and whether a newer kit or tool is available
+//   status          is this project's token valid, and for how many days; which features the teacher switched on; brings the kit in line with the teacher's platform first
 //   update_kit      bring the kit's own files up to date (it asks you for a yes first; same as `npm run platform -- update --apply`)
 //
 // This one file runs in two places: inside a kit project as tools/mcp.mjs, and as the entry of the `class-platform-mcp` package that the editor
-// starts with npx (see starter/mcp/setup.mjs). The token comes from the environment, the project's .env.local, or the computer-wide
-// ~/.class-platform/token that `class-platform-mcp setup` saves; it is never in the editor's settings.
+// starts with npx (see starter/mcp/setup.mjs). The token comes from the environment or the PROJECT's .env.local (`npm run login` saves it there);
+// there is no computer-wide token, and it is never in the editor's settings.
 //
 // Which folder is "the project"? In this order: a `path` the assistant passes to a tool, the folder the editor says is open (MCP "roots"),
 // --root <dir>, the kit project this file lives in, then the working directory.
@@ -127,7 +127,7 @@ const TOOLS = [
         });
         installText = done.ok ? ' The site\'s packages are installed.' : ` The site\'s packages could not be installed (run "npm ci" inside frontend/ yourself): ${clean(done.out).slice(-300)}`;
       }
-      return { ok: true, text: `Wrote ${written} files to ${root}.${installText}\nNext: run check_project, then try it with "npm run dev" (site on http://localhost:3000). The rules for the assistant are in AGENTS.md. To publish: save the token once ("npx ... class-platform-mcp login" or "npm run login"), then deploy.` };
+      return { ok: true, text: `Wrote ${written} files to ${root}.${installText}\nNext: run check_project, then try it with "npm run dev" (site on http://localhost:3000). The rules for the assistant are in AGENTS.md. To publish: in this folder's terminal run "npm run login" once (it saves the token in this project's .env.local), then deploy.` };
     },
   },
   {
@@ -166,7 +166,7 @@ const TOOLS = [
   },
   {
     name: 'status',
-    description: 'Say whether the saved portal token is valid and for how many days, and whether a newer class kit or MCP tool is available. Deploys nothing. If it says no token is found, the student must save it themselves in their own terminal (never ask them to paste the token to you).',
+    description: 'Say whether the portal token of this project is valid and for how many days, and which features (backend, class AI, class storage, custom domain) the teacher has switched on for this student, read live from the portal. It first brings the kit files of this project in line with the platform of the teacher (the old copies are saved), so call it at the start of every session, before planning. Deploys nothing. If it says no token is found, the student must save it themselves in their own terminal (never ask them to paste the token to you).',
     inputSchema: { type: 'object', properties: { path: PATH_PROPERTY }, additionalProperties: false },
     async run({ path } = {}) {
       const root = projectRoot(path);
@@ -238,7 +238,7 @@ async function handle(message) {
         protocolVersion: typeof params.protocolVersion === 'string' ? params.protocolVersion : '2025-06-18',
         capabilities: { tools: {} },
         serverInfo: { name: 'class-platform', version: versionOf() },
-        instructions: 'Tools for a class project. To start: init_project in an empty folder (ask first). To publish: check_project, ask the student "publish now?", then deploy with confirm=true. If there is no token, the student saves it themselves in a terminal; never ask for it.',
+        instructions: 'Tools for a class project. To start: init_project in an empty folder (ask first). To publish: check_project, ask the student "publish now?", then deploy with confirm=true. Call status at the start of every session: it shows which features are on and brings the kit up to date. If there is no token, the student runs "npm run login" in the project folder themselves; never ask for it.',
       } });
     case 'ping':
       return send({ id, result: {} });

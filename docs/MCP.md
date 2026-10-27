@@ -22,7 +22,7 @@ Why it matters here: students are beginners. Instead of learning `npm run check`
 | Transport | **stdio**: the editor starts the process and exchanges one JSON-RPC 2.0 message per line on stdin/stdout |
 | Tools | `init_project`, `check_project`, `deploy`, `status`, `update_kit` |
 | Who writes the files | The tools run existing scripts (`check.mjs`, `portal-deploy.mjs`, `platform.mjs`) and unpack the starter kit; nothing else |
-| Token | Never in the editor's settings. Read from the environment, the project's `.env.local`, or the computer-wide `~/.class-platform/token` |
+| Token | Never in the editor's settings. Read from the environment or the project's `.env.local` (`npm run login` saves it there). There is no computer-wide token |
 | Code | `starter/mcp/server.mjs` (the one server), `bin.mjs` (command entry), `setup.mjs` (editor setup), `jsonc.mjs`, `package.json`; built by `starter/build-mcp-package.mjs` |
 | Tests | `tests/test_mcp.mjs`, `tests/test_mcp_package.mjs`, plus the update tests (`test_update_notice.mjs`, `test_kit_update.mjs`) |
 
@@ -92,9 +92,9 @@ The tarball is built **deterministically** (fixed timestamps and ordering by our
 npx -y <portal>/class-platform-mcp.tgz setup
 ```
 
-`setup` (in `setup.mjs`) does two things, once per computer:
+`setup` (in `setup.mjs`) does one thing, once per computer, and says so about the token:
 
-1. **Token.** If `~/.class-platform/token` is missing or invalid, it asks for the token the teacher gave (masked input), checks it with the portal and saves it there. The folder can be moved with `CLASS_PLATFORM_HOME`. The token is never written into any project or editor setting.
+1. **Token.** It saves none. The token belongs to a project: `npm run login` inside the project writes its `.env.local`. An old `~/.class-platform/token` is no longer read (setup mentions it so it can be deleted). The token is never written into any editor setting.
 2. **Editors.** It finds VS Code and Antigravity, **shows exactly what it will add**, asks `[Y/n]`, makes a timestamped backup (`mcp.json.bak-YYYYMMDDHHMMSS`) and merges **one** entry named `class-platform`. Other servers are never touched.
 
 | Editor | Settings file | Shape of the entry |
@@ -114,7 +114,7 @@ The entry points at the **pinned** tarball. On Windows editors cannot find `npx`
 | No terminal to ask | Skips and says to run again with `--yes` |
 | `--dry-run` | Prints what it would do, writes nothing (also skips the token step) |
 
-Other flags: `--yes`, `--no-token`, `--editors vscode,antigravity|none`, `--portal <url>`. The same package also offers `login` (save the token for the whole computer), `version` and `help`.
+Other flags: `--yes`, `--no-token`, `--editors vscode,antigravity|none`, `--portal <url>`. The same package also offers `version` and `help` (`login` was removed: run `npm run login` inside the project).
 
 ### Checking an existing installation
 
@@ -124,7 +124,7 @@ Run the same setup command again. It reports "Token: already saved and valid", a
 
 | Concern | Control |
 |---|---|
-| Token leaking into the AI chat or settings | The token is only read from the environment, `.env.local` or `~/.class-platform/token`. Tool descriptions tell the AI to never ask for it; `status` says the student must save it in their own terminal. Output masking removes `mds_...` values |
+| Token leaking into the AI chat or settings | The token is only read from the environment or the project's `.env.local`. Tool descriptions tell the AI to never ask for it; `status` says the student must save it in their own terminal. Output masking removes `mds_...` values |
 | The AI publishing without consent | Destructive tools need `confirm: true`, and their descriptions say to ask the student first. `deploy` also runs the check and refuses on errors |
 | Overwriting a student's work | `init_project` refuses a folder that already has files (editor folders such as `.git`, `.vscode`, `.idea` are ignored). `update_kit` only touches kit-managed files |
 | A malicious zip writing outside the folder | `zip.mjs` `readZip` refuses any path that would leave the target folder |
