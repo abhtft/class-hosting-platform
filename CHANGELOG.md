@@ -4,6 +4,8 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+## 1.2.3
+
 - **Student kit 1.7.0 and `class-platform-mcp` 1.0.1.** Release 1.2.2 changed the kit (the rules in `AGENTS.md` and `portal-deploy.mjs`) but left `kitVersion` at 1.6.0, so students' `status` and the one-line update notice said "up to date" and nobody was told to update; the unchanged package version also let `npx` keep serving a cached copy to `init_project`. Both versions are bumped. Students on kit 1.6.0 get the notice and run `npm run platform -- update --apply` (or the `update_kit` tool); `update` already replaced files by content, so it worked before, it just was not announced. To get a fresh package, set the editor tools to the new pinned address with `npx -y <portal>/class-platform-mcp-1.0.1.tgz setup` (the old tarball stays available).
 - **A test now fails when the kit changes without a version bump** (`tests/kit-versions.json`, checked in `tests/test_kit.mjs`).
 
