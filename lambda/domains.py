@@ -76,6 +76,54 @@ def _state(item, state):
     return item if item.get("domain_state") == state else _save(item, domain_state=state)
 
 
+# ---------- what the student's CNAME really points at ----------
+DOH_URL = "https://cloudflare-dns.com/dns-query"
+
+
+def _plain(name):
+    return str(name or "").strip().lower().rstrip(".")
+
+
+def lookup_cname(domain):
+    """The CNAME target a public resolver sees for `domain`: a lowercase name, "" when there is no CNAME, None when it cannot say.
+    Uses DNS over HTTPS (a Lambda has no resolver tool); tests replace this function."""
+    import json
+    import urllib.parse
+    import urllib.request
+    try:
+        request = urllib.request.Request(f"{DOH_URL}?{urllib.parse.urlencode({'name': domain, 'type': 'CNAME'})}", headers={"accept": "application/dns-json"})
+        with urllib.request.urlopen(request, timeout=2) as response:
+            answer = json.loads(response.read()).get("Answer") or []
+    except Exception:
+        return None
+    for record in answer:
+        if record.get("type") == 5 and _plain(record.get("name")) == _plain(domain):
+            return _plain(record.get("data"))
+    return ""
+
+
+def dns_hint(item):
+    """For a student still at "waiting_dns": what their DNS shows, and what to change. None when nothing useful can be said.
+    The most common mistake is pointing the CNAME at the platform's site address instead of the custom-domain address."""
+    domain, target = item.get("domain"), _plain(os.environ.get("ROUTING_ENDPOINT"))
+    if not domain or not target:
+        return None
+    found = lookup_cname(domain)
+    if found is None:
+        return None
+    found = _plain(found)
+    if found == target:
+        return {"state": "ok", "found": found, "target": target, "message": "Your CNAME is right. AWS checks again every few seconds."}
+    if not found:
+        return {"state": "missing", "found": "", "target": target,
+                "message": f"No CNAME for {domain} is visible yet. DNS can take a few minutes. If you added it, check the name and that it is not proxied (on Cloudflare use DNS only, a grey cloud)."}
+    site = _plain(os.environ.get("DISTRIBUTION_DOMAIN"))
+    why = " That is the platform's site address; custom domains use a different address." if site and found == site else (
+        " That is another CloudFront address of this platform, not the custom-domain one." if found.endswith(".cloudfront.net") else "")
+    return {"state": "wrong", "found": found, "target": target,
+            "message": f"Your CNAME for {domain} points at {found}, but it must point at {target}.{why} Change the record's target to {target}."}
+
+
 # ---------- student actions ----------
 def set_domain(item, body, now):
     if not tenant_distribution_id():

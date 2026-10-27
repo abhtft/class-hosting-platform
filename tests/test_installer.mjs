@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as engine from '../installer/engine.mjs';
-import { main, parseArgs } from '../setup.mjs';
+import { main, parseArgs, versionBanner } from '../setup.mjs';
 
 const repo = mkdtempSync(join(tmpdir(), 'installer-'));
 writeFileSync(join(repo, 'template.yaml'), 'Resources: {}\n');
@@ -292,6 +292,33 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   rmSync(join(repo, 'release.json'));
   assert.equal((await engine.status(context(fake).ctx)).latestVersion, null, 'a git checkout has no release to compare with');
   console.log('  ok  status announces a newer GitHub release with the exact command, ignores odd answers and offline');
+}
+
+// ---------- every command prints its version first; install and upgrade warn when the copy is old ----------
+{
+  const answer = (tag) => async () => ({ status: 200, json: async () => ({ tag_name: tag }) });
+  const printed = async (ctx, command, flags = {}, state = {}) => {
+    const lines = [];
+    const original = console.log;
+    console.log = (...parts) => lines.push(parts.join(' '));
+    try { await versionBanner(ctx, command, flags, state); } finally { console.log = original; }
+    return lines.join('\n');
+  };
+  writeFileSync(join(repo, 'release.json'), JSON.stringify({ repo: 'someone/class-platform', version: '1.1.0' }));
+  const { ctx } = context(fakeAws({ stack: 'UPDATE_COMPLETE', parameters: {} }), { fetch: answer('v9.9.9') });
+  const version = engine.repoVersion(ctx);
+  const old = await printed(ctx, 'install');
+  assert.ok(old.startsWith(`Class platform teacher tools ${version}`), 'the version is the first line');
+  assert.match(old, /9\.9\.9 is the newest release.*class-platform-teacher-9\.9\.9\.tgz install/);
+  assert.match(await printed(ctx, 'upgrade'), /class-platform-teacher-9\.9\.9\.tgz upgrade/);
+  const statusOnly = await printed(ctx, 'status');
+  assert.equal(statusOnly, `Class platform teacher tools ${version}`, 'other commands print the version and make no network call for the warning');
+  assert.equal(await printed(ctx, 'install', { json: true }), '', 'the JSON mode stays clean');
+  assert.doesNotMatch(await printed(ctx, 'install', {}, { updateNotices: false }), /newest release/, 'a teacher who declined notices gets none');
+  assert.doesNotMatch(await printed({ ...ctx, fetch: answer(`v${version}`) }, 'install'), /newest release/, 'the newest copy gets no warning');
+  assert.doesNotMatch(await printed({ ...ctx, fetch: async () => { throw new Error('offline'); } }, 'install'), /newest release/, 'offline is silent');
+  rmSync(join(repo, 'release.json'));
+  console.log('  ok  every command prints its version first; install and upgrade warn about an older copy');
 }
 
 // ---------- a fresh clone adopts the stack that already exists ----------

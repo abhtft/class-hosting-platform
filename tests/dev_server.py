@@ -80,6 +80,7 @@ class DevTenantCloudFront(FakeTenantCloudFront):
 
 
 domains._client = app.cloudfront = DevTenantCloudFront()
+domains.lookup_cname = lambda domain: None  # no real DNS lookups from the demo server
 app.s3, app.ssm = FakeS3(port), FakeSSM()
 # Student backends: a fake Lambda that really runs the uploaded Python/Node handler, behind the real gateway code
 dev_logs = FakeLogs()

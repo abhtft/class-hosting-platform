@@ -20,6 +20,8 @@ portal._store = portal.MemoryStore()
 portal._teacher.update(loaded_at=10**12, value={
     "username": "teacher", "salt": portal.b64(salt), "hash": portal.b64(portal.scrypt_hash("pw", salt)), "secret": portal.b64(b"2" * 32)})
 cf = domains._client = FakeTenantCloudFront()
+dns_answer = {"value": ""}  # what the student's DNS shows; the real lookup (DNS over HTTPS) is replaced so tests never use the network
+domains.lookup_cname = lambda domain: dns_answer["value"]
 app.cloudfront = cf
 app.s3 = FakeS3()
 now = int(time.time())
@@ -77,6 +79,23 @@ c = body["token"]["custom_domain"]
 assert status == 200 and c["state"] == "waiting_dns" and c["domain"] == "www.alice.com" and "DNS" in c["message"], body
 assert call("PUT", "/api/student/domain", {"domain": "www.other.com"}, alice)[0] == 409
 assert call("GET", "/api/student/domain/status", session=alice)[1]["token"]["custom_domain"]["state"] == "waiting_dns"
+
+# ---- the DNS hint: say what the CNAME points at and what it must point at ----
+hint = lambda: call("GET", "/api/student/domain/status", session=alice)[1]["dns"]  # noqa: E731
+dns_answer["value"] = ""
+assert hint()["state"] == "missing" and "www.alice.com" in hint()["message"]
+dns_answer["value"] = "d.cloudfront.net."  # the platform's SITE address (DISTRIBUTION_DOMAIN="d" here is not a cloudfront name, so use the generic wording)assert hint()["state"] == "wrong" and hint()["found"] == "d.cloudfront.net" and "route.cloudfront.net" in hint()["message"] and "CloudFront address" in hint()["message"]
+dns_answer["value"] = "d"
+assert hint()["state"] == "wrong" and "site address" in hint()["message"]
+dns_answer["value"] = "elsewhere.example.net"
+assert hint()["state"] == "wrong" and "elsewhere.example.net" in hint()["message"] and "CloudFront" not in hint()["message"]
+dns_answer["value"] = "Route.CloudFront.net."
+assert hint()["state"] == "ok"
+dns_answer["value"] = None  # the lookup could not say: no hint, nothing invented
+assert hint() is None
+dns_answer["value"] = ""
+# the hint belongs to the waiting step only, and a student's removal answer carries none
+assert "dns" not in call("DELETE", "/api/student/domain", session=bob)[1]
 
 # ---- the same domain cannot be claimed twice ----
 switch(bob_id, True)

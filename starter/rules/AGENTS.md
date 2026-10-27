@@ -39,6 +39,15 @@ route, `localStorage`, class storage (`class_storage`) or an external HTTP servi
 9. **One backend language.** `app.py` **or** `index.mjs`, not both. To switch to Node: delete `backend/app.py`, `backend/class_ai.py` and `backend/class_storage.py`, then move the files from `variants/node-backend/` into `backend/` (and delete the `variants/` folder).
 10. **Do not edit** `.github/workflows/deploy.yml`, `portal-deploy.mjs`, `tools/` or `platform.json` unless the student's teacher asked for it.
 
+## Check which features are on before you plan
+
+The teacher switches class AI, class storage, the backend and a custom domain on **per student**, and can switch them off again. This file cannot say what is on for this student, and you must not guess. **Before planning or writing anything that uses class AI, class storage, a backend or a custom domain, find out:** call the `status` tool (or run `node portal-deploy.mjs status`) and read the "Features for you" block. It is read live from the portal.
+
+- **Feature on (✔):** build with it as described in this file.
+- **Feature off (✖):** tell the student plainly which feature is off and that only their teacher can switch it on. Then build a version that works without it, and say what the app cannot do yet. For example: `localStorage` instead of class storage (and say the data stays in that browser), or a clearly marked placeholder where the AI answer would go. Never build something that will deploy and then fail with "not enabled".
+- Check again before a deploy if the student has been working for a while: `deploy` warns when the backend uses `class_ai` or `class_storage` and that feature is off now.
+- If you cannot reach the portal (no token yet, no internet), say so and ask the student before relying on any of these features.
+
 ## Backend pattern (Python)
 
 ```python

@@ -116,9 +116,24 @@ const print = (data, flags) => {
   if (data.next) console.log(`\nNext: ${data.next}`);
 };
 
+/** The first line of every command says which version is running (nothing in --json mode, whose output is read by a program). For install and upgrade it also says,
+ *  in one extra line, when GitHub has a newer release than this copy. `npx` can keep an old download, so this is how a teacher finds out. Skipped when the teacher chose
+ *  at install not to be told, and silent when GitHub cannot be reached. */
+export async function versionBanner(ctx, command, flags, state = engine.readState({ repo })) {
+  if (flags.json) return;
+  const mine = engine.repoVersion(ctx);
+  console.log(`Class platform teacher tools ${mine}`);
+  if (!['wizard', 'install', 'upgrade'].includes(command) || state?.updateNotices === false) return;
+  const latest = await engine.latestRelease(ctx);
+  if (!latest || !engine.newerThan(latest.version, mine)) return;
+  const base = latest.command.replace(/ upgrade$/, '');
+  console.log(`⚠ This copy is ${mine} but ${latest.version} is the newest release. Run the newest instead:  ${base} ${command === 'upgrade' ? 'upgrade' : 'install'}\n`);
+}
+
 export async function main(argv, overrides = {}) {
   const { command = 'wizard', args, flags } = parseArgs(argv);
   const ctx = makeContext(flags, overrides);
+  await versionBanner(ctx, command, flags);
   const finish = (data) => { print({ ...data, would: ctx.dryRun ? ctx.would : undefined }, flags); return data; };
   try {
     switch (command) {

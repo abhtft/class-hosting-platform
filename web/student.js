@@ -10,6 +10,7 @@ let picked = null; // {mode: 'folder', result} or {mode: 'zip', file}
 let busy = false;
 let domainSig = null; // what the domain card shows, so a refresh doesn't wipe a half-typed domain
 let domainTimer = null;
+let dnsHint = null; // what the student's CNAME points at and what it must point at, from the server (only while waiting for DNS)
 let deployMode = null; // what the deploy card currently shows, so a refresh doesn't rebuild it and lose the result message
 
 function show(signedIn) {
@@ -19,7 +20,7 @@ function show(signedIn) {
 
 function signOut(message = '') {
   session('student', null);
-  token = picked = deployMode = domainSig = null;
+  token = picked = deployMode = domainSig = dnsHint = null;
   clearTimeout(domainTimer);
   stopBackend();
   stopGithub();
@@ -155,7 +156,7 @@ function renderDomain() {
   const c = token.custom_domain;
   if (!c || !c.available) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  const sig = JSON.stringify([c.enabled, c.domain, c.state, token.can_deploy]);
+  const sig = JSON.stringify([c.enabled, c.domain, c.state, token.can_deploy, dnsHint?.message]);
   if (sig === domainSig) return;
   domainSig = sig;
   clearTimeout(domainTimer);
@@ -174,7 +175,9 @@ function renderDomain() {
     save.disabled = true;
     error.textContent = '';
     try {
-      ({ token } = await call('/api/student/domain', { method: 'PUT', body: { domain: input.value } }));
+      const saved = await call('/api/student/domain', { method: 'PUT', body: { domain: input.value } });
+      ({ token } = saved);
+      dnsHint = saved.dns || null;
       renderDomain();
     } catch (e) {
       error.textContent = e.message;
@@ -202,7 +205,8 @@ function renderDomainProgress(box, c) {
     h('table', { class: 'dns' },
       h('tr', {}, h('th', {}, 'Type'), h('th', {}, 'Name'), h('th', {}, 'Target')),
       h('tr', {}, h('td', {}, 'CNAME'), h('td', {}, host), h('td', {}, c.cname_target))),
-    h('p', { class: 'muted small', style: 'margin:0' }, `Some providers want the full name (${c.domain}) instead of just “${host}”. On Cloudflare, set the record to DNS only (grey cloud). This page updates by itself.`)) : null;
+    h('p', { class: 'muted small', style: 'margin:0' }, `Some providers want the full name (${c.domain}) instead of just “${host}”. On Cloudflare, set the record to DNS only (grey cloud). This page updates by itself.`),
+    c.state === 'waiting_dns' && dnsHint ? h('p', { class: dnsHint.state === 'wrong' ? 'error' : 'muted small', role: 'status', style: 'margin:0' }, dnsHint.message) : null) : null;
   const error = h('div', { class: 'error', role: 'alert' });
   const remove = h('button', { class: 'small danger', onclick: async () => {
     const r = await ask({ title: 'Remove your custom domain?', text: `${c.domain} will stop showing your site. Your ${token.url.replace('https://', '').replace(/\/$/, '')} address keeps working.`, confirm: 'Remove', danger: true });
@@ -225,7 +229,9 @@ function renderDomainProgress(box, c) {
 async function pollDomain(errorBox) {
   try {
     const before = domainSig;
-    ({ token } = await call('/api/student/domain/status'));
+    const polled = await call('/api/student/domain/status');
+    ({ token } = polled);
+    dnsHint = polled.dns || null;
     renderDomain(); // a changed state rebuilds the card, which schedules its own next poll
     const c = token.custom_domain;
     if (domainSig === before && c.domain && c.state !== 'live') domainTimer = setTimeout(() => pollDomain(errorBox), 8000);

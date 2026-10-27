@@ -458,7 +458,8 @@ def dispatch(method, path, body, event, now, site_url):
             item = domains.advance(item)
         else:
             return reply(404, error="Unknown route.")
-        return reply(200, token=view(item, now, site_url))
+        extra = {"dns": domains.dns_hint(item)} if method != "DELETE" and domain_view(item)["state"] == "waiting_dns" else {}
+        return reply(200, token=view(item, now, site_url), **extra)
 
     if path.startswith("/api/admin/"):
         verify_session("teacher", event, now)

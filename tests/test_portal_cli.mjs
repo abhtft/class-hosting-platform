@@ -208,6 +208,62 @@ try {
     assert.equal(editLine('mds_ab', '\u001b[A').buffer, 'mds_ab');
     assert.equal(editLine('', 'mds_ab\tc').buffer, 'mds_abc', 'other control keys are ignored');
   });
+  // 7. the student's agent learns which features are on from the live portal (status), and a deploy warns about a helper whose feature is off
+  const { featureList, featureLines, featureWarnings, helpersUsed } = await import(`${pathToFileURL(join(root, 'student', 'portal-deploy.mjs')).href}?features`);
+  const sample = {
+    backend: { available: true, enabled: true },
+    ai: { available: true, enabled: false },
+    storage: { available: false },
+    custom_domain: { available: true, enabled: true, domain: 'kid.example.test', state: 'live' },
+  };
+  check('featureList: on needs available and enabled; the reason says why a feature is off', () => {
+    const byId = Object.fromEntries(featureList(sample).map((f) => [f.id, f]));
+    assert.equal(byId.backend.on, true);
+    assert.equal(byId.ai.on, false);
+    assert.match(byId.ai.detail, /switched off/);
+    assert.equal(byId.storage.on, false);
+    assert.match(byId.storage.detail, /not installed/);
+    assert.match(byId.custom_domain.detail, /kid\.example\.test/);
+    assert.equal(featureList({}).every((f) => !f.on), true, 'a token view with no feature data counts as everything off');
+  });
+  check('featureLines: lists every feature and tells the agent the teacher switches them on', () => {
+    const text = featureLines(sample).join('\n');
+    assert.match(text, /✔ Backend/);
+    assert.match(text, /✖ Class AI/);
+    assert.match(text, /teacher/);
+  });
+  const helperDir = join(work, 'helpers');
+  mkdirSync(helperDir, { recursive: true });
+  writeFileSync(join(helperDir, 'app.py'), 'from class_ai import ask\n');
+  writeFileSync(join(helperDir, 'class_storage.py'), '# the kit copy itself must not count\n');
+  check('helpersUsed: finds class_ai in the student code and ignores the kit helper files', () => {
+    assert.deepEqual([...helpersUsed(helperDir)], ['ai']);
+    assert.deepEqual([...helpersUsed(join(work, 'nope'))], []);
+  });
+  check('featureWarnings: only a used helper whose feature is off', () => {
+    assert.equal(featureWarnings(sample, new Set(['ai'])).length, 1);
+    assert.match(featureWarnings(sample, new Set(['ai']))[0], /class_ai/);
+    assert.equal(featureWarnings(sample, new Set(['storage'])).length, 1);
+    assert.equal(featureWarnings(sample, new Set()).length, 0);
+    assert.equal(featureWarnings({ ...sample, ai: { available: true, enabled: true } }, new Set(['ai'])).length, 0);
+  });
+  const statusRun = spawnSync('node', [join(root, 'student', 'portal-deploy.mjs'), 'status'], {
+    cwd: work, encoding: 'utf8', env: { ...process.env, PORTAL_DEPLOY_NO_MAIN: '', PORTAL_URL: URL, PORTAL_TOKEN: tokens.Alice, CLASS_PLATFORM_HOME: join(work, 'no-home') },
+  });
+  check('status prints the features block read from the portal (Alice has the backend on)', () => {
+    assert.equal(statusRun.status, 0, statusRun.stdout + statusRun.stderr);
+    assert.match(statusRun.stdout, /Features for you/);
+    assert.match(statusRun.stdout, /✔ Backend/);
+  });
+  const aiProject = project('alice-ai');
+  writeFileSync(join(aiProject, 'backend', 'app.py'), `${readFileSync(join(aiProject, 'backend', 'app.py'), 'utf8')}\nfrom class_ai import ask\n`);
+  const aiRun = spawnSync('node', [join(root, 'student', 'portal-deploy.mjs'), '--skip-build'], {
+    cwd: aiProject, encoding: 'utf8', env: { ...process.env, PORTAL_DEPLOY_NO_MAIN: '', PORTAL_URL: URL, PORTAL_TOKEN: tokens.Alice, CLASS_PLATFORM_HOME: join(work, 'no-home'), PORTAL_READY_TIMEOUT_MS: '30000' },
+  });
+  check('deploy warns (and still deploys) when the backend uses class_ai while it is off for the student', () => {
+    assert.equal(aiRun.status, 0, aiRun.stdout + aiRun.stderr);
+    assert.match(aiRun.stderr, /Your backend uses class_ai/);
+  });
   console.log('portal-deploy CLI: all passed');
 } finally {
   server.kill();

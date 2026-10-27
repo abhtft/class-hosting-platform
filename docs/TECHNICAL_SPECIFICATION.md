@@ -461,6 +461,8 @@ sequenceDiagram
 
 Rules: needs `domain_enabled` set by the teacher, an active token and no existing domain; one domain per student; subdomains only; refused names: the platform's own, AWS addresses, bare apex domains; unique through `domain#<name>` locks. CloudFront refuses to create the tenant until the CNAME is visible, so the first step simply retries. Removal (`DELETE /api/student/domain`) starts `removing`; the next poll or the daily sweeper completes it. Teacher switch off stops *adding*; a live domain keeps working. The multi-tenant distribution is not in CloudFormation: see section 12.3.
 
+**DNS hint.** While the state is `waiting_dns`, the `PUT` and `GET .../status` answers carry a `dns` object: `{state: ok | missing | wrong, found, target, message}`. The portal asks a public resolver over HTTPS (`lookup_cname` in `domains.py`, two seconds at most) for the student's CNAME and compares it with the routing endpoint, so the student page can say "your CNAME points at X, but it must point at Y" (the usual mistake is the platform's site address). When the lookup cannot answer, `dns` is `null` and nothing is invented.
+
 ### 4.5 Student backends (F6)
 
 <!-- diagram:59dc968c -->
@@ -737,7 +739,7 @@ The GitHub route (section 4.10) is not required. A student can publish from thei
 |---|---|
 | `npm run login` (`node portal-deploy.mjs login`) | asks for the token with **masked input** (raw keys: the first four characters, `mds_`, then one `*` per character, so the student can see the paste arrived; Backspace, Enter and Ctrl+C work, arrow keys are ignored); piped input is read as one line; checks it with `POST /api/student/login`; writes **only** the `PORTAL_TOKEN` line of `.env.local` and keeps every other line; refuses when `git check-ignore` says `.env.local` is not ignored; never prints the token |
 | `npm run deploy` (`node portal-deploy.mjs`) | the flow of section 4.10; the token comes from `PORTAL_TOKEN`, `.env.local` or `.env`; with no token and a terminal it offers the login prompt, without a terminal it says to run `npm run login` |
-| `node portal-deploy.mjs status` | signs in and reports the token's validity and days left; deploys nothing |
+| `node portal-deploy.mjs status` | signs in and reports the token's validity and days left, then a "Features for you" block (backend, class AI, class storage, custom domain: on only when the portal says `available` and `enabled`), read from the same sign-in answer; deploys nothing. The student MCP `status` tool runs it, so the agent learns the features from the live portal and never from `AGENTS.md`. `deploy` warns (and still deploys) when the backend imports `class_ai` or `class_storage` while that feature is off |
 | A rejected token | 401, 403 or 404 on sign-in gives one message: run `npm run login` with the current token (a regenerated token replaces the old one) |
 | The checker | skips `.env.local` in its secret scan (that is where the token lives) but still errors when git tracks it (`env-committed`) |
 | MCP server (`tools/mcp.mjs`) | newline-delimited JSON-RPC over stdio, dependency-free. Tools: `check_project`, `deploy` (argument `confirm` must be `true`, optional `only`; runs the check first and stops on errors) and `status`. Each runs the project's own scripts with stdin closed and a timeout (check 120 s, deploy 300 s, status 60 s), one deploy at a time; output has ANSI codes removed, `mds_` tokens masked and is capped at 8,000 characters. The token is read from `.env.local`; it is never in the editor's settings |

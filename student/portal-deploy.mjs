@@ -108,6 +108,52 @@ async function ask(question, { hidden = false } = {}) {
   });
 }
 
+/** What the teacher has switched on for this student, read from the portal's view of the token (never from a rules file, which goes stale).
+ *  Returns one entry per feature: { id, label, on, detail }. A feature the platform does not offer at all counts as off. */
+export function featureList(token) {
+  const offer = (part, label, id, detail) => {
+    const on = Boolean(part?.available && part?.enabled);
+    return { id, label, on, detail: on ? detail : part?.available === false ? 'not installed on this platform' : 'switched off for you' };
+  };
+  const domain = token.custom_domain;
+  return [
+    offer(token.backend, 'Backend', 'backend', 'on'),
+    offer(token.ai, 'Class AI', 'ai', token.ai?.model ? `on (${token.ai.provider || 'ai'}: ${token.ai.model})` : 'on'),
+    offer(token.storage, 'Class storage', 'storage', 'on'),
+    offer(domain, 'Custom domain', 'custom_domain', domain?.domain ? `on (${domain.domain}, ${domain.state})` : 'on, no domain set yet'),
+  ];
+}
+
+/** The lines `status` prints under the token line. */
+export function featureLines(token) {
+  const list = featureList(token);
+  return [
+    'Features for you (read live from the portal):',
+    ...list.map((f) => `  ${f.on ? '✔' : '✖'} ${f.label}: ${f.detail}`),
+    ...(list.some((f) => !f.on) ? ['A feature that is off is switched on by the teacher, not by you. Build without it, and ask the teacher if the project needs it.'] : []),
+  ];
+}
+
+/** Which class helpers does the backend folder use? Looks for the import of class_ai / class_storage in the backend's own code. */
+export function helpersUsed(dir) {
+  const used = new Set();
+  if (!existsSync(dir)) return used;
+  for (const file of listFiles(dir)) {
+    if (!/\.(py|mjs|js)$/.test(file) || /(^|[\\/])(class_ai|class_storage)\.(py|mjs)$/.test(file) || /node_modules/.test(file)) continue;
+    const text = readFileSync(file, 'utf8');
+    if (/\bclass_ai\b/.test(text)) used.add('ai');
+    if (/\bclass_storage\b/.test(text)) used.add('storage');
+  }
+  return used;
+}
+
+/** Warnings for a deploy: the backend uses a helper whose feature is off now (the teacher may have switched it off after the student started). */
+export function featureWarnings(token, used) {
+  const byId = Object.fromEntries(featureList(token).map((f) => [f.id, f]));
+  const names = { ai: 'class_ai (class AI)', storage: 'class_storage (class storage)' };
+  return [...used].filter((id) => byId[id] && !byId[id].on).map((id) => `Your backend uses ${names[id]}, but it is ${byId[id].detail}. It will answer "not enabled" until your teacher switches it on. Ask your teacher, or build a version without it.`);
+}
+
 /** `status`: signs in with the saved token and says how long it is valid. Deploys nothing. */
 async function status() {
   const saved = readToken();
@@ -115,6 +161,7 @@ async function status() {
   const info = await signIn(saved);
   const { token } = info;
   console.log(`Signed in as ${info.name} (${info.slug}). Token status: ${token.status}; valid for ${info.daysLeft} more day${info.daysLeft === 1 ? '' : 's'}; ${token.can_deploy ? 'it can deploy.' : 'it CANNOT deploy right now: ask your teacher.'}`);
+  for (const line of featureLines(token)) console.log(line);
 }
 
 /** `login`: ask for the token, check it with the portal, save it to .env.local. The token is never printed. */
@@ -318,6 +365,7 @@ async function main() {
   if (!token.can_deploy) fail(`Your token cannot deploy right now (status: ${token.status}). Ask your teacher, or request regeneration on the portal.`);
   console.log(`▶ Signed in as ${token.student_name || token.slug} (${token.slug}). Token valid for ${daysLeft} more day${daysLeft === 1 ? '' : 's'}.`);
   if (daysLeft <= 3) console.warn('⚠ Your token expires soon. Request regeneration on the portal so deploys keep working.');
+  if (doBackend) for (const warning of featureWarnings(token, helpersUsed(backendDir))) console.warn(`⚠ ${warning}`);
 
   if (doBackend) await deployBackend(session, backendDir);
   if (doFrontend) await deployFrontend(session, frontendDir);

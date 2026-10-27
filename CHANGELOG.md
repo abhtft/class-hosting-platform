@@ -4,6 +4,9 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+- **The student's AI agent now knows which features are on.** `status` (the student MCP tool and `node portal-deploy.mjs status`) prints a "Features for you" block (backend, class AI, class storage, custom domain) read live from the portal. The rules file `AGENTS.md` now tells the agent to check it before planning anything that uses a feature, and to build a version that works without a feature that is off (and tell the student to ask the teacher), instead of deploying something that fails with "not enabled". `deploy` warns when the backend uses `class_ai` or `class_storage` while that feature is off for the student. Students get the new rules with `update_kit`.
+- **The custom-domain page says what a wrong CNAME points at.** While waiting for DNS, the portal looks up the student's CNAME and shows one of: not visible yet, correct, or "points at X, but it must point at Y" (the usual mistake is using the platform's site address). The lookup uses DNS over HTTPS and says nothing when it cannot answer.
+- **Every command prints the version first** (`Class platform teacher tools X.Y.Z`; not in `--json` mode). `install` and `upgrade` also warn when GitHub has a newer release than the running copy, with the exact command, unless you declined update notices.
 - **Teacher guide rewritten** ([docs/TEACHER_SETUP.md](docs/TEACHER_SETUP.md)): a complete, ordered guide (what you get and costs, how to run the newest or a pinned version, install with and without a domain including the three DNS records, first class, features, students' custom domains with the common mistakes seen in practice, updates, `verify`, the editor tools, backup and transfer, destroy, troubleshooting, a table of every command, and what the tool never does).
 - The README quickstart now uses the newest-version command (`?v=`), which avoids an `npx` copy that was downloaded earlier.
 
