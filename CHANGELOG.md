@@ -4,6 +4,9 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+- **Student kit 1.7.0 and `class-platform-mcp` 1.0.1.** Release 1.2.2 changed the kit (the rules in `AGENTS.md` and `portal-deploy.mjs`) but left `kitVersion` at 1.6.0, so students' `status` and the one-line update notice said "up to date" and nobody was told to update; the unchanged package version also let `npx` keep serving a cached copy to `init_project`. Both versions are bumped. Students on kit 1.6.0 get the notice and run `npm run platform -- update --apply` (or the `update_kit` tool); `update` already replaced files by content, so it worked before, it just was not announced. To get a fresh package, set the editor tools to the new pinned address with `npx -y <portal>/class-platform-mcp-1.0.1.tgz setup` (the old tarball stays available).
+- **A test now fails when the kit changes without a version bump** (`tests/kit-versions.json`, checked in `tests/test_kit.mjs`).
+
 ## 1.2.2
 
 - **The student's AI agent now knows which features are on.** `status` (the student MCP tool and `node portal-deploy.mjs status`) prints a "Features for you" block (backend, class AI, class storage, custom domain) read live from the portal. The rules file `AGENTS.md` now tells the agent to check it before planning anything that uses a feature, and to build a version that works without a feature that is off (and tell the student to ask the teacher), instead of deploying something that fails with "not enabled". `deploy` warns when the backend uses `class_ai` or `class_storage` while that feature is off for the student. Students get the new rules with `update_kit`.

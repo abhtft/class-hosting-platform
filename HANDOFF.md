@@ -78,6 +78,17 @@ node tests/test_<name>.mjs    # one file; the teacher-side tests use a fake AWS 
 
 The owner has a small following, so the plan is a few real testers, not reach: 3 to 5 outside people who run the install. To do, in order, after 1.3.0: add a "Testers wanted" section and a demo recording to the README; add an "I tried the install" issue template; open 5 to 8 `good first issue` / `help wanted` issues from the gaps in `docs/STATE.md`; invite 3 to 5 people personally; then post publicly (LinkedIn, dev.to, Hacker News "Show HN", r/aws, r/edtech). The assistant offered to draft the README section, the post and the issue texts; nothing is published without the owner's go-ahead.
 
+## 4d. Decided: the student token lives only in the project's `.env.local` (target 1.3.0)
+
+**Decision (owner, after discussion):** drop the computer-wide token file (`~/.class-platform/token`). Reason: two editor windows on the same computer silently shared one token (last login won), and a shared or lab computer would hand the next person the previous student's token. The cost is one `npm run login` per project, which is accepted.
+
+**Work to do (spec first, owner approves, then code):**
+1. Token lookup becomes `PORTAL_TOKEN` (environment), `.env.local`, `.env`. No computer-wide file. `class-platform-mcp setup` only adds the editor entry and tells the student to run `npm run login` in each project; `class-platform-mcp login` and `login --global` are removed.
+2. `status` and `deploy` say where the token came from ("token from .env.local") next to "Signed in as ...". A project with no token says to run `npm run login` there.
+3. A one-time notice when an old `~/.class-platform/token` exists: it is no longer read, here is how to delete it, and to run `npm run login` in the project.
+4. Keep the existing protections: `npm run login` refuses to write `.env.local` unless git ignores it, `check` flags a tracked token, agents must never open `.env.local`.
+5. Update `starter/mcp/bin.mjs`, `starter/mcp/setup.mjs`, `student/portal-deploy.mjs`, the student guide, `AGENTS.md`, `docs/TECHNICAL_SPECIFICATION.md` (student kit section), the tests (`test_mcp_package.mjs`, `test_portal_cli.mjs`) and `CHANGELOG.md`.
+
 ## 5. Private facts (not in this repository)
 
 The owner's AWS account numbers, profile names, domain names and DNS records for the test platform, and the state of the test accounts, are in a git-ignored file in the private repository: `D:\Github_Codes\student-deploy\handoff.local`. Passwords and keys are not recorded anywhere; they live in AWS Secrets Manager and in the owner's own password handling.

@@ -1,6 +1,6 @@
 {
   "kit": "class-platform-starter",
-  "kitVersion": "1.6.0",
+  "kitVersion": "1.7.0",
   "minKit": "1.0.0",
   "portal": "https://deploy.example.edu",
   "frontend": "frontend",

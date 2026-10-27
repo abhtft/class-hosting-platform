@@ -222,6 +222,22 @@ assert.equal(read(join(again, 'kit-manifest.json')), read(join(kit, 'kit-manifes
 assert.deepEqual(listAll(kit).filter((f) => readFileSync(f).includes(Buffer.from([13, 10]))), [], 'no CRLF line endings in the kit');
 say('building twice gives the same manifest; every text file uses LF');
 
+// the kit's contents may only change together with a kitVersion bump: without one, `status` and the update notice tell students "up to date"
+// (found in the first real test of 1.2.2, when the rules and portal-deploy.mjs changed under kit 1.6.0). tests/kit-versions.json records
+// kitVersion -> a hash of every kit file except the version line itself; the hashes come from the LF-normalised manifest, so any computer gets the same one.
+{
+  const manifest = JSON.parse(read(join(kit, 'kit-manifest.json')));
+  const platform = JSON.parse(read(join(kit, 'platform.json')));
+  delete platform.kitVersion;
+  const files = { ...manifest.files, 'platform.json': JSON.stringify(platform) };
+  const contentHash = createHash('sha256').update(JSON.stringify(Object.entries(files).sort())).digest('hex');
+  const recorded = JSON.parse(read(join(here, 'kit-versions.json')));
+  assert.ok(recorded[manifest.kitVersion], `kit ${manifest.kitVersion} is not recorded: add  "${manifest.kitVersion}": "${contentHash}"  to tests/kit-versions.json`);
+  assert.equal(recorded[manifest.kitVersion], contentHash,
+    `the kit's files changed but kitVersion is still ${manifest.kitVersion}. Bump kitVersion in starter/template/platform.json (and the spec), then record the new hash in tests/kit-versions.json: ${contentHash}`);
+  say(`kit ${manifest.kitVersion}: its contents match the version recorded in tests/kit-versions.json`);
+}
+
 // build-kit refuses to overwrite by accident
 assert.throws(() => buildKit(kit), /not empty/);
 rmSync(work, { recursive: true, force: true });
