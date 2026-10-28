@@ -45,6 +45,7 @@ The teacher switches class AI, class storage, the backend and a custom domain on
 
 - **Feature on (✔):** build with it as described in this file.
 - **Feature off (✖):** tell the student plainly which feature is off and that only their teacher can switch it on. Then build a version that works without it, and say what the app cannot do yet. For example: `localStorage` instead of class storage (and say the data stays in that browser), or a clearly marked placeholder where the AI answer would go. Never build something that will deploy and then fail with "not enabled".
+- **Backend off (✖):** do not write backend routes and do not make the page depend on `/api/...`. Build a website that works on its own (`localStorage`, static data). `npm run deploy` then skips `backend/` with a warning and still publishes the website; it never stops the whole deploy for a backend that is off. Leave the `backend/` folder as it is; the teacher may switch the backend on later.
 - Check again before a deploy if the student has been working for a while: `deploy` warns when the backend uses `class_ai` or `class_storage` and that feature is off now.
 - If you cannot reach the portal (no token yet, no internet), say so and ask the student before relying on any of these features.
 

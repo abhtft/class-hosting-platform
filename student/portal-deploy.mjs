@@ -383,7 +383,7 @@ async function main() {
   if (only && !['frontend', 'backend'].includes(only)) fail('--only must be "frontend" or "backend".');
   const frontendDir = option('--frontend', 'frontend');
   const backendDir = option('--backend', 'backend');
-  const doBackend = only !== 'frontend' && (existsSync(backendDir) || only === 'backend');
+  let doBackend = only !== 'frontend' && (existsSync(backendDir) || only === 'backend');
   const doFrontend = only !== 'backend' && (existsSync(frontendDir) || only === 'frontend');
   if (only === 'backend' && !existsSync(backendDir)) fail(`The folder ${backendDir}/ does not exist here.`);
   if (only === 'frontend' && !existsSync(frontendDir)) fail(`The folder ${frontendDir}/ does not exist here.`);
@@ -400,6 +400,14 @@ async function main() {
   if (!token.can_deploy) fail(`Your token cannot deploy right now (status: ${token.status}). Ask your teacher, or request regeneration on the portal.`);
   console.log(`▶ Signed in as ${token.student_name || token.slug} (${token.slug}). Token valid for ${daysLeft} more day${daysLeft === 1 ? '' : 's'} (token from ${tokenSource}).`);
   if (daysLeft <= 3) console.warn('⚠ Your token expires soon. Request regeneration on the portal so deploys keep working.');
+  // a backend the teacher has not switched on for this student: publish the website anyway, instead of stopping at the portal's refusal and losing the whole deploy
+  if (doBackend && token.backend && !(token.backend.available && token.backend.enabled)) {
+    const why = featureList(token).find((f) => f.id === 'backend').detail;
+    if (only === 'backend') fail(`Your backend cannot be published: it is ${why}. Ask your teacher to switch it on.`);
+    if (!doFrontend) fail(`Nothing to publish: the backend is ${why} and there is no ${frontendDir}/ folder. Ask your teacher to switch the backend on.`);
+    console.warn(`⚠ The backend is ${why}, so ${backendDir}/ was NOT published; only your website is. Ask your teacher to switch the backend on if your project needs it.`);
+    doBackend = false;
+  }
   if (doBackend) for (const warning of featureWarnings(token, helpersUsed(backendDir))) console.warn(`⚠ ${warning}`);
 
   if (doBackend) await deployBackend(session, backendDir);

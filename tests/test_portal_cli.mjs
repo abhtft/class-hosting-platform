@@ -101,9 +101,16 @@ try {
   });
   check('a folder that is missing is simply skipped', () => assert.doesNotMatch(bob.stdout, /Backend/));
   const bobBackend = run(project('bob2'), tokens.Bob);
-  check('backend not enabled by the teacher: clear refusal, exit 1', () => {
-    assert.notEqual(bobBackend.status, 0);
-    assert.match(bobBackend.stderr, /not enabled|contact site owner/i);
+  check('backend not enabled by the teacher: it is skipped with a clear warning and the website is still published', () => {
+    assert.equal(bobBackend.status, 0, bobBackend.stdout + bobBackend.stderr);
+    assert.match(bobBackend.stderr, /The backend is switched off for you, so backend\/ was NOT published; only your website is/);
+    assert.match(bobBackend.stdout, /Frontend live at/);
+    assert.doesNotMatch(bobBackend.stdout, /Backend: packed|Backend ready/, 'nothing is uploaded for a backend that is off');
+  });
+  const bobOnlyBackend = run(project('bob3'), tokens.Bob, '--only', 'backend');
+  check('asking for the backend only while it is off: a clear refusal, exit 1', () => {
+    assert.notEqual(bobOnlyBackend.status, 0);
+    assert.match(bobOnlyBackend.stderr, /Your backend cannot be published: it is switched off for you.*Ask your teacher/s);
   });
   const carol = run(project('carol'), tokens.Carol);
   check('expired token cannot deploy', () => {

@@ -4,6 +4,10 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+## 2.0.1
+
+- **A deploy no longer fails completely when the backend is off.** The starter always contains `backend/`, and `deploy` published the backend first, so a student whose teacher had not switched the backend on got "Owner not enabled for you (403)" and the website was never published either. Now, when the portal says the backend is off for the student, `deploy` skips `backend/` with a clear warning and still publishes the website (`--only backend` while it is off is refused with the reason). The rules for AI editors say to build without a backend in that case. The kit syncs itself, so projects pick this up on their next command.
+
 ## 2.0.0
 
 - **One version number for everything.** The platform, the student kit and the editor package (`class-platform-mcp`) now carry the same version and one tag (`VERSION`), checked by a test, so "which version?" has one answer. It starts at 2.0.0 on purpose: kits 1.6.0 and 1.7.0 are already in students' projects, and a lower number such as 1.3.0 would have made them look newer than the platform's kit, so no update notice would ever appear. It is also a breaking release for students (the computer-wide token is gone). Releases: change `VERSION`, `teacher-mcp/package.json`, `starter/mcp/package.json` and `starter/template/platform.json` together (the test fails if one differs), record the kit hash in `tests/kit-versions.json`.
