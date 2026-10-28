@@ -56,9 +56,9 @@ Run that line once per terminal window, then use `npx -y "$PKG" <command>` (Powe
 
 **A pinned version** (to repeat a result, follow a guide written for one version, or go back after a problem):
 ```bash
-PKG=https://github.com/abhtft/class-hosting-platform/releases/download/v1.2.3/class-platform-teacher-1.2.3.tgz
+PKG=https://github.com/abhtft/class-hosting-platform/releases/download/v2.0.0/class-platform-teacher-2.0.0.tgz
 ```
-Replace `1.2.3` with the version you want (all versions are on the repository's Releases page, each with its changelog and checksum).
+Replace `2.0.0` with the version you want (all versions are on the repository's Releases page, each with its changelog and checksum).
 
 In the rest of this guide `<package>` means `npx -y "$PKG"` and `--profile <name>` is the AWS profile of the account (see section 3). Add `--dry-run` to the commands that change things to see every AWS command without running any.
 
@@ -221,7 +221,7 @@ npx -y https://github.com/abhtft/class-hosting-platform/releases/download/v<prev
 ```
 (`upgrade` and `apply` print this exact command, with your previous version filled in.) This puts back the portal pages, the student kit and the editor package; it does not change the AWS stack. Try each release on a throwaway student first.
 
-A project made with a much older kit (before 1.8.0) cannot do this by itself yet: its student runs `npm run platform -- update --apply` once, and from then on it follows you.
+A project made with a much older kit (before 2.0.0) cannot do this by itself yet: its student runs `npm run platform -- update --apply` once, and from then on it follows you.
 
 ## 9. Check that it works: verify
 

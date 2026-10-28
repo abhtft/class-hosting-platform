@@ -238,6 +238,20 @@ say('building twice gives the same manifest; every text file uses LF');
   say(`kit ${manifest.kitVersion}: its contents match the version recorded in tests/kit-versions.json`);
 }
 
+// one version for the platform, the student kit and the editor package: VERSION is the source, and a release that bumps only some of them fails here
+{
+  const platformVersion = read(join(repo, 'VERSION')).trim();
+  const versions = {
+    'VERSION': platformVersion,
+    'teacher-mcp/package.json': JSON.parse(read(join(repo, 'teacher-mcp', 'package.json'))).version,
+    'starter/mcp/package.json (the editor package)': JSON.parse(read(join(repo, 'starter', 'mcp', 'package.json'))).version,
+    'starter/template/platform.json (the kit)': JSON.parse(read(join(repo, 'starter', 'template', 'platform.json'))).kitVersion,
+    'the kit as built': JSON.parse(read(join(kit, 'platform.json'))).kitVersion,
+  };
+  for (const [where, found] of Object.entries(versions)) assert.equal(found, platformVersion, `${where} is ${found} but VERSION is ${platformVersion}: bump them together`);
+  say(`one version everywhere: the platform, the kit and the editor package are all ${platformVersion}`);
+}
+
 // build-kit refuses to overwrite by accident
 assert.throws(() => buildKit(kit), /not empty/);
 rmSync(work, { recursive: true, force: true });
