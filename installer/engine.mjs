@@ -166,6 +166,50 @@ export function packageTemplate(ctx, bucket) {
 export const deployArgs = (ctx, packaged, params, extra = []) => ['cloudformation', 'deploy', '--template-file', packaged, '--stack-name', ctx.stack, '--capabilities', 'CAPABILITY_IAM', 'CAPABILITY_AUTO_EXPAND',
   '--no-fail-on-empty-changeset', '--parameter-overrides', ...params, ...extra];
 
+// ---------- why a stack failed ----------
+// `aws cloudformation deploy` only says "Failed to create/update the stack". The reason is in the stack events: the first resource that failed for
+// its own reason (the ones after it fail with "cancelled"). Read it, and say it in words a teacher can act on.
+const NOT_THE_CAUSE = /cancel|did not stabilize|rollback requested|rolled back/i;
+
+/** { resource, reason, status } of the first real failure of a stack, or null when the events cannot be read. */
+export function stackFailure(ctx, stack) {
+  let events;
+  try { events = call(ctx, ['cloudformation', 'describe-stack-events', '--stack-name', stack], { json: true }).StackEvents ?? []; } catch { return null; }
+  const failed = events.filter((e) => /FAILED/.test(e.ResourceStatus ?? '') && e.ResourceStatusReason).sort((a, b) => String(a.Timestamp).localeCompare(String(b.Timestamp)));
+  const root = failed.find((e) => !NOT_THE_CAUSE.test(e.ResourceStatusReason)) ?? failed[0];
+  if (!root) return null;
+  let status = '';
+  try { status = call(ctx, ['cloudformation', 'describe-stacks', '--stack-name', stack], { json: true }).Stacks?.[0]?.StackStatus ?? ''; } catch { /* the stack is gone */ }
+  return { resource: root.LogicalResourceId, reason: String(root.ResourceStatusReason).replace(/\s+/g, ' ').slice(0, 700), status };
+}
+
+/** Run a stack deploy. When it fails, replace AWS's "run the following command" line (which has no --profile and would read the DEFAULT account) with the real reason. */
+export function deployStack(ctx, args) {
+  try { return call(ctx, args); } catch (e) {
+    if (ctx.dryRun || (e instanceof InstallError && e.hint)) throw e; // a failure that already explains itself (the CLI is missing, ...) is left alone
+    const stack = args[args.indexOf('--stack-name') + 1] || ctx.stack;
+    const profile = ctx.profile ? ` --profile ${ctx.profile}` : '';
+    const events = `aws cloudformation describe-stack-events --stack-name ${stack}${profile}`;
+    const found = stackFailure(ctx, stack);
+    if (!found) throw new InstallError(e.message, `To read the reason: ${events}`);
+    // a failed FIRST create leaves a stack that can only be deleted; a failed update is rolled back and the platform keeps working (never advise destroy then)
+    const stuck = /^ROLLBACK_(COMPLETE|FAILED)$/.test(found.status);
+    const next = stuck
+      ? `The failed install left an empty stack behind: clear it with \`${cli(ctx)} destroy --everything${profile}\` (nothing of yours is in it), fix the cause, then run the install again.`
+      : 'The platform was left as it was (the change was rolled back). Fix the cause and run the same command again.';
+    const requestId = found.reason.match(/Request ID: ([0-9a-f-]{8,})/i)?.[1];
+    if (/must be verified|account must be verified|verify your account/i.test(found.reason)) {
+      throw new InstallError('AWS has not verified this account for CloudFront yet, so it refused to create the platform.',
+        `Open an AWS Support case (Support Center, "Account and billing") and ask them to verify the account for CloudFront${requestId ? `; quote the request id ${requestId}` : ''}. It usually clears in hours to days, and AWS can ask again later. ${next} (AWS said: ${found.reason})`);
+    }
+    if (/CNAMEAlreadyExists|already associated|One or more of the CNAMEs/i.test(found.reason)) {
+      throw new InstallError(`CloudFront refused ${found.resource}: a domain name is already claimed by another CloudFront distribution.`,
+        `Another distribution (maybe in another AWS account, or one still being deleted) holds that name or an overlapping wildcard. Use a different domain, or wait for the old one to be gone. ${next} (AWS said: ${found.reason})`);
+    }
+    throw new InstallError(`CloudFormation could not finish: ${found.resource} failed.`, `AWS said: ${found.reason} ${next} All events: ${events}`);
+  }
+}
+
 export function stackOutputs(ctx) {
   const stack = call(ctx, ['cloudformation', 'describe-stacks', '--stack-name', ctx.stack], { json: true }).Stacks?.[0];
   return { stackId: stack?.StackId ?? '', status: stack?.StackStatus ?? null, outputs: Object.fromEntries((stack?.Outputs ?? []).map((o) => [o.OutputKey, o.OutputValue])),
@@ -251,7 +295,7 @@ export async function install(ctx, input) {
   const packaged = packageTemplate(ctx, bucket);
   say('Creating your platform in AWS. This takes 10 to 15 minutes (CloudFront is slow): leave this window open. If it closes, run the same command again and it carries on.');
   writeState(ctx, { ...config, account: found.account, phase: 'deploying', installedVersion: repoVersion(ctx) });
-  call(ctx, deployArgs(ctx, packaged, parametersFor(config)));
+  deployStack(ctx, deployArgs(ctx, packaged, parametersFor(config)));
   return afterDeploy(ctx, config, found, result);
 }
 
@@ -292,7 +336,7 @@ export async function finishDomain(ctx) {
   if (!state?.domain || state.phase !== 'dns') throw new InstallError('There is no domain install waiting for DNS.', `Run \`${cli(ctx)} install --domain <name>\` first.`);
   const bucket = ensureArtifactBucket(ctx, state.account);
   const packaged = packageTemplate(ctx, bucket);
-  call(ctx, deployArgs(ctx, packaged, parametersFor(state, { aliasOn: true })));
+  deployStack(ctx, deployArgs(ctx, packaged, parametersFor(state, { aliasOn: true })));
   const { outputs } = ctx.dryRun ? { outputs: {} } : stackOutputs(ctx);
   writeState(ctx, { ...state, phase: 'ready', installedVersion: repoVersion(ctx), installedAt: ctx.now() });
   return { ok: true, ...(await finishInstall(ctx, state, outputs)) };

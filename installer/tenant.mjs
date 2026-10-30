@@ -12,7 +12,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { awsCall, deployArgs, ensureArtifactBucket, InstallError, packageTemplate, parametersFor, REGION, stackOutputs, tenantFromParameters } from './engine.mjs';
+import { awsCall, deployArgs, deployStack, ensureArtifactBucket, InstallError, packageTemplate, parametersFor, REGION, stackOutputs, tenantFromParameters } from './engine.mjs';
 
 const CACHING_OPTIMIZED = '658327ea-f89d-4fab-a63d-7e88639e58f6';
 const CACHING_DISABLED = '4135ea2d-6df8-44a3-9df3-4b5a84be39ad';
@@ -141,7 +141,7 @@ export async function enableCustomDomains(ctx, config, { say = () => {} } = {}) 
   say('Custom domains: handing the ids to the portal...');
   const next = { ...config, tenant };
   const bucket = ensureArtifactBucket(ctx, account);
-  awsCall(ctx, deployArgs(ctx, packageTemplate(ctx, bucket), parametersFor(next, { aliasOn: Boolean(config.domain) && found.parameters.PortalAlias === 'true' })));
+  deployStack(ctx, deployArgs(ctx, packageTemplate(ctx, bucket), parametersFor(next, { aliasOn: Boolean(config.domain) && found.parameters.PortalAlias === 'true' })));
   return { ok: true, tenant, message: `Custom domains are ready. Students point a CNAME at ${tenant.routingEndpoint}.` };
 }
 
@@ -159,7 +159,7 @@ export async function disableCustomDomains(ctx, config, { say = () => {} } = {})
   say('Telling the portal that custom domains are off...');
   const account = awsCall(ctx, ['sts', 'get-caller-identity'], { json: true }).Account;
   const next = { ...config, tenant: null, features: (config.features ?? []).filter((f) => f !== 'customdomains') };
-  awsCall(ctx, deployArgs(ctx, packageTemplate(ctx, ensureArtifactBucket(ctx, account)), parametersFor(next, { aliasOn: Boolean(config.domain) && found.parameters.PortalAlias === 'true' })));
+  deployStack(ctx, deployArgs(ctx, packageTemplate(ctx, ensureArtifactBucket(ctx, account)), parametersFor(next, { aliasOn: Boolean(config.domain) && found.parameters.PortalAlias === 'true' })));
   return { ok: true, message: 'Custom domains are switched off and their CloudFront pieces are removed.' };
 }
 

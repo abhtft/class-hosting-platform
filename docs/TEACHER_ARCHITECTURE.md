@@ -73,6 +73,10 @@ ctx = { repo, profile, stack, dryRun, would[], aws(args), progress(text), now(),
 
 Before anything is created, `preflight` checks: Node is 20 or newer; the CLI can sign in (`sts get-caller-identity`); CloudFront is allowed (`list-distributions`); whether the stack already exists. Each failure is an `InstallError(message, hint)`: the **message says what is wrong, the hint says what to do**. Examples that really occurred: an unverified new account ("AWS has not verified this account for CloudFront yet" with the support-case hint), a user with no policy (`AccessDenied`), a stack stuck in `ROLLBACK_COMPLETE`.
 
+### 3.2a When the stack itself fails
+
+`preflight` cannot know everything: AWS sometimes refuses a resource only when the stack is being created (for example the CloudFront account verification, which `list-distributions` does not reveal). `aws cloudformation deploy` then says only "Failed to create/update the stack" and prints a hint with no `--profile`. So every deploy goes through `deployStack`, which on failure reads the stack events (`stackFailure`), picks the first failing resource whose reason is not just "cancelled", and raises an `InstallError` that says what AWS said and what to do: the verification error becomes a support-case instruction with the request id, a domain name claimed by another distribution says so, anything else is shown as it is, and every command in the hint carries the profile. It advises `destroy --everything` only when the stack is in `ROLLBACK_COMPLETE` (a failed first create leaves an empty stack that can only be deleted); a failed update is rolled back to a working platform and the message says to fix the cause and run the command again.
+
 ### 3.3 Install, step by step
 
 ```

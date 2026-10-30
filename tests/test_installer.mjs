@@ -44,6 +44,11 @@ function fakeAws(world = {}) {
         Parameters: Object.entries(w.parameters).map(([ParameterKey, ParameterValue]) => ({ ParameterKey, ParameterValue })) }] });
     }
     if (svc === 'cloudformation' && op === 'package') return '';
+    if (svc === 'cloudformation' && op === 'describe-stack-events') return JSON.stringify({ StackEvents: w.events ?? [] });
+    if (svc === 'cloudformation' && op === 'deploy' && w.deployFails) {
+      w.stack = w.deployFails.stackStatus; // what AWS leaves behind: ROLLBACK_COMPLETE after a failed create, the old status after a rolled-back update
+      throw new Error('aws: [ERROR]: Failed to create/update the stack. Run the following command to fetch the list of events leading up to the failure: aws cloudformation describe-stack-events --stack-name student-hosting');
+    }
     if (svc === 'cloudformation' && op === 'deploy') {
       const params = args.slice(args.indexOf('--parameter-overrides') + 1).filter((a) => !a.startsWith('--') && a.includes('='));
       if (args.includes('--no-execute-changeset')) { if (w.nextChanges) w.changeSets.push({ id: `cs-${w.changeSets.length + 1}`, status: 'CREATE_COMPLETE', changes: w.nextChanges, params }); return ''; }
@@ -292,6 +297,53 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   rmSync(join(repo, 'release.json'));
   assert.equal((await engine.status(context(fake).ctx)).latestVersion, null, 'a git checkout has no release to compare with');
   console.log('  ok  status announces a newer GitHub release with the exact command, ignores odd answers and offline');
+}
+
+// ---------- a failed stack is explained, not just "Failed to create/update the stack" ----------
+{
+  const failing = (reason, resource, extra = {}) => ({
+    stackStatus: 'ROLLBACK_COMPLETE',
+    events: [
+      { LogicalResourceId: 'Bucket', ResourceStatus: 'CREATE_FAILED', ResourceStatusReason: 'Resource creation cancelled', Timestamp: '2026-10-30T10:00:09Z' },
+      { LogicalResourceId: resource, ResourceStatus: 'CREATE_FAILED', ResourceStatusReason: reason, Timestamp: '2026-10-30T10:00:05Z' },
+      { LogicalResourceId: 'student-hosting', ResourceStatus: 'ROLLBACK_IN_PROGRESS', ResourceStatusReason: 'The following resource(s) failed to create: [Distribution]', Timestamp: '2026-10-30T10:00:10Z' },
+    ], ...extra,
+  });
+  const run = async (failure, command = 'install') => {
+    const fake = fakeAws({ deployFails: { stackStatus: failure.stackStatus }, events: failure.events, stack: failure.startStack ?? null });
+    const { ctx } = context(fake);
+    if (failure.startStack) writeFileSync(join(repo, '.class-platform', 'install.json'), JSON.stringify({ stack: 'student-hosting', features: [], phase: 'dns', domain: 'apps.example.com', certificateArn: 'arn:x' }));
+    try { await (command === 'install' ? engine.install(ctx, {}) : engine.finishDomain(ctx)); } catch (e) { return e; }
+    assert.fail('the install should have failed');
+  };
+  // 1. the account has not been verified for CloudFront: the exact AWS wording, with the request id, and what to do
+  const verify = await run(failing(`Resource handler returned message: "Access denied for operation 'AWS::CloudFront::Distribution: Your account must be verified before you can add new CloudFront resources. To verify your account, please contact AWS Support. (Service: CloudFront, Status Code: 403, Request ID: 475c95f5-1d46-4960-b79c-5b2c3d23eb2c)'."`, 'Distribution'));
+  assert.match(verify.message, /has not verified this account for CloudFront/);
+  assert.match(verify.hint, /Support case.*Account and billing/s);
+  assert.match(verify.hint, /request id 475c95f5-1d46-4960-b79c-5b2c3d23eb2c/);
+  assert.match(verify.hint, /destroy --everything --profile new/, 'the failed first create leaves a stack to clear, with the profile in the command');
+  // 2. any other reason is shown as it is, with the resource, and the events command carries the profile
+  const other = await run(failing('The runtime parameter of python3.99 is no longer supported', 'DeployFunction'));
+  assert.match(other.message, /DeployFunction failed/);
+  assert.match(other.hint, /python3\.99 is no longer supported/);
+  assert.match(other.hint, /describe-stack-events --stack-name student-hosting --profile new/, 'the AWS CLI hint has no --profile; ours does');
+  assert.doesNotMatch(other.message + other.hint, /Resource creation cancelled/, 'the "cancelled" events are not the cause');
+  // 3. a name already claimed by another distribution
+  const alias = await run(failing('Invalid request provided: One or more of the CNAMEs you provided are already associated with a different resource.', 'Distribution'));
+  assert.match(alias.message, /already claimed by another CloudFront distribution/);
+  // 4. a failed UPDATE is rolled back and the platform keeps working: never advise destroy
+  const update = await run({ ...failing('Resource handler returned message: "Your account must be verified before you can add new CloudFront resources. (Request ID: abc12345-1)"', 'Distribution'), stackStatus: 'UPDATE_ROLLBACK_COMPLETE', startStack: 'CREATE_COMPLETE' }, 'finish');
+  assert.match(update.hint, /left as it was/);
+  assert.doesNotMatch(update.hint, /destroy/, 'a rolled-back update must never send the teacher to destroy a working platform');
+  // 5. when the events cannot be read, the original message stays and the hint says how to read them (with the profile)
+  const blind = fakeAws({ deployFails: { stackStatus: 'ROLLBACK_COMPLETE' } });
+  const origFn = blind.fn;
+  blind.fn = (args) => { if (args[1] === 'describe-stack-events') throw new Error('AccessDenied'); return origFn(args); };
+  let blindError;
+  try { await engine.install(context(blind).ctx, {}); } catch (e) { blindError = e; }
+  assert.match(blindError.message, /Failed to create\/update the stack/);
+  assert.match(blindError.hint, /describe-stack-events --stack-name student-hosting --profile new/);
+  console.log('  ok  a failed stack is explained: the CloudFront verification error (with the request id and the support-case steps), any other first failure, a claimed name; destroy is advised only after a failed first create; every command carries the profile');
 }
 
 // ---------- every command prints its version first; install and upgrade warn when the copy is old ----------

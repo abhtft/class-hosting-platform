@@ -31,7 +31,7 @@ What is missing is mostly **confidence, not code**: one path only tested with si
 | # | Gap | Why it matters |
 |---|---|---|
 | 1 | **No outside user has run it.** | The only proof code and tests cannot give. One teacher who installs, runs a class and updates once without help is worth more than any further feature. |
-| 2 | **AWS can refuse CloudFront on an account until it is verified, and the installer does not explain it when it happens mid-install.** The pre-install check recognises it, but a failure while the stack is created shows only AWS's raw "Failed to create/update the stack" line (seen on the test account after a `destroy`). | A new teacher hits this first and cannot tell why. Fix: read the stack events on failure and print the reason and the support-case steps. |
+| 2 | **AWS can refuse CloudFront on an account until it is verified** (seen on the test account after a `destroy`). The installer now explains it, with the support-case steps and the request id, whether it appears in the pre-install check or while the stack is created. | A new teacher hits this first. The only fix is an AWS Support case, which takes hours to days: say so up front (the README does). **Done in the installer; the wait is AWS's.** |
 | 3 | **`transfer` was never run on two real accounts.** | It moves a whole class. Keep it labelled experimental until it has been rehearsed. |
 | 4 | **Repository trust settings are the owner's to switch on:** private vulnerability reporting, branch protection on `main`, Dependabot alerts, secret scanning with push protection. | The README and `SECURITY.md` already point at them. |
 | 5 | **The clean-room test:** the README quickstart followed by a stranger in AWS CloudShell. | It finds the docs and message gaps nothing else will. |
@@ -63,10 +63,10 @@ The repository and releases are already public, so the question is how to **labe
 | Stage | Label | Condition |
 |---|---|---|
 | **Now** | **Public beta (2.0.x)** | Already true. The README says "beta", what is proven and what is not, and its known limitations. Do not call `transfer` safe. |
-| **Announce** | **Public beta, with testers wanted** | Priority 1 items 2, 4 and 5 done (the installer message, the repository settings, the clean-room test). Then invite three to five people personally and post publicly. |
+| **Announce** | **Public beta, with testers wanted** | Priority 1 items 4 and 5 done (the repository settings, the clean-room test); item 2, the installer message, is done. Then invite three to five people personally and post publicly. |
 | **Later** | **Stable (no "beta")** | Priority 2 done (at least 8 and 10), **and** at least one teacher who is not the author has installed, run a class and updated once without help. |
 
-**Recommendation:** keep "public beta" now, finish Priority 1 items 2, 4 and 5, and announce. Do not wait for Priority 2, but do not drop the beta label until an outside teacher has completed a full cycle. That cycle is the one proof that code and tests cannot give.
+**Recommendation:** keep "public beta" now, finish Priority 1 items 4 and 5, and announce. Do not wait for Priority 2, but do not drop the beta label until an outside teacher has completed a full cycle. That cycle is the one proof that code and tests cannot give.
 
 ## 5. How to launch it without an audience
 
@@ -79,7 +79,7 @@ The goal is not sales or reach. It is **three to five outside people who really 
 5. **Protect your time.** State what you will and will not do (no guaranteed support; issues answered when possible). Keep destroy, passwords, keys and IAM terminal-only. Label feature requests "later" until the Priority 1 gaps are closed. Keep the owner's production class out of it.
 6. **Define success.** Not sales: a few people who install without help, find real bugs, and maybe contribute a fix.
 
-Order: Priority 1 items 2, 4 and 5; then the demo recording and the issue labels; then personal invitations to three to five people; then the public post; then fix what the testers hit and work toward stable. Nothing is published without the owner's go-ahead.
+Order: Priority 1 items 4 and 5; then the demo recording and the issue labels; then personal invitations to three to five people; then the public post; then fix what the testers hit and work toward stable. Nothing is published without the owner's go-ahead.
 
 ## 6. What this assessment does not cover
 
