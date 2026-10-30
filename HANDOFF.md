@@ -117,7 +117,8 @@ A walk through the teacher and student journeys (2.0.1) found these. The launch-
 5. **Least-privilege IAM or SSO** instead of AdministratorAccess; publish on npm (shorter command).
 6. **Make the student side data-driven:** the feature list in `student/portal-deploy.mjs` is hardcoded; the portal should return a generic feature list the client renders, before the next feature is added.
 7. **A checklist for every new (costly) feature:** off by default, per-student switch, server-enforced cap, usage metering the teacher can see, a teacher-wide emergency off, cleanup in `destroy`, a features-block entry, tests.
-8. Upgrade test in CI; more than one region; a load test; Vite major upgrade (dev-server advisories); the portal refusing a stale client and the thin launcher package (4e).
+8. **Trust signals to finish after the launch:** switch on (owner, repository settings) Dependabot alerts, secret scanning with push protection, branch protection on `main` (Scorecard scores it) and private vulnerability reporting; read the first Scorecard and CodeQL results and fix the serious ones before adding any badge; pin the GitHub Actions to commit SHAs (Dependabot then keeps them current); add an SBOM to each release; apply for the OpenSSF Best Practices badge (passing level); close the planned access-logging exceptions in `.checkov.yaml`; a paid third-party review only when an institution asks for one.
+9. Upgrade test in CI; more than one region; a load test; Vite major upgrade (dev-server advisories); the portal refusing a stale client and the thin launcher package (4e).
 
 ## 5. Private facts (not in this repository)
 

@@ -1,0 +1,21 @@
+# Security scan of template.yaml with checkov, run in CI (.github/workflows/ci.yml).
+# Everything not listed below must pass, so a new public bucket, a wildcard IAM policy or an unencrypted store fails the build.
+# Every exception is deliberate and has a reason; the "planned" ones are real gaps we intend to close (see HANDOFF.md 4f).
+framework:
+  - cloudformation
+compact: true
+quiet: true
+skip-check:
+  # Not a fit for this design
+  - CKV_AWS_116  # Lambda dead-letter queue: the functions answer HTTP requests or run on a daily schedule; a failed call is returned to the caller or retried the next day
+  - CKV_AWS_117  # Lambda inside a VPC: would remove internet access (the class AI and the AI proxy call outside APIs) and add a NAT gateway bill for every teacher
+  - CKV_AWS_68   # WAF on CloudFront: a monthly cost per teacher; API Gateway throttling and the per-student allowances are the abuse controls
+  - CKV_AWS_119  # DynamoDB customer-managed KMS key: tables are encrypted at rest with the default AWS-owned key; a CMK adds cost and key management for little gain here
+  - CKV_AWS_26   # SNS topic with a KMS key: an AWS-managed key stops CloudWatch alarms and budgets from publishing; alerts would silently fail
+  - CKV_AWS_173  # Lambda environment variable encryption: the variables hold names and identifiers only; real secrets live in Secrets Manager and SSM
+  - CKV_AWS_174  # CloudFront TLS 1.2: false positive; the custom-domain branch sets TLSv1.2_2021, and the default cloudfront.net certificate is fixed by AWS (checkov cannot evaluate the condition)
+  - CKV_AWS_115  # Lambda reserved concurrency: an account-wide limit would starve other functions on a new account; API Gateway throttling bounds the load instead
+  # Planned: access logging (extra storage cost and a retention policy to decide)
+  - CKV_AWS_18   # S3 access logging
+  - CKV_AWS_86   # CloudFront access logging
+  - CKV_AWS_95   # API Gateway v2 access logging

@@ -15,6 +15,10 @@ Each teacher runs their **own copy** in **their own AWS account**; there is no s
 
 Details: `docs/TECHNICAL_SPECIFICATION.md` (security model) and `docs/AWS_LEARNINGS.md`.
 
+## Automated checks
+
+Every push runs the test suite, `cfn-lint` and a `checkov` security scan of the infrastructure template (`template.yaml`). The exceptions to that scan are listed with a reason each in `.checkov.yaml`; anything not listed must pass. GitHub CodeQL analyses the JavaScript, Python and workflow files, the OpenSSF Scorecard workflow scores the repository's practices, and Dependabot proposes dependency updates weekly. A scan of the whole git history found no keys, tokens or account numbers. These are automated checks, not a certification or a third-party review.
+
 ## Supported versions
 
 Only the newest release receives fixes. Teachers update with `plan` and `apply` (see the teacher guide); the student kit then follows automatically. This project is a **public beta** and has had **no third-party security review**.

@@ -4,6 +4,8 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+- **Automated security checks.** CI now also runs a `checkov` scan of the infrastructure template (34 checks pass; the 11 that do not apply, or that are planned, are listed with reasons in `.checkov.yaml`). New workflows run GitHub CodeQL (JavaScript, Python and workflows) and the OpenSSF Scorecard, and Dependabot proposes weekly updates for the dependencies and the actions. See `SECURITY.md`.
+
 ## 2.0.2
 
 Launch-readiness release: safety guards, honest documentation, clearer tools.
