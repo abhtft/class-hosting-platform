@@ -21,6 +21,17 @@ Details: `docs/TECHNICAL_SPECIFICATION.md` (security model) and `docs/AWS_LEARNI
 
 Every push runs the test suite, `cfn-lint` and a `checkov` security scan of the infrastructure template (`template.yaml`). The exceptions to that scan are listed with a reason each in `.checkov.yaml`; anything not listed must pass. GitHub CodeQL analyses the JavaScript, Python and workflow files, the OpenSSF Scorecard workflow scores the repository's practices, and Dependabot proposes dependency updates weekly. A scan of the whole git history found no keys, tokens or account numbers. These are automated checks, not a certification or a third-party review.
 
+## Verifying a release
+
+Releases are built by CI from a tag, with build provenance and a `sha256sums.txt`. From the first release that has them, each release file also has a **Sigstore signature** (a `.sigstore.json` file next to it, made without any key we hold: it is tied to this repository's release workflow and recorded in a public log). To check a download:
+
+```bash
+cosign verify-blob   --bundle sha256sums.txt.sigstore.json   --certificate-identity "https://github.com/abhtft/class-hosting-platform/.github/workflows/release.yml@refs/tags/v<version>"   --certificate-oidc-issuer https://token.actions.githubusercontent.com   sha256sums.txt
+sha256sum -c sha256sums.txt
+```
+
+The first command proves the checksums file was produced by this project's release workflow; the second proves your download matches it. (Replace `<version>`; `cosign` is at https://github.com/sigstore/cosign.)
+
 ## Supported versions
 
 Only the newest release receives fixes. Teachers update with `plan` and `apply` (see the teacher guide); the student kit then follows automatically. This project is a **public beta** and has had **no third-party security review**.

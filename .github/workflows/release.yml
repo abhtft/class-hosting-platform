@@ -62,3 +62,28 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ -n "$NODE_AUTH_TOKEN" ]; then (cd dist/teacher-package && npm publish --provenance --access public); else echo "No NPM_TOKEN: skipping the npm registry."; fi
+
+  # Signs the release files AFTER the release exists, so a signing problem can never stop a release. Keyless (Sigstore): the signature is tied to this
+  # workflow's identity and recorded in a public log; nobody holds a signing key. Verify with the command in SECURITY.md.
+  sign:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write      # attach the signature files to the release
+      id-token: write      # the keyless signing identity
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download the release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --dir release --pattern '*.tgz' --pattern 'sha256sums.txt'
+      - name: Sign each file (one .sigstore.json bundle per file)
+        run: |
+          cd release
+          for f in sha256sums.txt *.tgz; do cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"; done
+          ls -l
+      - name: Attach the signatures to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" release/*.sigstore.json --repo "${GITHUB_REPOSITORY}"
