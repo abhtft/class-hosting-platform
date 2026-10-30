@@ -1,6 +1,6 @@
 # Learnings: student hosting portal and custom domains
 
-> **Historical record.** This document describes the design plan as it was when it was written. For current behaviour, limits and configuration see [docs/TECHNICAL_SPECIFICATION.md](docs/TECHNICAL_SPECIFICATION.md), the source of truth. Statements about "a limit of 10" concurrent Lambda executions describe the situation then: the limit is now 1,000 (granted 2026-10-22).
+> **Historical record.** This document describes the design plan as it was when it was written. For current behaviour, limits and configuration see [docs/TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md), the source of truth. Statements about "a limit of 10" concurrent Lambda executions describe the situation then: the limit is now 1,000 (granted 2026-10-22).
 
 A record of what this project taught us, written so someone new (or you in six months) can understand not only *what* was built but *why*, what went wrong, and what to do differently. Everything here comes from the real work on `student-deploy`; nothing is theoretical. It contains no passwords or tokens.
 

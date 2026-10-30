@@ -56,7 +56,7 @@ assert re.search(r"ConcurrencyAlarmThreshold:\n    Type: Number\n    Default: 8"
 
 # ---- no email address may be committed (the alert address lives in SSM; samconfig names only the parameter) ----
 EMAIL = re.compile(r"[A-Za-z0-9._+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]+")
-checked = [os.path.join(root, f) for f in ("template.yaml", "samconfig.toml", "README.md", "implement.md", "backend_wire.md", "learning.md")]
+checked = [os.path.join(root, f) for f in ("template.yaml", "samconfig.toml", "README.md", "docs/implement.md", "docs/backend_wire.md", "docs/learning.md")]
 checked += glob.glob(os.path.join(root, "docs", "*.md")) + glob.glob(os.path.join(root, "custom-domain", "*"))
 checked += [p for p in glob.glob(os.path.join(root, "tests", "*")) if os.path.isfile(p)]
 for path in checked:

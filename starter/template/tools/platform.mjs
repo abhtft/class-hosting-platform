@@ -13,7 +13,7 @@
 // Safety: it downloads over HTTPS from your portal, checks the zip against the hash the portal publishes, refuses any path that is
 // not a managed file, and shows you the list before writing (nothing is written without --apply).
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { missingScripts } from './update-notice.mjs';
@@ -23,6 +23,7 @@ const args = process.argv.slice(2);
 const command = args[0] ?? 'status';
 const option = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const root = resolve(option('--root', resolve(dirname(fileURLToPath(import.meta.url)), '..')));
+const KEEP_BACKUPS = 5; // how many .kit-backup/<time> folders are kept
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 /** The same file with Windows line endings is the same file (a checkout may convert them), so compare text files with LF. */
 const lf = (data) => (data.includes(0) ? data : Buffer.from(data.toString('utf8').replace(/\r\n/g, '\n')));
@@ -125,6 +126,10 @@ async function main() {
   const manifest = readJson('kit-manifest.json', { files: {} });
   writeFileSync(join(root, 'kit-manifest.json'), `${JSON.stringify({ ...manifest, kitVersion: remoteInfo.kitVersion, files: installed }, null, 2)}\n`);
   writeFileSync(join(root, 'platform.json'), `${JSON.stringify({ ...platform, kitVersion: skipped.length ? platform.kitVersion : remoteInfo.kitVersion, managed }, null, 2)}\n`);
+  if (backedUp) { // keep only the newest few backup folders (their names are timestamps), so repeated syncs never fill the disk
+    const folders = readdirSync(join(root, '.kit-backup'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    for (const old of folders.slice(0, Math.max(0, folders.length - KEEP_BACKUPS))) rmSync(join(root, '.kit-backup', old), { recursive: true, force: true });
+  }
   const saved = backedUp ? ` The ${backedUp} old file(s) are saved in ${backupRoot.replace(/\\/g, '/')}/${editedReplaced ? ` (${editedReplaced} of them had been edited by you)` : ''}.` : '';
   if (syncing) console.log(`\n✔ Your kit now matches your teacher's platform (kit ${remoteInfo.kitVersion}): ${toWrite.length} file(s) updated.${saved}`);
   else console.log(`\n✔ Updated ${toWrite.length} file(s)${skipped.length ? `; ${skipped.length} edited file(s) kept as they are (kit version stays ${platform.kitVersion})` : ` to kit ${remoteInfo.kitVersion}`}.${saved} Run: npm run check`);

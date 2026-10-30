@@ -107,7 +107,7 @@ child.stdout.on('data', (d) => { buffer += d; let i; while ((i = buffer.indexOf(
 const send = (m) => child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...m })}\n`);
 send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } });
 send({ id: 2, method: 'tools/list' });
-send({ id: 3, method: 'tools/call', params: { name: 'teacher_login', arguments: { username: 'ms-rao' } } });
+send({ id: 3, method: 'tools/call', params: { name: 'platform_teacher_login', arguments: { username: 'ms-rao' } } });
 for (let i = 0; i < 40 && lines.length < 3; i += 1) await new Promise((r) => setTimeout(r, 100));
 child.kill();
 assert.equal(lines.find((l) => l.id === 1).result.serverInfo.name, 'class-platform-teacher');

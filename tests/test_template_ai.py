@@ -49,7 +49,7 @@ assert 25 < gateway_timeout and "AI_STUDENT_TIMEOUT: '25'" in globals_
 
 # ---- no OpenRouter key may be committed (the management key lives in Secrets Manager) ----
 KEY = re.compile(r"sk-or-v1-(?!x+\b)[A-Za-z0-9]{16,}")
-files = [os.path.join(root, f) for f in ("template.yaml", "samconfig.toml", "README.md", "implement.md", "backend_wire.md", "learning.md")]
+files = [os.path.join(root, f) for f in ("template.yaml", "samconfig.toml", "README.md", "docs/implement.md", "docs/backend_wire.md", "docs/learning.md")]
 for pattern in ("docs/*.md", "lambda/*.py", "web/*", "student/*", "custom-domain/*", "tests/*"):
     files += [p for p in glob.glob(os.path.join(root, pattern)) if os.path.isfile(p)]
 for path in files:

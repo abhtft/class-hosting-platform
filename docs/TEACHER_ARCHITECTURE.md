@@ -221,24 +221,24 @@ MCP (Model Context Protocol) lets an AI editor start a small program and call it
 
 | Tool | Does | Changes something? | Asks first? |
 |---|---|---|---|
-| `check_environment`, `status`, `verify` (public checks), `plan_update`, `job_status`, `teacher_login` (explains) | read or explain | no | no |
-| `install`, `finish_domain`, `apply_update`, `publish_portal`, `update_editor_tools` | change AWS or the editor settings | yes | **yes** (`confirm: true`) |
+| `platform_check_environment`, `platform_status`, `platform_verify` (public checks), `platform_plan_update`, `platform_job_status`, `platform_teacher_login` (explains) | read or explain | no | no |
+| `platform_install`, `platform_finish_domain`, `platform_apply_update`, `platform_publish_portal`, `platform_update_editor_tools` | change AWS or the editor settings | yes | **yes** (`confirm: true`) |
 
 Not available through MCP **on purpose:** deleting the stack, typing a password or API key, anything with IAM users, `transfer`, `import`. The rule: *whatever is destructive or secret stays in the teacher's own terminal.* A malicious instruction hidden in a web page or a file cannot make the AI delete an account, because the tool does not exist.
 
 ### 8.3 Safety mechanics
 
 - **Confirm gating:** tool descriptions tell the AI to ask the teacher, and the tool refuses without `confirm: true`. (The description is *advice to the model*; the refusal is *enforcement*.)
-- **Plan id validation:** `apply_update` accepts only a hex plan id (never a free string that could reach a shell) and the engine binds it to the shown plan.
-- **Background jobs:** an install takes 10+ minutes, longer than an editor waits for one answer. The tool starts the job and returns at once; `job_status` reports progress (the tail of the output) and the result. One job at a time.
+- **Plan id validation:** `platform_apply_update` accepts only a hex plan id (never a free string that could reach a shell) and the engine binds it to the shown plan.
+- **Background jobs:** an install takes 10+ minutes, longer than an editor waits for one answer. The tool starts the job and returns at once; `platform_job_status` reports progress (the tail of the output) and the result. One job at a time.
 - **Output hygiene:** anything shaped like a key (`sk-or-...`, `AQ....`, `AIza...`, `AKIA...`) is replaced by `***` before the AI sees it.
 - **Which folder:** an explicit `path` that is not the platform is *refused* (never silently replaced by another folder); otherwise the editor's open folder, `--repo`, or the package's own folder.
 
-### 8.4 Connecting it: `setup`, `editor`, `update_editor_tools`
+### 8.4 Connecting it: `setup`, `editor`, `platform_update_editor_tools`
 
 `npx ... setup` is the teacher's one-time step (like the students'): it asks which AWS profile to use or saves an access key, shows the account, then adds the entry to VS Code and Antigravity. The key section is written by `setSection` into **one** section of the standard credentials file (`[class-platform]`) after a timestamped backup, never touching other sections, and the key is validated before it is written (a `AKIA...` shape, a 40-character secret). `setup` also keeps `config.json` with just the profile name.
 
-The editor entry is **pinned to an exact release file** (for example `.../download/v1.1.0/class-platform-teacher-1.1.0.tgz mcp`). Pinning means an update never changes behaviour behind a teacher's back, but it also means the editor stays on the old version until moved: that is the `update_editor_tools` tool (and the `editor-update` command), which rewrites the entry after a yes and a backup. Settings files with comments are **never rewritten** (JSONC cannot be saved without losing the comments); the exact entry is printed to paste instead.
+The editor entry is **pinned to an exact release file** (for example `.../download/v1.1.0/class-platform-teacher-1.1.0.tgz mcp`). Pinning means an update never changes behaviour behind a teacher's back, but it also means the editor stays on the old version until moved: that is the `platform_update_editor_tools` tool (and the `editor-update` command), which rewrites the entry after a yes and a backup. Settings files with comments are **never rewritten** (JSONC cannot be saved without losing the comments); the exact entry is printed to paste instead.
 
 ### 8.5 Compared with the student MCP
 
@@ -247,7 +247,7 @@ The editor entry is **pinned to an exact release file** (for example `.../downlo
 | Served from | the teacher's own portal | GitHub Releases |
 | Power | publish one student's own site | change an AWS account |
 | Secret | a revocable student token, saved once | an AWS access key, saved once as its own profile |
-| Updates | `status` + `update_kit` | `status` + plan/apply + `update_editor_tools` |
+| Updates | `status` + `update_kit` | `status` + plan/apply + `platform_update_editor_tools` |
 | Never offered | anything outside the student's project | deleting, passwords/keys, IAM, transfer, import |
 
 ## 9. Packaging and releases

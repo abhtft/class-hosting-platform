@@ -11,10 +11,10 @@ Other documents, each with a narrower job:
 | **This file** | The whole picture and the day-to-day workflows |
 | [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP route, request, response and error code |
 | [../README.md](../README.md) | Short intro and the original CLI setup |
-| [../implement.md](../implement.md) | Step-by-step setup and verification, Parts 1 to 4 |
-| [../backend_wire.md](../backend_wire.md) | Design reasoning and decisions for student backends |
+| [implement.md](implement.md) | Step-by-step setup and verification, Parts 1 to 4 |
+| [backend_wire.md](backend_wire.md) | Design reasoning and decisions for student backends |
 | [../student/BACKEND.md](../student/BACKEND.md) | Student guide to writing a backend |
-| [../learning.md](../learning.md) | Lessons learned, mistakes and how they were fixed |
+| [learning.md](learning.md) | Lessons learned, mistakes and how they were fixed |
 | [../custom-domain/HANDOFF.md](../custom-domain/HANDOFF.md) | Background on the custom-domain spike |
 
 ---
@@ -93,7 +93,7 @@ Browser -> CloudFront /api/* behavior -> BackendRouteFunction: host -> slug, /ap
         -> sd-alice  handler(event, context)  -> response validated and shaped -> back to the browser
 ```
 
-**C. The same on a custom domain** (`https://test.votebecho.com/api/analyse`): the multi-tenant distribution has its own `/api/*` route to the same API, with origin path `/b/{{student}}` (the tenant parameter picks the student) and the function `student-hosting-tenant-api` stripping `/api`.
+**C. The same on a custom domain** (`https://test.example.com/api/analyse`): the multi-tenant distribution has its own `/api/*` route to the same API, with origin path `/b/{{student}}` (the tenant parameter picks the student) and the function `student-hosting-tenant-api` stripping `/api`.
 
 **D. A student publishes** (portal): the browser zips the folder, asks `POST /api/student/upload-url` for a presigned S3 URL, `PUT`s the zip straight to S3, then calls `POST /api/student/publish`. The function validates and unzips into `sites/<slug>/`, removes files that disappeared, and clears the CDN caches (the normal distribution and the student's custom-domain tenant).
 
@@ -382,7 +382,7 @@ Known residual risks: a student's public `/api` can be called by anyone, so stra
 **Live, with temporary students (removed afterwards, leftovers scanned):**
 - custom domain: certificate, HTTPS, redeploy reaching the domain within seconds, removal;
 - backends: 48 checks (Python and Node 22 deploy, calls through CloudFront, env var used but never returned, logs with 7-day retention, exact allowance then 429, off/on, reserved concurrency 0 accepted at a limit of 10, 8 parallel requests giving exactly 3 runs and 5 `busy`, removal, cleanup);
-- custom domain plus backend with a real student's site (`test.votebecho.com`): analyse, submit, health, SPA fallback, direct-API and forged-header checks.
+- custom domain plus backend with a real student's site (`test.example.com`): analyse, submit, health, SPA fallback, direct-API and forged-header checks.
 
 **Manual acceptance checklist** (after any significant change):
 1. Teacher: sign in, create a token, copy the message.
@@ -482,4 +482,4 @@ Pay-per-use services (CloudFront, Lambda, API Gateway, DynamoDB on demand, S3): 
 | `custom-domain/` | the tenant distribution config, functions, and the reviewed apply script |
 | `tests/` | the test suite, in-memory fakes of AWS, and the local dev server |
 | `docs/` | this guide and the API reference |
-| `implement.md`, `backend_wire.md`, `learning.md`, `README.md` | setup steps, design, lessons, intro |
+| `docs/implement.md`, `docs/backend_wire.md`, `docs/learning.md`, `README.md` | setup steps, design, lessons, intro |

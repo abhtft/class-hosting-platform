@@ -28,7 +28,7 @@ What is missing is mostly **confidence, not code**: a few paths that were only t
 |---|---|---|
 | 1 | **The student's agent does not know which features are on for its student** (designed in `HANDOFF.md` 4a, not built). | The most visible correctness problem: a site can deploy fine and then fail at runtime with "not enabled". It is the one flaw a student meets on day one. |
 | 2 | **`export`, `import` and `transfer` never ran on real accounts.** | This is the only path that moves students' data. A mistake here loses or duplicates data, and teachers trust a backup most when they need it least. Rehearse `export`, `destroy`, `install`, `import`, then a real transfer between two accounts. |
-| 3 | **The teacher editor tools were never tried in a real editor.** `setup` and `update_editor_tools` were also tested only with fakes. | The "install from your AI editor" promise is untested where it will be used. |
+| 3 | **The teacher editor tools were never tried in a real editor.** `setup` and `platform_update_editor_tools` were also tested only with fakes. | The "install from your AI editor" promise is untested where it will be used. |
 | 4 | **Wrong-address mistake on custom domains.** The student page does not say what a wrong CNAME points at and what it must point at. | The most common mistake seen in practice; every student who uses the feature can hit it. |
 | 5 | **Version visibility** (release 1.2.2): print the version on every command and warn when a copy is older than the newest release. | Teachers run an `npx` copy that may be stale; support questions start with "which version". |
 

@@ -1,6 +1,6 @@
 # Backend wire: feasible plan
 
-> **Historical record.** This document describes the design plan as it was when it was written. For current behaviour, limits and configuration see [docs/TECHNICAL_SPECIFICATION.md](docs/TECHNICAL_SPECIFICATION.md), the source of truth. Statements about "a limit of 10" concurrent Lambda executions describe the situation then: the limit is now 1,000 (granted 2026-10-22).
+> **Historical record.** This document describes the design plan as it was when it was written. For current behaviour, limits and configuration see [docs/TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md), the source of truth. Statements about "a limit of 10" concurrent Lambda executions describe the situation then: the limit is now 1,000 (granted 2026-10-22).
 
 Status: **proposal with owner decisions recorded (2026-10-20), nothing built yet.** Written against the current `student-deploy` stack.
 Items marked **(verify)** are facts I could not confirm from this account and must be checked before they are relied on.
@@ -33,7 +33,7 @@ What "scratch level" means for scope: **a pilot with the teacher's own test stud
 | 1c: student Backend card, teacher on/off, **Runs…**, **+1,000**, usage on rows, starter templates, local runner | Done, checked in the browser against the dev server |
 | 1c: CLI parity (`deploy.mjs --backend`) | **Not done.** Portal only. The CLI keys have no token record to attach settings to; needs a design decision |
 | 1a / 1d: live verification in AWS | **Done 2026-10-21.** Deploy (Python and Node 22), calls through CloudFront, env vars, logs (7-day retention), exact allowance, OFF/ON, reserved concurrency 0 accepted at a limit of 10, in-flight limiter (8 parallel requests: 3 ran, 5 busy), removal, cleanup. Three defects found and fixed, see below |
-| `/api/*` on custom domains (multi-tenant distribution) | **Done 2026-10-21**, after a student's first real use of a custom domain (`test.votebecho.com`) got an HTML 403 on every POST. Applied with `custom-domain/apply-tenant-api-route.py`; verified live (analyse, submit, health, SPA fallback, forged-header and direct-API checks) |
+| `/api/*` on custom domains (multi-tenant distribution) | **Done 2026-10-21**, after a student's first real use of a custom domain (`test.example.com`) got an HTML 403 on every POST. Applied with `custom-domain/apply-tenant-api-route.py`; verified live (analyse, submit, health, SPA fallback, forged-header and direct-API checks) |
 | Phase 2 rest: CORS allow-list, "Request more runs" | Pending |
 | Quota increase (Lambda concurrent executions) | Owner to-do before enabling more than a few students |
 

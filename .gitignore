@@ -10,3 +10,6 @@ __pycache__/
 # installer state (account, stack, last plan)
 .class-platform/
 dist/
+
+# scratch notes and pasted transcripts: never commit
+.temp/

@@ -592,7 +592,7 @@ Always deploy from **this** folder with the safe routine: `sam deploy --no-execu
 
 # Part 4: Student backends (pilot)
 
-A teacher can let a student host a small function (Node 22 or Python 3.12) that their site calls at `/api/...`. Design and reasoning: [backend_wire.md](backend_wire.md). Student instructions: [student/BACKEND.md](student/BACKEND.md).
+A teacher can let a student host a small function (Node 22 or Python 3.12) that their site calls at `/api/...`. Design and reasoning: [backend_wire.md](backend_wire.md). Student instructions: [student/BACKEND.md](../student/BACKEND.md).
 
 ```
 <slug>.example.edu/api/x → CloudFront → Backend API → gateway Lambda → student function sd-<slug>

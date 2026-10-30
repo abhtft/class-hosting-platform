@@ -3,16 +3,16 @@
 // platform into your own AWS account, show what an update would change, apply it and switch features on, by running the repository's own
 // `node setup.mjs <command> --json`. It adds no powers of its own.
 //
-//   check_environment   is this computer and AWS account ready                                   (read only)
-//   verify              public checks that the portal answers and nothing private is open (the full check, with a sample site, is run in the terminal)
-//   status              what is installed, which version, which features, is an update waiting   (read only)
-//   install             first install into your AWS account (try mode, or with a domain)       asks you first, runs in the background
-//   finish_domain       step two of a domain install, after the DNS records are added           asks you first, runs in the background
-//   plan_update         show what an update or a feature switch would change; changes nothing   (read only)
-//   apply_update        run exactly the plan that was shown                                      asks you first, runs in the background
-//   publish_portal      publish the portal pages, student kit and MCP package again             asks you first
-//   job_status          progress and result of a background job
-//   teacher_login       how to set the teacher password (typed in YOUR terminal, never here)
+//   platform_check_environment   is this computer and AWS account ready                                   (read only)
+//   platform_verify     public checks that the portal answers and nothing private is open (the full check, with a sample site, is run in the terminal)
+//   platform_status     what is installed, which version, which features, is an update waiting   (read only)
+//   platform_install    first install into your AWS account (try mode, or with a domain)       asks you first, runs in the background
+//   platform_finish_domain       step two of a domain install, after the DNS records are added           asks you first, runs in the background
+//   platform_plan_update         show what an update or a feature switch would change; changes nothing   (read only)
+//   platform_apply_update        run exactly the plan that was shown                                      asks you first, runs in the background
+//   platform_publish_portal      publish the portal pages, student kit and MCP package again             asks you first
+//   platform_job_status          progress and result of a background job
+//   platform_teacher_login       how to set the teacher password (typed in YOUR terminal, never here)
 //
 // Never available here on purpose: deleting the stack, typing passwords or API keys, anything with IAM users. Those stay in your own terminal.
 //
@@ -62,60 +62,81 @@ function runSetup(repo, command, flags = [], { timeoutMs = 120000, onData } = {}
   });
 }
 
+/** The AWS account a change would go to, so the teacher sees the number before saying yes (and every answer repeats it). */
+async function accountNote(repo, a) {
+  const r = await runSetup(repo, 'check', flagsFor(a), { timeoutMs: 60000 });
+  return r.account ? `AWS account ${r.account}${a.profile ? `, profile ${a.profile}` : ''}` : 'AWS account: could not be read (run platform_check_environment first)';
+}
 const flagsFor = (a) => [...(a.profile ? ['--profile', a.profile] : []), ...(a.stack ? ['--stack', a.stack] : []), ...(a.dry_run ? ['--dry-run'] : [])];
 const show = (result) => ({ ok: result.ok !== false, text: clean(JSON.stringify(result, null, 2)) });
 
 // ---------- background jobs: an install takes 10 minutes or more, longer than an editor waits for one answer ----------
 let job = null;
 function startJob(name, repo, command, flags) {
-  if (job && !job.done) return { ok: false, text: `A job is already running (${job.name}). Ask for job_status.` };
+  if (job && !job.done) return { ok: false, text: `A job is already running (${job.name}). Ask for platform_job_status.` };
   job = { name, started: Date.now(), done: false, tail: '', result: null };
   const current = job;
   runSetup(repo, command, flags, { timeoutMs: 45 * 60000, onData: (d) => { current.tail = clean(current.tail + d).slice(-MAX_TAIL); } }).then((result) => { current.done = true; current.result = result; });
-  return { ok: true, text: `Started "${name}". It can take 10 to 15 minutes (CloudFront is slow to create). Ask for job_status every minute or two and tell the teacher what it says.` };
+  return { ok: true, text: `Started "${name}". It can take 10 to 15 minutes (CloudFront is slow to create). Ask for platform_job_status every minute or two and tell the teacher what it says.` };
 }
 
 const PATH = { type: 'string', description: 'The platform repository folder (absolute path). Leave out to use the folder open in the editor.' };
 const PROFILE = { type: 'string', description: 'The AWS CLI profile (the account to use). Leave out to use the one chosen at install or the default.' };
 const CONFIRM = { type: 'boolean', description: 'true only after the teacher agreed' };
 const TOOLS = [
-  { name: 'check_environment', description: 'Check that this computer and the AWS account are ready: Node, the AWS CLI, which account, CloudFront access. Changes nothing. Run it before install.',
+  { name: 'platform_check_environment', description: 'Check that this computer and the AWS account are ready: Node, the AWS CLI, which account, CloudFront access. Changes nothing. Run it before install.',
     inputSchema: { type: 'object', properties: { path: PATH, profile: PROFILE }, additionalProperties: false },
     run: async (a) => show(await runSetup(repoFor(a.path), 'check', flagsFor(a))) },
-  { name: 'status', description: 'Say what is installed in the AWS account, its version, which features are on, the portal address, and whether a newer release is out. If `newerRelease` is true, tell the teacher to run `upgradeCommand` and then `editorCommand` in their own terminal (the second one updates these editor tools to the new version; restart the editor after it). Changes nothing.',
+  { name: 'platform_status', description: 'Say what is installed in the AWS account, its version, which features are on, the portal address, and whether a newer release is out. If `newerRelease` is true, tell the teacher to run `upgradeCommand` and then `editorCommand` in their own terminal (the second one updates these editor tools to the new version; restart the editor after it). Changes nothing.',
     inputSchema: { type: 'object', properties: { path: PATH, profile: PROFILE }, additionalProperties: false },
     run: async (a) => show(await runSetup(repoFor(a.path), 'status', flagsFor(a))) },
-  { name: 'verify', description: 'Check that the installed platform really works from outside: the portal pages open, the student kit and MCP package are published, private pages need a login. Public checks only: the full check (a throwaway student publishes a sample site) needs the teacher password, which is typed in the teacher\'s own terminal with `verify`. Changes nothing.',
+  { name: 'platform_verify', description: 'Check that the installed platform really works from outside: the portal pages open, the student kit and MCP package are published, private pages need a login. Public checks only: the full check (a throwaway student publishes a sample site) needs the teacher password, which is typed in the teacher\'s own terminal with `verify`. Changes nothing.',
     inputSchema: { type: 'object', properties: { path: PATH, profile: PROFILE }, additionalProperties: false },
     run: async (a) => show(await runSetup(repoFor(a.path), 'verify', flagsFor(a))) },
-  { name: 'update_editor_tools', description: 'Move these editor tools to the newest release: rewrites the teacher\'s editor settings entry (VS Code and Antigravity), after a backup, so the next start uses the new version. IMPORTANT: tell the teacher which version it will move to (status shows it) and call this with confirm=true only after they say yes. Afterwards tell them to restart the editor.',
+  { name: 'platform_update_editor_tools', description: 'Move these editor tools to the newest release: rewrites the teacher\'s editor settings entry (VS Code and Antigravity), after a backup, so the next start uses the new version. IMPORTANT: tell the teacher which version it will move to (platform_status shows it) and call this with confirm=true only after they say yes. Afterwards tell them to restart the editor.',
     inputSchema: { type: 'object', properties: { confirm: CONFIRM, path: PATH }, required: ['confirm'], additionalProperties: false },
     run: async (a) => (a.confirm === true ? show(await runSetup(repoFor(a.path), 'editor-update', ['--yes'], { timeoutMs: 60000 })) : { ok: false, text: 'Not updated. Tell the teacher which version the editor tools will move to, ask, then call again with confirm=true.' }) },
-  { name: 'install', description: 'Install the platform into the teacher\'s AWS account (CloudFront, S3, Lambda, DynamoDB; costs are small and idle cost is near zero). IMPORTANT: first run check_environment, tell the teacher which AWS account it will use, and call this with confirm=true only after they say yes. With no domain it uses free cloudfront.net addresses (best for a first try). With a domain it first returns a DNS record for the certificate, then the DNS records for the sites; the teacher adds them at their DNS host. Runs in the background: use job_status.',
+  { name: 'platform_install', description: 'Install the platform into the teacher\'s AWS account (CloudFront, S3, Lambda, DynamoDB; costs are small and idle cost is near zero). IMPORTANT: first run platform_check_environment, tell the teacher which AWS account it will use (this tool also reports the account number when you call it without confirm), and call this with confirm=true only after they say yes. With no domain it uses free cloudfront.net addresses (best for a first try). With a domain it first returns a DNS record for the certificate, then the DNS records for the sites; the teacher adds them at their DNS host. Runs in the background: use platform_job_status.',
     inputSchema: { type: 'object', properties: { confirm: CONFIRM, path: PATH, profile: PROFILE, stack: { type: 'string', description: 'Stack name (default student-hosting)' },
       domain: { type: 'string', description: 'Optional domain for student sites, for example apps.example.com' }, features: { type: 'array', items: { type: 'string', enum: FEATURES }, description: 'Which features to install (default: all of them; each stays off for every student until the teacher switches it on for that student)' }, dry_run: { type: 'boolean', description: 'only list what would run' } }, required: ['confirm'], additionalProperties: false },
     run: async (a) => {
-      if (a.confirm !== true) return { ok: false, text: 'Nothing installed. Tell the teacher which AWS account and domain (if any) will be used, ask whether to install, and call install again with confirm=true.' };
+      const where = await accountNote(repoFor(a.path), a);
+      if (a.confirm !== true) return { ok: false, text: `Nothing installed. This would go to: ${where}. Tell the teacher this account number and the domain (if any), ask whether to install, and call platform_install again with confirm=true.` };
       const flags = [...flagsFor(a), ...(a.domain ? ['--domain', a.domain] : []), ...((a.features ?? []).length ? ['--features', a.features.join(',')] : [])];
-      return a.dry_run ? show(await runSetup(repoFor(a.path), 'install', flags)) : startJob('install', repoFor(a.path), 'install', flags);
+      if (a.dry_run) return show(await runSetup(repoFor(a.path), 'install', flags));
+      const started = startJob('install', repoFor(a.path), 'install', flags);
+      return { ...started, text: `${where}. ${started.text}` };
     } },
-  { name: 'finish_domain', description: 'Step two of a domain install: attach the portal address once the DNS records returned by install have been added. IMPORTANT: ask the teacher whether the records are added; confirm=true only after they say yes. Runs in the background: use job_status.',
+  { name: 'platform_finish_domain', description: 'Step two of a domain install: attach the portal address once the DNS records returned by install have been added. IMPORTANT: ask the teacher whether the records are added; confirm=true only after they say yes. Runs in the background: use platform_job_status.',
     inputSchema: { type: 'object', properties: { confirm: CONFIRM, path: PATH, profile: PROFILE }, required: ['confirm'], additionalProperties: false },
-    run: async (a) => (a.confirm === true ? startJob('finish_domain', repoFor(a.path), 'finish-domain', flagsFor(a)) : { ok: false, text: 'Not done. Ask the teacher whether the DNS records are added, then call again with confirm=true.' }) },
-  { name: 'plan_update', description: 'Show, in plain words, what updating the account to the version in the repository (after `git pull`) would change, or what switching one feature on or off would change. Changes nothing. Returns a plan_id. Tell the teacher the summary; if "blocked" is true explain nothing was changed and why.',
+    run: async (a) => {
+      const where = await accountNote(repoFor(a.path), a);
+      if (a.confirm !== true) return { ok: false, text: `Not done. This would go to: ${where}. Ask the teacher whether the DNS records are added, then call again with confirm=true.` };
+      const started = startJob('platform_finish_domain', repoFor(a.path), 'finish-domain', flagsFor(a));
+      return { ...started, text: `${where}. ${started.text}` };
+    } },
+  { name: 'platform_plan_update', description: 'Show, in plain words, what updating the account to the version in the repository (after `git pull`) would change, or what switching one feature on or off would change. Changes nothing. Returns a plan_id. Tell the teacher the summary; if "blocked" is true explain nothing was changed and why.',
     inputSchema: { type: 'object', properties: { path: PATH, profile: PROFILE, enable: { type: 'string', enum: FEATURES }, disable: { type: 'string', enum: FEATURES } }, additionalProperties: false },
     run: async (a) => show(await runSetup(repoFor(a.path), 'plan', [...flagsFor(a), ...(a.enable ? ['--enable', a.enable] : []), ...(a.disable ? ['--disable', a.disable] : [])], { timeoutMs: 600000 })) },
-  { name: 'apply_update', description: 'Run exactly the plan that plan_update showed (give its plan_id), then publish the portal pages, student kit and MCP package. IMPORTANT: read the plan to the teacher and call this with confirm=true only after they say yes. A changed or old plan is refused; data-holding resources are never replaced. Runs in the background: use job_status. When it has finished, tell the teacher the `editorCommand` from the result (if any): they run it in their terminal and restart the editor so these tools use the new version.',
-    inputSchema: { type: 'object', properties: { confirm: CONFIRM, plan_id: { type: 'string', description: 'The plan_id from plan_update' }, path: PATH, profile: PROFILE }, required: ['confirm', 'plan_id'], additionalProperties: false },
+  { name: 'platform_apply_update', description: 'Run exactly the plan that platform_plan_update showed (give its plan_id), then publish the portal pages, student kit and MCP package. IMPORTANT: read the plan to the teacher and call this with confirm=true only after they say yes. A changed or old plan is refused; data-holding resources are never replaced. Runs in the background: use platform_job_status. When it has finished, tell the teacher the `editorCommand` from the result (if any): they run it in their terminal and restart the editor so these tools use the new version.',
+    inputSchema: { type: 'object', properties: { confirm: CONFIRM, plan_id: { type: 'string', description: 'The plan_id from platform_plan_update' }, path: PATH, profile: PROFILE }, required: ['confirm', 'plan_id'], additionalProperties: false },
     run: async (a) => {
-      if (a.confirm !== true) return { ok: false, text: 'Not applied. Read the plan to the teacher, ask whether to apply it, then call again with confirm=true.' };
-      if (!/^[0-9a-f]{8,64}$/.test(String(a.plan_id))) return { ok: false, text: 'plan_id must be the id that plan_update returned.' };
-      return startJob('apply_update', repoFor(a.path), 'apply', [a.plan_id, ...flagsFor(a)]);
+      if (!/^[0-9a-f]{8,64}$/.test(String(a.plan_id))) return { ok: false, text: 'plan_id must be the id that platform_plan_update returned.' };
+      const where = await accountNote(repoFor(a.path), a);
+      if (a.confirm !== true) return { ok: false, text: `Not applied. The plan would be applied to: ${where}. Read the plan and this account number to the teacher, ask whether to apply it, then call again with confirm=true.` };
+      const started = startJob('platform_apply_update', repoFor(a.path), 'apply', [a.plan_id, ...flagsFor(a)]);
+      return { ...started, text: `${where}. ${started.text}` };
     } },
-  { name: 'publish_portal', description: 'Publish the portal pages, the student kit and the MCP package from the repository again (no AWS stack change). IMPORTANT: ask first; confirm=true only after they say yes.',
+  { name: 'platform_publish_portal', description: 'Publish the portal pages, the student kit and the MCP package from the repository again (no AWS stack change). IMPORTANT: ask first; confirm=true only after they say yes.',
     inputSchema: { type: 'object', properties: { confirm: CONFIRM, path: PATH, profile: PROFILE }, required: ['confirm'], additionalProperties: false },
-    run: async (a) => (a.confirm === true ? show(await runSetup(repoFor(a.path), 'publish', flagsFor(a), { timeoutMs: 300000 })) : { ok: false, text: 'Not published. Ask the teacher first, then call again with confirm=true.' }) },
-  { name: 'job_status', description: 'Progress and result of the running or last background job (install, finish_domain, apply_update).',
+    run: async (a) => {
+      const where = await accountNote(repoFor(a.path), a);
+      if (a.confirm !== true) return { ok: false, text: `Not published. This would go to: ${where}. Tell the teacher this account number, ask, then call again with confirm=true.` };
+      const done = show(await runSetup(repoFor(a.path), 'publish', flagsFor(a), { timeoutMs: 300000 }));
+      return { ...done, text: `${where}.
+${done.text}` };
+    } },
+  { name: 'platform_job_status', description: 'Progress and result of the running or last background job (install, platform_finish_domain, platform_apply_update).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     run: async () => {
       if (!job) return { ok: true, text: 'No job has been started in this session.' };
@@ -123,7 +144,7 @@ const TOOLS = [
       if (!job.done) return { ok: true, text: `"${job.name}" is still running (${minutes} min).\n${job.tail ? `Last output:\n${job.tail.slice(-800)}` : ''}`.trim() };
       return { ...show(job.result), text: `"${job.name}" finished after ${minutes} min.\n${show(job.result).text}` };
     } },
-  { name: 'teacher_login', description: 'Explain how to set or reset the teacher password. The password must be typed in the teacher\'s own terminal; never ask for it and never put it in the chat.',
+  { name: 'platform_teacher_login', description: 'Explain how to set or reset the teacher password. The password must be typed in the teacher\'s own terminal; never ask for it and never put it in the chat.',
     inputSchema: { type: 'object', properties: { username: { type: 'string', description: 'The login name (3-40 letters, digits . _ -)' } }, additionalProperties: false },
     run: async (a) => ({ ok: true, text: `In your own terminal, inside the platform folder, run:\n  node setup.mjs teacher ${/^[A-Za-z0-9._-]{3,40}$/.test(a?.username ?? '') ? a.username : '<username>'}\nIt asks for the password (hidden). The same applies to the AI keys: run  node setup.mjs secrets  yourself. Never type either into this chat.` }) },
 ];
@@ -161,7 +182,7 @@ async function handle(message) {
       clientHasRoots = Boolean(params.capabilities?.roots);
       return send({ id, result: { protocolVersion: typeof params.protocolVersion === 'string' ? params.protocolVersion : '2025-06-18', capabilities: { tools: {} },
         serverInfo: { name: 'class-platform-teacher', version: version() },
-        instructions: 'Tools for the TEACHER of the class platform. Install: check_environment, then install (ask first). Update: the teacher runs `git pull`, then plan_update, read the plan out, ask, apply_update. Passwords and API keys are typed only in the teacher\'s own terminal; never ask for them.' } });
+        instructions: 'Tools for the TEACHER of the class platform; every name starts with platform_ so they cannot be mixed up with the student tools. Call platform_status first in every session. Before you ask the teacher to confirm anything that changes AWS (platform_install, platform_apply_update, platform_publish_portal, platform_finish_domain), tell them the AWS account number the tool reports and wait for a yes. Install: platform_check_environment, then platform_install (ask first). Update: the teacher runs `git pull`, then platform_plan_update, read the plan out, ask, platform_apply_update. Passwords and API keys are typed only in the teacher\'s own terminal; never ask for them.' } });
     case 'ping': return send({ id, result: {} });
     case 'tools/list': return send({ id, result: { tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) } });
     case 'tools/call': {

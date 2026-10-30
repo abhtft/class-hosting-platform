@@ -99,7 +99,7 @@ const backup = join(work, 'backup');
   const big = join(work, 'big');
   const src = fakeAws({ tokens: many });
   exportData(context(src), big);
-  const fake = fakeAws({ unprocessedOnce: true });
+  const fake = fakeAws({ unprocessedOnce: true, tokens: [] }); // a freshly installed platform: no students yet
   const result = importData(context(fake), big);
   const tokenWrites = fake.writes.filter((w) => w.table === 'TokTable');
   assert.equal(tokenWrites.reduce((n, w) => n + w.items.length, 0), 60 + 0, 'every item written exactly once (the unprocessed one was retried)');
@@ -112,6 +112,37 @@ const backup = join(work, 'backup');
   assert.ok(fake.calls.filter((a) => a[1] === 'sync').every((a) => !a.join(' ').includes('--delete')), 'import never deletes anything');
   assert.deepEqual(result.counts, { tokens: 60, storedItems: 1 });
   console.log('  ok  import: all 60 items written once in batches of 25 (unprocessed ones retried); no secret on a command line; nothing deleted');
+}
+
+// ---------- import: one platform, one class ----------
+{
+  const target = (tokens) => fakeAws({ tokens });
+  const otherStudent = [{ pk: S('tok#zzz'), slug: S('carol') }];
+  // the same backup again, into the platform it was restored to, is a safe repeat
+  const repeat = target(tokenItems);
+  assert.equal(importData(context(repeat), backup).ok, true, 'repeating the same backup is allowed');
+  // a freshly installed and verified platform only holds the revoked throwaway student of `verify`
+  const verified = target([{ pk: S('tok#vvv'), slug: S('zz-verify-4821'), revoked: { BOOL: true } }]);
+  assert.equal(importData(context(verified), backup).ok, true, 'the throwaway student of verify does not count');
+  // another class in the target: refused, nothing written, the reason and the way out are named
+  const live = target(otherStudent);
+  assert.throws(() => importData(context(live), backup), (e) => /already has 1 student that is not in this backup \(carol\)/.test(e.message) && /--merge/.test(e.hint) && /fresh/.test(e.hint));
+  assert.equal(live.writes.length + live.putValues.length, 0, 'a refused import writes nothing');
+  // the same site name for a different student: refused even with --merge
+  const clash = target([{ pk: S('tok#new'), slug: S('alice') }]);
+  assert.throws(() => importData(context(clash), backup, { merge: true }), /same site name.*alice/);
+  assert.equal(clash.writes.length + clash.putValues.length, 0);
+  // --merge adds the class and keeps the platform's own teacher login and key map
+  const merged = target(otherStudent);
+  const said = [];
+  const result = importData(context(merged), backup, { merge: true, say: (m) => said.push(m) });
+  assert.equal(result.ok, true);
+  assert.ok(merged.writes.some((w) => w.table === 'TokTable'), 'the backup students are written');
+  assert.equal(merged.putValues.length, 0, 'the teacher login and the key map of the existing platform are not replaced');
+  assert.ok(said.some((m) => /Keeping the teacher login/.test(m)));
+  // a transfer goes into a platform that was just installed for it and is not checked this way
+  assert.equal(importData(context(target(otherStudent)), backup, { forTransfer: true }).ok, true);
+  console.log('  ok  import is for a freshly installed platform: a repeat and a verified install pass; other students are refused; a name clash is refused even with --merge; --merge keeps the existing teacher login');
 }
 
 // ---------- import for a transfer, and its refusals ----------

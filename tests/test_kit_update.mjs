@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -157,6 +157,14 @@ try {
   const badHash = await hostile(goodKitZip, 'f'.repeat(64));
   const refusedSync = await platformAsync(fresh('refused'), 'sync', '--portal', badHash);
   assert.notEqual(refusedSync.status, 0, 'a kit that does not match its published hash is never applied');
+  // only the newest few backups are kept: seven old folders, then one more sync
+  for (let i = 1; i <= 7; i++) mkdirSync(join(synced, '.kit-backup', `2020010${i}-000000`), { recursive: true });
+  writeFileSync(join(synced, 'tools', 'doctor.mjs'), '// again\n');
+  assert.equal(platform(synced, 'sync', '--portal', portal).status, 0);
+  const kept = readdirSync(join(synced, '.kit-backup')).sort();
+  assert.equal(kept.length, 5, `only the newest 5 backup folders are kept: ${kept.join(', ')}`);
+  assert.ok(!kept.includes('20200101-000000') && !kept.includes('20200102-000000'), 'the oldest are removed first');
+  assert.ok(kept.some((name) => !name.startsWith('2020')), 'the backup just made is kept');
   say('sync: the portal lists the kit-owned file hashes; an edited kit file is replaced after a backup, a deleted one stays deleted, line endings do not matter, student code is untouched, a bad hash is refused');
 
   // ---- package.json: the kit's scripts that are missing are added; the student's own are never changed ----

@@ -15,6 +15,10 @@ Each teacher runs their **own copy** in **their own AWS account**; there is no s
 
 Details: `docs/TECHNICAL_SPECIFICATION.md` (security model) and `docs/AWS_LEARNINGS.md`.
 
+## Supported versions
+
+Only the newest release receives fixes. Teachers update with `plan` and `apply` (see the teacher guide); the student kit then follows automatically. This project is a **public beta** and has had **no third-party security review**.
+
 ## For teachers
 
 Use an IAM user with MFA for the install, delete its access key afterwards, keep the AWS Budget on, and apply releases promptly (`status` tells you when one is out).

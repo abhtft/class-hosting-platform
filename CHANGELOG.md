@@ -4,6 +4,18 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+## 2.0.2
+
+Launch-readiness release: safety guards, honest documentation, clearer tools.
+
+- **`import` is for a freshly installed platform, and now refuses to mix classes.** It used to add a backup to any platform, which replaced the teacher login and could overwrite the sites of students who share a name. Now it refuses a platform that already has students who are not in the backup, refuses a clash of site names outright, and with the new `--merge` keeps the existing teacher login and key map. A fresh install that has only run `verify` still imports normally, and repeating the same backup is still safe. The teacher guide has the rule ("one platform, one class") and two new troubleshooting rows.
+- **The teacher editor tools are renamed with a `platform_` prefix** (`platform_status`, `platform_install`, `platform_apply_update`, ...), so they can no longer be mixed up with the student tools (`status`, `deploy`, ...). Every confirmation now names the **AWS account** (and profile) the change would go to, and the tool instructions tell the assistant to call `platform_status` first in a session. If you wrote prompts or notes with the old tool names, update them.
+- **A rollback hint only when it works.** `upgrade` and `apply` print the "put the previous kit back" command only when the previous release is 2.0.0 or later; older releases publish no kit hashes, so publishing one would not roll students back.
+- **`.kit-backup/` keeps only the newest five folders.**
+- **A new "Good to know" section in the student README** (features are the teacher's choice and how to see them, the small backend and its limits, the token belongs to the project, the kit keeps itself in step, and the no-install zip upload).
+- **Documentation:** a new, shorter README (what it is, install, the four things to know before you start, students, known limitations, security and privacy, documentation map); the original manual SAM setup moved to `docs/LEGACY_MANUAL_SETUP.md`; the internal notes (`implement.md`, `learning.md`, `backend_wire.md`) moved into `docs/`; a "Supported versions" section in `SECURITY.md`; an "I tried the install" issue template.
+- **Repository hygiene:** a scratch file that had been committed by mistake is removed and `.temp/` is ignored; the maintainer's test domains are replaced by `example.com` in the docs. A scan of the whole git history found no keys, tokens or account numbers. `npm audit` of the student kit shows no production vulnerabilities (the two it reports are in Vite's local development server and need a major upgrade; planned).
+
 ## 2.0.1
 
 - **A deploy no longer fails completely when the backend is off.** The starter always contains `backend/`, and `deploy` published the backend first, so a student whose teacher had not switched the backend on got "Owner not enabled for you (403)" and the website was never published either. Now, when the portal says the backend is off for the student, `deploy` skips `backend/` with a clear warning and still publishes the website (`--only backend` while it is off is refused with the reason). The rules for AI editors say to build without a backend in that case. The kit syncs itself, so projects pick this up on their next command.

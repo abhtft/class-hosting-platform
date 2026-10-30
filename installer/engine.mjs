@@ -399,7 +399,8 @@ export async function apply(ctx, id) {
   const release = releaseInfo(ctx);
   const editorCommand = release?.url ? `npx -y ${release.url} editor` : null; // the editor's teacher tools stay on the version they were set up with until this is run
   // going back: publishing the PREVIOUS release puts its portal pages, student kit and editor package back, and every student's next command syncs to it
-  const rollbackCommand = release?.repo && /^\d+\.\d+\.\d+$/.test(String(saved.fromVersion ?? '')) && saved.fromVersion !== saved.toVersion
+  // (only a release from 2.0.0 on publishes the kit file hashes that make students follow; an older one would leave their projects on the new kit)
+  const rollbackCommand = release?.repo && /^\d+\.\d+\.\d+$/.test(String(saved.fromVersion ?? '')) && saved.fromVersion !== saved.toVersion && !newerThan('2.0.0', saved.fromVersion)
     ? `npx -y https://github.com/${release.repo}/releases/download/v${saved.fromVersion}/class-platform-teacher-${saved.fromVersion}.tgz publish` : null;
   return { ok: true, version: saved.toVersion, portalUrl: outputs.PortalUrl, editorCommand, rollbackCommand,
     message: `Updated to ${saved.toVersion} and published the portal pages, the student kit and the MCP package.${editorCommand ? ` To make your editor's teacher tools use this version too, run: ${editorCommand}` : ''}${rollbackCommand ? ` If students report a problem with the new student kit, put the previous kit back (it takes effect on their next command): ${rollbackCommand}` : ''}` };

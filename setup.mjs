@@ -8,7 +8,7 @@
 //   node setup.mjs secrets              save the AI keys in AWS Secrets Manager (asks, hidden)
 //   node setup.mjs publish              publish the portal pages, the student kit and the MCP package again
 //   node setup.mjs export <folder>      back up everything the class made (tokens, stored student data, published files, teacher login) to a new private folder
-//   node setup.mjs import <folder>      add such a backup to this account's platform (deletes nothing; safe to repeat)
+//   node setup.mjs import <folder>      restore such a backup into a freshly installed platform (replaces the teacher login; refuses a platform with other students unless --merge)
 //   node setup.mjs transfer --from <profile> --to <profile>   move the class to another AWS account, with a CSV of the DNS changes; the old account is only read
 //   node setup.mjs setup                one-time setup of this computer: saves your AWS access (as its own profile) and adds the teacher tools to your editor
 //   node setup.mjs editor-update        move the editor's teacher tools to the newest release (asks first)
@@ -46,7 +46,7 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) { rest.push(a); continue; }
     const key = a.slice(2);
-    if (['dry-run', 'json', 'yes', 'everything', 'no-login', 'finish', 'disable'].includes(key)) flags[key] = true;
+    if (['dry-run', 'json', 'yes', 'everything', 'no-login', 'finish', 'disable', 'merge'].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { command: rest[0], args: rest.slice(1), flags };
@@ -237,10 +237,10 @@ export async function main(argv, overrides = {}) {
         return finish(exportData(ctx, resolve(args[0]), { say: ctx.progress }));
       }
       case 'import': {
-        if (!args[0]) throw new engine.InstallError('Usage: node setup.mjs import <backup folder>', 'Adds the backup to the platform in this account; it deletes nothing, and repeating it is safe.');
+        if (!args[0]) throw new engine.InstallError('Usage: node setup.mjs import <backup folder>', 'Adds the backup to the platform in this account. Use it on a freshly installed platform: it replaces the teacher login with the one in the backup and refuses a platform that already has other students (add --merge to keep the existing login and add both classes). It deletes nothing, and repeating the same backup is safe.');
         if (flags.json) throw new engine.InstallError('Importing is done in your own terminal, after you confirm.', `Run: ${engine.cli(ctx)} import ${args[0]}`);
         if (!ctx.dryRun && !flags.yes && (await prompt.ask(`Add the backup in ${args[0]} to the platform "${ctx.stack}" in this AWS account? Type "import" to continue:`)) !== 'import') { console.log('Nothing was imported.'); return { ok: false }; }
-        return finish(importData(ctx, resolve(args[0]), { say: ctx.progress }));
+        return finish(importData(ctx, resolve(args[0]), { merge: Boolean(flags.merge), say: ctx.progress }));
       }
       case 'transfer': {
         if (flags.json) throw new engine.InstallError('A transfer needs account numbers and your teacher login typed by you, which is never done through an editor.', `Run in your own terminal: ${engine.cli(ctx)} transfer --from <profile> --to <profile>`);

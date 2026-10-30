@@ -56,9 +56,9 @@ Run that line once per terminal window, then use `npx -y "$PKG" <command>` (Powe
 
 **A pinned version** (to repeat a result, follow a guide written for one version, or go back after a problem):
 ```bash
-PKG=https://github.com/abhtft/class-hosting-platform/releases/download/v2.0.1/class-platform-teacher-2.0.1.tgz
+PKG=https://github.com/abhtft/class-hosting-platform/releases/download/v2.0.2/class-platform-teacher-2.0.2.tgz
 ```
-Replace `2.0.1` with the version you want (all versions are on the repository's Releases page, each with its changelog and checksum).
+Replace `2.0.2` with the version you want (all versions are on the repository's Releases page, each with its changelog and checksum).
 
 In the rest of this guide `<package>` means `npx -y "$PKG"` and `--profile <name>` is the AWS profile of the account (see section 3). Add `--dry-run` to the commands that change things to see every AWS command without running any.
 
@@ -253,9 +253,9 @@ It asks which AWS profile to use, or lets you paste an AWS access key (hidden) t
 
 | Tool | Does | Asks first |
 |---|---|---|
-| `check_environment`, `status`, `verify`, `plan_update`, `job_status` | read, check or explain | no |
-| `install`, `finish_domain`, `apply_update`, `publish_portal`, `update_editor_tools` | change AWS or the editor settings (installs and updates run in the background; `job_status` shows progress) | **yes** |
-| `teacher_login` | explains how to set the password | n/a |
+| `platform_check_environment`, `platform_status`, `platform_verify`, `platform_plan_update`, `platform_job_status` | read, check or explain | no |
+| `platform_install`, `platform_finish_domain`, `platform_apply_update`, `platform_publish_portal`, `platform_update_editor_tools` | change AWS or the editor settings (installs and updates run in the background; `platform_job_status` shows progress) | **yes** |
+| `platform_teacher_login` | explains how to set the password | n/a |
 
 The AI never sees a password or key: those are typed in your own terminal. The editor tools cannot delete the platform, take a password or key, or touch IAM users. Anything destructive or secret is a terminal command (section 15).
 
@@ -265,7 +265,9 @@ The AI never sees a password or key: those are typed in your own terminal. The e
 ```bash
 <package> export my-backup
 ```
-Writes a new private folder with the student tokens and settings, stored student data, published sites and files, the teacher login and the student key map. It holds student AI keys and the teacher login hash: keep it private and delete it when you no longer need it. It does not hold your AI keys secret (use `secrets`), student backend functions or custom-domain registrations. `<package> import my-backup` adds a backup to the platform in the account you are signed in to; it deletes nothing and is safe to repeat.
+Writes a new private folder with the student tokens and settings, stored student data, published sites and files, the teacher login and the student key map. It holds student AI keys and the teacher login hash: keep it private and delete it when you no longer need it. It does not hold your AI keys secret (use `secrets`), student backend functions or custom-domain registrations. `<package> import my-backup` restores a backup into the platform in the account you are signed in to. It deletes nothing, and repeating the **same** backup into the same platform is safe.
+
+> **One platform, one class.** Import into a platform you have **just installed** (after a rebuild, or in a new account). Import **replaces the teacher login** with the one in the backup, and copies the backup's sites over any site with the same name. So it refuses a platform that already has students who are not in the backup, and it refuses a clash of site names outright. If you really want two classes in one platform, add `--merge`: the existing teacher login is then kept and the two classes share the platform (a clash of names is still refused). There is no supported way to merge two live classes cleanly: to run two classes, install a second platform (a separate stack, ideally a separate AWS account). Never import into an account that hosts a class you care about without taking its own `export` first.
 
 **Move the class to another AWS account:**
 ```bash
@@ -292,6 +294,8 @@ First it shows what it will remove (students, distributions, buckets, functions,
 | "AWS has not verified this account for CloudFront yet" | Open an AWS Support case (Account and billing); retry when AWS confirms. |
 | "not allowed to use CloudFront" or `AccessDenied` | Attach AdministratorAccess to the IAM user (a user with no policy can sign in but every call fails). |
 | "The AWS CLI is not installed" or "could not sign in" | Install the AWS CLI and run `aws configure`, or use CloudShell. |
+| "The platform ... already has students that are not in this backup" (on `import`) | You are importing into a platform that is already in use. Import into a freshly installed one instead (see section 11), or add `--merge` if you want both classes there. |
+| I cannot sign in as teacher after an `import` | The import replaced the teacher login with the one from the backup: use the login you had when you made the backup, or set a new one with `<package> teacher <name>`. |
 | "The stack ... already exists" | The platform is already installed: use `status`, `plan`, `upgrade`. To start over: `destroy --everything`. |
 | "failed state (ROLLBACK_COMPLETE)" | `<package> destroy`, then install again. |
 | A window closed during the install | Run the same install command again; it carries on. |

@@ -70,10 +70,12 @@ process.on('exit', () => s.stop());
 const init = await s.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't' } });
 assert.equal(init.result.serverInfo.name, 'class-platform-teacher');
 assert.match(init.result.instructions, /never ask for them/);
+assert.match(init.result.instructions, /Call platform_status first in every session/);
+assert.match(init.result.instructions, /tell them the AWS account number/);
 const listed = (await s.rpc('tools/list')).result.tools;
-assert.deepEqual(listed.map((t) => t.name).sort(), ['apply_update', 'check_environment', 'finish_domain', 'install', 'job_status', 'plan_update', 'publish_portal', 'status', 'teacher_login', 'update_editor_tools', 'verify']);
+assert.deepEqual(listed.map((t) => t.name).sort(), ['platform_apply_update', 'platform_check_environment', 'platform_finish_domain', 'platform_install', 'platform_job_status', 'platform_plan_update', 'platform_publish_portal', 'platform_status', 'platform_teacher_login', 'platform_update_editor_tools', 'platform_verify']);
 for (const forbidden of ['destroy', 'delete', 'secrets', 'password', 'iam', 'teacher_setup']) assert.ok(!listed.some((t) => t.name.includes(forbidden)), `no ${forbidden} tool`);
-for (const name of ['install', 'finish_domain', 'apply_update', 'publish_portal', 'update_editor_tools']) {
+for (const name of ['platform_install', 'platform_finish_domain', 'platform_apply_update', 'platform_publish_portal', 'platform_update_editor_tools']) {
   const t = listed.find((x) => x.name === name);
   assert.deepEqual(t.inputSchema.required.includes('confirm'), true, `${name} needs confirm`);
   assert.match(t.description, /ask|IMPORTANT/i);
@@ -81,62 +83,64 @@ for (const name of ['install', 'finish_domain', 'apply_update', 'publish_portal'
 assert.equal((await s.rpc('ping')).result && 1, 1);
 assert.equal((await s.rpc('nothing/here')).error.code, -32601);
 assert.equal((await s.rpc('tools/call', { name: 'nope', arguments: {} })).error.code, -32602);
-console.log('  ok  protocol; eleven tools; no deleting, no passwords or keys, no IAM; every changing tool needs confirm');
+console.log('  ok  protocol; eleven platform_ tools; no deleting, no passwords or keys, no IAM; every changing tool needs confirm');
 
 // ---------- read-only tools run the repository's own setup.mjs in JSON mode ----------
-const checked = await s.call('check_environment', { profile: 'new' });
+const checked = await s.call('platform_check_environment', { profile: 'new' });
 assert.equal(checked.isError, false);
 assert.deepEqual(calls().pop(), ['check', '--profile', 'new', '--json']);
-const status = await s.call('status');
+const status = await s.call('platform_status');
 assert.ok(!status.text.includes(KEY) && status.text.includes('***'), 'anything shaped like a key is masked');
-const checkedPublic = await s.call('verify');
+const checkedPublic = await s.call('platform_verify');
 assert.match(checkedPublic.text, /public checks passed/);
 assert.deepEqual(calls().pop(), ['verify', '--json'], 'the IDE tool never gets the password: public checks only');
-const plan = await s.call('plan_update', { enable: 'gemini' });
+const plan = await s.call('platform_plan_update', { enable: 'gemini' });
 assert.match(plan.text, /abc12345def67890/);
 assert.deepEqual(calls().pop(), ['plan', '--enable', 'gemini', '--json']);
 console.log('  ok  check, status and plan run setup.mjs --json with the right flags; key-shaped text is masked');
 
 // ---------- everything that changes asks first ----------
-const before = calls().length;
-for (const [name, args] of [['install', {}], ['finish_domain', {}], ['apply_update', { plan_id: 'abc12345def67890' }], ['publish_portal', {}], ['update_editor_tools', {}]]) {
+const changing = () => calls().filter((c) => c[0] !== 'check').length; // the account lookup (check) is read only and runs before every confirmation
+const before = changing();
+for (const [name, args] of [['platform_install', {}], ['platform_finish_domain', {}], ['platform_apply_update', { plan_id: 'abc12345def67890' }], ['platform_publish_portal', {}], ['platform_update_editor_tools', {}]]) {
   const r = await s.call(name, args);
   assert.equal(r.isError, true, `${name} without confirm`);
   assert.match(r.text, /Ask|ask|Tell/, name);
+  if (name !== 'platform_update_editor_tools') assert.match(r.text, /AWS account 111122223333/, `${name} names the AWS account before the teacher is asked`);
 }
-assert.equal((await s.call('install', { confirm: false })).isError, true);
-assert.equal(calls().length, before, 'nothing ran without confirm');
-const badPlan = await s.call('apply_update', { confirm: true, plan_id: '../etc; rm -rf' });
+assert.equal((await s.call('platform_install', { confirm: false })).isError, true);
+assert.equal(changing(), before, 'nothing that changes anything ran without confirm');
+const badPlan = await s.call('platform_apply_update', { confirm: true, plan_id: '../etc; rm -rf' });
 assert.equal(badPlan.isError, true);
-assert.equal(calls().length, before, 'a malformed plan id never reaches the shell');
+assert.equal(changing(), before, 'a malformed plan id never reaches the shell');
 console.log('  ok  without confirm=true nothing runs; a malformed plan id is refused');
 
 // ---------- install is a background job ----------
-const started = await s.call('install', { confirm: true, profile: 'new', domain: 'apps.example.com', features: ['ai', 'storage'] });
+const started = await s.call('platform_install', { confirm: true, profile: 'new', domain: 'apps.example.com', features: ['ai', 'storage'] });
 assert.equal(started.isError, false);
-assert.match(started.text, /Started "install"/);
-const during = await s.call('job_status');
+assert.match(started.text, /AWS account 111122223333, profile new\. Started "install"/, 'the answer repeats the account the install goes to');
+const during = await s.call('platform_job_status');
 assert.match(during.text, /still running|finished/);
-const second = await s.call('install', { confirm: true });
+const second = await s.call('platform_install', { confirm: true });
 assert.match(second.text, /already running|Started/, 'a second job is refused while one runs, or starts after it ended');
 await wait(1200);
-const finished = await s.call('job_status');
+const finished = await s.call('platform_job_status');
 assert.match(finished.text, /finished/);
 assert.match(finished.text, /x\.cloudfront\.net/);
 assert.deepEqual(calls().find((c) => c[0] === 'install'), ['install', '--profile', 'new', '--domain', 'apps.example.com', '--features', 'ai,storage', '--json']);
-const applied = await s.call('apply_update', { confirm: true, plan_id: 'abc12345def67890' });
-assert.match(applied.text, /Started "apply_update"/);
+const applied = await s.call('platform_apply_update', { confirm: true, plan_id: 'abc12345def67890' });
+assert.match(applied.text, /Started "platform_apply_update"/);
 await wait(500);
 assert.deepEqual(calls().pop(), ['apply', 'abc12345def67890', '--json']);
-assert.match((await s.call('job_status')).text, /1\.1\.0/);
-const upd = await s.call('update_editor_tools', { confirm: true });
+assert.match((await s.call('platform_job_status')).text, /1\.1\.0/);
+const upd = await s.call('platform_update_editor_tools', { confirm: true });
 assert.match(upd.text, /Editor tools set to 1\.2\.0/);
 assert.deepEqual(calls().pop(), ['editor-update', '--yes', '--json'], 'the editor entry is only changed after the teacher agreed');
-const dry = await s.call('install', { confirm: true, dry_run: true });
+const dry = await s.call('platform_install', { confirm: true, dry_run: true });
 assert.deepEqual(calls().pop(), ['install', '--dry-run', '--json'], 'a dry run is answered at once and not as a job');
-const login = await s.call('teacher_login', { username: 'ms-rao' });
+const login = await s.call('platform_teacher_login', { username: 'ms-rao' });
 assert.match(login.text, /node setup\.mjs teacher ms-rao/);
-assert.match((await s.call('teacher_login', { username: 'x; rm -rf /' })).text, /<username>/, 'an odd name is not echoed into a command');
+assert.match((await s.call('platform_teacher_login', { username: 'x; rm -rf /' })).text, /<username>/, 'an odd name is not echoed into a command');
 console.log('  ok  install and apply run in the background with the right flags; dry run is immediate; the password is only explained, never taken');
 
 // ---------- which folder: the editor\'s open folder (roots), or a clear message ----------
@@ -144,7 +148,7 @@ s.stop();
 const r = start([], join(work));
 const initR = await r.rpc('initialize', { protocolVersion: '2025-06-18', capabilities: { roots: {} }, clientInfo: { name: 't' } });
 assert.ok(initR.result);
-const lost = await r.call('status');
+const lost = await r.call('platform_status');
 assert.equal(lost.isError, true);
 assert.match(lost.text, /Open the platform folder/);
 r.notify('notifications/initialized');
@@ -153,9 +157,9 @@ const asked = r.serverRequests.find((m) => m.method === 'roots/list');
 assert.ok(asked, 'the server asks the editor which folder is open');
 r.reply(asked.id, { roots: [{ uri: `file:///${repo.replace(/\\/g, '/')}` }] });
 await wait(300);
-const found = await r.call('status');
+const found = await r.call('platform_status');
 assert.equal(found.isError, false, found.text);
-const wrong = await r.call('status', { path: join(work, 'not-a-repo') });
+const wrong = await r.call('platform_status', { path: join(work, 'not-a-repo') });
 assert.equal(wrong.isError, true, 'an explicit path that is not the platform folder is refused, never silently replaced');
 assert.match(wrong.text, /not the platform folder/);
 r.stop();

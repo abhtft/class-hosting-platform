@@ -55,7 +55,7 @@ Parameters:
     Default: 'false'
     AllowedValues: ['false', 'true']
     Description: >
-      Student backends (backend_wire.md): the Backend API, the gateway function and the /api/* route on the student distribution.
+      Student backends (docs/backend_wire.md): the Backend API, the gateway function and the /api/* route on the student distribution.
       Keep 'false' until the pilot is ready. The sandbox role below is always created but only lets a function write its own logs.
   AiEnabled:
     Type: String
@@ -418,7 +418,7 @@ Resources:
                   FunctionARN: !GetAtt BackendRouteFunction.FunctionMetadata.FunctionARN
           - !Ref AWS::NoValue
 
-  # ---------- Student backends (backend_wire.md) ----------
+  # ---------- Student backends (docs/backend_wire.md) ----------
   # <slug>.<RootDomain>/api/x  ->  CloudFront  ->  Backend API  ANY /b/{slug}/{proxy+}  ->  gateway Lambda  ->  student function sd-<slug>
   BackendRouteFunction:
     Type: AWS::CloudFront::Function

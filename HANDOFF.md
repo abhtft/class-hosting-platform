@@ -105,6 +105,20 @@ The owner has a small following, so the plan is a few real testers, not reach: 3
 
 **Known costs:** a bad release reaches every student at once (hence rollback); the sync needs the portal; changes can arrive mid-work. The trust model is unchanged (students already run their teacher's code); keep the hash check and HTTPS from the student's own portal.
 
+## 4f. Launch audit: known pain points, and what is deferred
+
+A walk through the teacher and student journeys (2.0.1) found these. The launch-critical ones are fixed in 2.0.2; the rest are listed in the README as known limitations and are the first things to build after the launch.
+
+**Deferred, in the order I would do them:**
+1. **Class-wide defaults and bulk actions.** Tokens are created one at a time and each feature is switched on per student (about 150 clicks for 30 students). Smallest useful step: "new students start with these features on", then "apply to all".
+2. **Teacher notifications.** Regeneration requests and expiries only show on the teacher page; the SNS topic for alarms exists and can be reused.
+3. **Cost visibility and the budget alert** (the installer could ask for an alert email and create the budget).
+4. **Co-teachers and an audit log** (one teacher login today).
+5. **Least-privilege IAM or SSO** instead of AdministratorAccess; publish on npm (shorter command).
+6. **Make the student side data-driven:** the feature list in `student/portal-deploy.mjs` is hardcoded; the portal should return a generic feature list the client renders, before the next feature is added.
+7. **A checklist for every new (costly) feature:** off by default, per-student switch, server-enforced cap, usage metering the teacher can see, a teacher-wide emergency off, cleanup in `destroy`, a features-block entry, tests.
+8. Upgrade test in CI; more than one region; a load test; Vite major upgrade (dev-server advisories); the portal refusing a stale client and the thin launcher package (4e).
+
 ## 5. Private facts (not in this repository)
 
 The owner's AWS account numbers, profile names, domain names and DNS records for the test platform, and the state of the test accounts, are in a git-ignored file in the private repository: `D:\Github_Codes\student-deploy\handoff.local`. Passwords and keys are not recorded anywhere; they live in AWS Secrets Manager and in the owner's own password handling.

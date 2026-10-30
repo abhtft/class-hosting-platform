@@ -382,12 +382,23 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   const fake = fakeAws({ stack: 'UPDATE_COMPLETE', nextChanges: [{ Action: 'Modify', LogicalResourceId: 'PortalFunction', ResourceType: 'AWS::Lambda::Function', Replacement: 'False' }] });
   const { ctx } = context(fake);
   const was = readFileSync(join(repo, 'VERSION'), 'utf8');
-  writeFileSync(join(repo, 'VERSION'), '1.2.0\n'); // this copy is newer than what the account runs (1.1.0): the update has a "previous release" to go back to
+  writeFileSync(join(repo, 'VERSION'), '1.2.0\n'); // newer than what the account runs (1.1.0): a release before 2.0.0 has no kit hashes, so it cannot roll students back
   const p = await engine.plan(ctx);
   const done = await engine.apply(ctx, p.planId);
   writeFileSync(join(repo, 'VERSION'), was);
-  assert.equal(done.rollbackCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v1.1.0/class-platform-teacher-1.1.0.tgz publish');
-  assert.match(done.message, /put the previous kit back.*v1\.1\.0.*publish/);
+  assert.equal(done.rollbackCommand, null, 'publishing a release before 2.0.0 would not put students back, so no hint is given');
+  assert.doesNotMatch(done.message, /put the previous kit back/);
+  // from 2.0.0 on, the previous release can be published again and every student syncs back to it
+  const upgraded = fakeAws({ stack: 'UPDATE_COMPLETE', nextChanges: [{ Action: 'Modify', LogicalResourceId: 'PortalFunction', ResourceType: 'AWS::Lambda::Function', Replacement: 'False' }] });
+  const ctxNew = context(upgraded).ctx;
+  const statePath = join(engine.stateDir(ctxNew), 'install.json');
+  writeFileSync(statePath, JSON.stringify({ ...engine.readState(ctxNew), installedVersion: '2.0.0' }));
+  writeFileSync(join(repo, 'VERSION'), '2.1.0\n');
+  const p2 = await engine.plan(ctxNew);
+  const done2 = await engine.apply(ctxNew, p2.planId);
+  writeFileSync(join(repo, 'VERSION'), was);
+  assert.equal(done2.rollbackCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v2.0.0/class-platform-teacher-2.0.0.tgz publish');
+  assert.match(done2.message, /put the previous kit back.*v2\.0\.0.*publish/);
   assert.equal(done.editorCommand, 'npx -y https://github.com/someone/class-platform/releases/download/v1.2.0/class-platform-teacher-1.2.0.tgz editor');
   assert.match(done.message, /make your editor's teacher tools use this version too, run: npx -y .*tgz editor/);
   rmSync(join(repo, 'release.json'));

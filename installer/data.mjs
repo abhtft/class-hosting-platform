@@ -1,6 +1,7 @@
 // Export and import of everything a class has made: the student tokens and their settings, stored student data, the published sites and files, the
 // teacher login and the student key map. A folder on the teacher's computer holds it. It is a backup on its own and the data step of a move between AWS
-// accounts (see transfer). Nothing here deletes anything: import only adds or overwrites on the target.
+// accounts (see transfer). Nothing here deletes anything: import only adds or overwrites on the target. It is meant for an EMPTY, freshly installed
+// platform: it refuses a platform that already has other students (see foreignStudents).
 //
 // What is NOT in a backup, on purpose: the AI keys in Secrets Manager (they are re-entered with `secrets`), student backend functions and custom
 // domains (they live in the old account's Lambda and CloudFront; students publish their backend again and add one DNS record, see the transfer CSV).
@@ -104,7 +105,17 @@ export function exportData(ctx, folder, { say = () => {} } = {}) {
     message: `Backed up ${tokens.length} token records, ${stored.length} stored student items, the published files and the teacher login to ${folder}. It holds student AI keys and the teacher login hash: keep it private and delete it when you no longer need it.` };
 }
 
-export function importData(ctx, folder, { forTransfer = false, say = () => {} } = {}) {
+/** Students already in the target that the backup does not contain, and those among them that use the same site name as a student in the backup.
+ *  A platform that was only installed and verified holds just the revoked throwaway students of `verify`, which never count. */
+export function foreignStudents(ctx, table, backupItems) {
+  const isStudent = (item) => String(item.pk?.S ?? '').startsWith('tok#') && !String(item.slug?.S ?? '').startsWith('zz-verify-');
+  const backupPks = new Set(backupItems.filter(isStudent).map((item) => item.pk.S));
+  const bySlug = new Map(backupItems.filter(isStudent).map((item) => [item.slug?.S, item.pk.S]));
+  const foreign = scanAll(ctx, table).filter((item) => isStudent(item) && !backupPks.has(item.pk.S));
+  return { foreign, clashes: foreign.filter((item) => bySlug.has(item.slug?.S)) };
+}
+
+export function importData(ctx, folder, { forTransfer = false, merge = false, say = () => {} } = {}) {
   if (!existsSync(join(folder, 'manifest.json'))) throw new InstallError(`${folder} is not a backup made by export (no manifest.json).`);
   const manifest = readJson(join(folder, 'manifest.json'));
   if (manifest.format !== FORMAT) throw new InstallError(`This backup has format ${manifest.format}; this version reads format ${FORMAT}.`, 'Use the same or a newer release.');
@@ -116,6 +127,16 @@ export function importData(ctx, folder, { forTransfer = false, say = () => {} } 
   }
   let items = readJson(join(folder, 'tokens.json'));
   let domains = [];
+  // One platform holds one class. Importing a different class into a live platform would replace its teacher login and could overwrite the sites of
+  // students who share a name, so it is refused unless the teacher asks for a merge, and a clash of names is refused even then.
+  let keepTeacherLogin = false;
+  if (!forTransfer && !ctx.dryRun) {
+    const { foreign, clashes } = foreignStudents(ctx, o.TokensTableName, items);
+    const names = (list) => `${list.slice(0, 5).map((i) => i.slug?.S ?? '?').join(', ')}${list.length > 5 ? ', ...' : ''}`;
+    if (clashes.length) throw new InstallError(`The platform "${ctx.stack}" already has students that use the same site name as students in this backup (${names(clashes)}). Importing would overwrite their sites.`, 'Nothing was changed. Import into a freshly installed platform instead.');
+    if (foreign.length && !merge) throw new InstallError(`The platform "${ctx.stack}" already has ${foreign.length} student${foreign.length === 1 ? '' : 's'} that ${foreign.length === 1 ? 'is' : 'are'} not in this backup (${names(foreign)}). Importing would replace its teacher login and mix two classes.`, 'Nothing was changed. Import into a freshly installed platform. If you really want both classes in one platform, add --merge (the existing teacher login is then kept).');
+    keepTeacherLogin = foreign.length > 0;
+  }
   if (forTransfer) ({ items, domains } = transformForTransfer(items));
   say(`Writing ${items.length} token records...`);
   writeItems(ctx, o.TokensTableName, items);
@@ -126,7 +147,8 @@ export function importData(ctx, folder, { forTransfer = false, say = () => {} } 
     if (ctx.dryRun || existsSync(join(folder, 's3', prefix))) awsCall(ctx, ['s3', 'sync', join(folder, 's3', prefix), `s3://${o.BucketName}/${prefix}`, '--only-show-errors']);
   }
   const ssm = readJson(join(folder, 'ssm.json'));
-  for (const [name, param] of [['keys', o.KeysParameterName], ['teacher', o.TeacherParameterName]]) {
+  if (keepTeacherLogin) say('Keeping the teacher login and the key map of this platform (a merge never replaces them).');
+  for (const [name, param] of keepTeacherLogin ? [] : [['keys', o.KeysParameterName], ['teacher', o.TeacherParameterName]]) {
     if (!ssm[name] || !param) continue;
     const file = secretFile(JSON.stringify({ Name: param, Type: 'String', Overwrite: true, Value: ssm[name] }));
     try { awsCall(ctx, ['ssm', 'put-parameter', '--cli-input-json', `file://${file.file}`]); } finally { file.done(); }

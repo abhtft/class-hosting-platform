@@ -20,6 +20,14 @@ A website (`frontend/`) and one backend function (`backend/`), hosted on your cl
 6. **Optional: automatic deploy from GitHub.** Create a GitHub repository for this folder, then repository > *Settings* > *Secrets and variables* > *Actions* > *New repository secret*, name `PORTAL_TOKEN`, value = your token. Then push again.
    Push to `main`; the **Actions** tab turns green when your site is live. Never write your token into a file yourself: `npm run login` stores it safely.
 
+## Good to know
+
+- **Your teacher decides which features you have.** The backend, the class AI, class storage and your own domain are each switched on by your teacher, per student. Run `node portal-deploy.mjs status` (or ask your AI editor "which features do I have?") to see what is on. If the backend is off, `npm run deploy` still publishes your website and skips `backend/`.
+- **The backend is small on purpose:** one function, Python's standard library or Node's built-ins only (no package installs), 10 seconds per request, no SQL database. Your AI editor knows these limits from `AGENTS.md`; if it suggests Express, Flask or a package, remind it.
+- **Your token belongs to this project.** Run `npm run login` once in each project. A lost token cannot be shown again: ask your teacher for a new one.
+- **The kit keeps itself up to date with your teacher's platform.** Before a deploy it may replace the kit's own files (`AGENTS.md`, `tools/`, `portal-deploy.mjs`, the helpers); a copy of every replaced file is saved in `.kit-backup/`. Your own code in `frontend/` and `backend/` is never touched. Do not edit the kit's files.
+- **No install at all?** Build your site anywhere and drag the build folder (or a zip) onto the portal's student page.
+
 ## What is where
 
 | Path | What it is |
