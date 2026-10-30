@@ -4,7 +4,11 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
-- **Signed releases.** A new job in the release workflow signs every release file (the package and `sha256sums.txt`) with Sigstore and attaches a `.sigstore.json` bundle to the release. It runs after the release is published, so a signing problem can never stop a release. How to verify a download is in `SECURITY.md`. It takes effect with the next release tag.
+## 2.0.3
+
+Security and supply-chain release: no change to how the platform behaves.
+
+- **Signed releases.** A new job in the release workflow signs every release file (the package and `sha256sums.txt`) with Sigstore and attaches a `.sigstore.json` bundle to the release. It runs after the release is published, so a signing problem can never stop a release. How to verify a download is in `SECURITY.md`. This is the first release that has them.
 - **Automated security checks.** CI now also runs a `checkov` scan of the infrastructure template (34 checks pass; the 11 that do not apply, or that are planned, are listed with reasons in `.checkov.yaml`). New workflows run GitHub CodeQL (JavaScript, Python and workflows) and the OpenSSF Scorecard, and Dependabot proposes weekly updates for the dependencies and the actions. See `SECURITY.md`.
 
 ## 2.0.2
