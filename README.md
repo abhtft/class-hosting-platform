@@ -73,7 +73,7 @@ Student guide: [docs/STUDENT_KIT.md](docs/STUDENT_KIT.md) and [student/README.md
 
 ## Contributing and testing wanted
 
-Issues and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). If you teach and have an AWS account, running the install and telling us what worked and what stopped you is the most useful thing you can do: open an issue using the **"I tried the install"** template.
+Issues and pull requests are welcome. Have an idea? Fork the repository, work on a branch of your fork, and open a pull request against `main`; a maintainer reviews it before anything is merged. The steps are in [CONTRIBUTING.md](CONTRIBUTING.md). If you teach and have an AWS account, running the install and telling us what worked and what stopped you is the most useful thing you can do: open an issue using the **"I tried the install"** template.
 
 ## License
 
