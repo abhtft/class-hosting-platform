@@ -76,7 +76,7 @@ You do **not** need the SAM CLI, Docker, Python, git or an npm account.
 Sign in to the AWS console and open **CloudShell** (the terminal icon at the top). It is already signed in as you, so there is no access key and no profile. It needs Node 20+: check `node --version`; if older, run `sudo dnf install -y nodejs22` (the installer prints this hint too). If the window closes during the 10 to 15 minute build, open CloudShell again and run the same install command: it carries on.
 
 ### 3.2 On your own computer
-Create an IAM user with **AdministratorAccess** (IAM, Users, Create user), then an access key (Security credentials, Create access key, use case "Command Line Interface"), and run `aws configure --profile mine`. Use that profile name wherever this guide says `--profile <name>`. Use a dedicated user, turn on MFA for it, and delete its access key when you no longer need it. Or let `setup` (section 10) save the key for you.
+Create an IAM user with **AdministratorAccess** (IAM, Users, Create user), then an access key (Security credentials, Create access key, use case "Command Line Interface"), and run `aws configure --profile mine`. Use that profile name wherever this guide says `--profile <name>`. **If you have more than one AWS profile** (for example a live class in another account), always pass `--profile`, or run `export AWS_PROFILE=<name>` in that terminal, and check with `aws sts get-caller-identity --query Account --output text` before anything that changes AWS. A command without a profile runs on your default one. Use a dedicated user, turn on MFA for it, and delete its access key when you no longer need it. Or let `setup` (section 10) save the key for you.
 
 ## 4. Install
 
@@ -203,7 +203,7 @@ Safety rules that are enforced:
 - An update that would **replace or remove** a table, bucket, secret, parameter or distribution is **refused**; nothing is changed.
 - `apply` only runs the plan that was shown, by its id; if the change set changed or expired, you get a new plan.
 - New features arrive off for every student; the custom-domain ids and every setting you have are carried over.
-- Students learn about a new student kit themselves (`npm run check` and their editor tool say so) and update with one yes.
+- Students' projects follow your version by themselves: the next time a student runs `npm run deploy` or their editor's `status`, the kit's own files are brought in line with your portal (see 8.1). Nobody is asked, and a copy of every replaced file is kept.
 
 After an update, move your editor tools to the same version (the `apply` message prints the exact command), then restart the editor:
 ```bash
@@ -238,6 +238,8 @@ Asks for your teacher login (used once, never saved), then acts like a student a
 Each line is `ok` or `FAIL` with the reason. It leaves nothing behind. Run it after an install, an update, a feature change or a transfer. `verify --no-login` runs only the public checks.
 
 ## 10. Use your AI editor: the teacher tools
+
+The tools are all named `platform_...` (for example `platform_status`) so they cannot be mixed up with the student tools; the assistant is told to call `platform_status` first in a session.
 
 Do everything above by talking to your AI editor, the same way students do. One command, once per computer:
 ```bash
@@ -277,7 +279,18 @@ It shows both accounts and asks you to **type both account numbers** and your **
 
 If your domain needs the certificate record, the first run stops after printing it: add it, wait a few minutes, run the same command again. Stop students from publishing during the move; anything published after the copy is not included. After the new platform passed its check and you switched DNS, run the same command once more with `--finish` to attach your domain. Keep the old account about a week, then remove it with `destroy`. Student backend functions are not copied (students publish again); each student with a custom domain registers it again on their page after changing the CNAME to the new address. Your AI keys are not copied: run `secrets` for the new account.
 
-*Transfer, export and import were tested with simulated accounts; rehearse them (export, destroy, install, import) before you rely on them for a real class.*
+**What has been proven.** `export`, `destroy --everything`, a fresh `install` and `import` were rehearsed end to end on a real AWS account (students, sites and stored data came back, with the old teacher login). `transfer` has only been tested with simulated accounts: treat it as **experimental**, rehearse it with a throwaway class first, and keep the old account until the new one is verified.
+
+### 11.1 Rebuild or restore step by step
+Use this after `destroy --everything`, or to bring a class into a new account. The order matters: **install first, import second, DNS in between.**
+1. `<package> export <folder>`: make the backup first, and check it is not empty.
+2. `<package> destroy --everything` (only if you are rebuilding). Your DNS records stay: they are yours.
+3. `<package> install --domain <your domain>` (or without a domain). If it prints a certificate record, add it at your DNS host (Cloudflare: **DNS only**) and run the same command again.
+4. When the build finishes it prints two records. The CloudFront addresses are **new**: change `*.<domain>` and `deploy.<domain>` to them, then run `<package> finish-domain`.
+5. `<package> verify`, to prove the empty platform works.
+6. `<package> import <folder>`: the students, sites and stored data come back, and the teacher login becomes the one from the backup (use your old password).
+7. `<package> secrets`: your AI keys are not in a backup.
+8. Students who had their own domain register it again on their page (it is not in the backup), pointing their CNAME at the new custom-domain address.
 
 ## 12. Start over or remove everything
 
@@ -291,13 +304,14 @@ First it shows what it will remove (students, distributions, buckets, functions,
 
 | Message or symptom | What to do |
 |---|---|
-| "AWS has not verified this account for CloudFront yet" | Open an AWS Support case (Account and billing); retry when AWS confirms. |
+| "AWS has not verified this account for CloudFront yet", or the stack fails with "Your account must be verified before you can add new CloudFront resources" (HTTP 403) | AWS requires a one-time verification before an account may create CloudFront distributions, and it can ask again. Open an AWS Support case (Account and billing), quote the message and the request id, and retry when AWS confirms. If the stack already failed, clear it first with `<package> destroy --everything` (the failed stack holds nothing of yours). |
 | "not allowed to use CloudFront" or `AccessDenied` | Attach AdministratorAccess to the IAM user (a user with no policy can sign in but every call fails). |
 | "The AWS CLI is not installed" or "could not sign in" | Install the AWS CLI and run `aws configure`, or use CloudShell. |
 | "The platform ... already has students that are not in this backup" (on `import`) | You are importing into a platform that is already in use. Import into a freshly installed one instead (see section 11), or add `--merge` if you want both classes there. |
 | I cannot sign in as teacher after an `import` | The import replaced the teacher login with the one from the backup: use the login you had when you made the backup, or set a new one with `<package> teacher <name>`. |
 | "The stack ... already exists" | The platform is already installed: use `status`, `plan`, `upgrade`. To start over: `destroy --everything`. |
-| "failed state (ROLLBACK_COMPLETE)" | `<package> destroy`, then install again. |
+| "failed state (ROLLBACK_COMPLETE)" | The install failed part-way. Read the reason (`aws cloudformation describe-stack-events --stack-name student-hosting --profile <name> --query "StackEvents[?contains(ResourceStatus,'FAILED')].[LogicalResourceId,ResourceStatusReason]" --output text`), then `<package> destroy --everything` to clear it, fix the cause and install again. |
+| An AWS CLI command you copied acts on the wrong account | The AWS CLI's own hints do not include `--profile`, so they run against your **default** profile. Always add `--profile <name>`, or run `export AWS_PROFILE=<name>` for the session, and check with `aws sts get-caller-identity`. Keep a production account in a profile you never use for tests. |
 | A window closed during the install | Run the same install command again; it carries on. |
 | The certificate stays pending | The validation record is missing, mistyped or proxied (Cloudflare: DNS only). AWS checks again within minutes. |
 | The install says custom domains could not be set up | The rest works. Run `<package> custom-domains` later; it resumes. |
@@ -328,7 +342,7 @@ Open an issue on the repository with the version (`version`) and the exact messa
 | `verify [--no-login]` | the full outside-in check with a sample site |
 | `custom-domains [--disable]` | set up (or remove) what students need to use their own domain |
 | `publish` | republish the portal pages, student kit and editor tools |
-| `export <folder>` / `import <folder>` | back up a class / add a backup to a platform |
+| `export <folder>` / `import <folder> [--merge]` | back up a class / restore a backup into a freshly installed platform (refuses a platform with other students; `--merge` keeps the existing teacher login) |
 | `transfer --from <p> --to <p> [--csv f] [--finish]` | move the class to another AWS account |
 | `setup` | one-time: save your AWS access and add the teacher tools to your editor |
 | `editor`, `editor-update` | add the teacher tools to your editor / move them to the newest release |
@@ -338,7 +352,7 @@ Open an issue on the repository with the version (`version`) and the exact messa
 
 ## 15. What the tool will never do
 
-- It never changes your AWS account without showing the account number first and asking, and never deletes anything without a typed phrase (and your teacher login) in **your own terminal**.
+- It never changes your AWS account without showing the account number first and asking (the editor tools name the account in every confirmation too), and never deletes anything without a typed phrase (and your teacher login) in **your own terminal**.
 - It never takes a password or API key through your editor or the AI; those are typed in a terminal and go straight to AWS (or are hashed).
 - It never updates itself, and an update that would replace or remove data is refused.
 - It never copies data out of the old account when moving: the old account is only read.

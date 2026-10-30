@@ -314,7 +314,7 @@ They put `deploy.mjs` in their project root, put `DEPLOY_KEY=...` in `.env.local
 
 ### 9d. Deploy this repo as the first real site (dress rehearsal)
 
-This repo is already adapted: [App.tsx](../../src/App.tsx) reads `VITE_API_URL`, and `npm run deploy` is wired up. From the repo root:
+This repo is already adapted: `src/App.tsx` reads `VITE_API_URL`, and `npm run deploy` is wired up. From the repo root:
 
 ```
 node infra/student-deploy/admin.mjs add shoplist

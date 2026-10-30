@@ -53,11 +53,13 @@ Student guide: [docs/STUDENT_KIT.md](docs/STUDENT_KIT.md) and [student/README.md
 
 ## Security and privacy
 
-- Report vulnerabilities **privately** through GitHub's "Report a vulnerability" on the Security tab. See [SECURITY.md](SECURITY.md).
+- Report vulnerabilities **privately** through GitHub's "Report a vulnerability" on the Security tab. See [SECURITY.md](SECURITY.md), which also shows how to verify that a release is the one built by this project's CI (signed with Sigstore) and lists the automated security checks that run on every push.
 - Nothing is sent to the maintainers: your data stays in your AWS account. If you switch class AI on, student prompts go to the AI provider you configure (OpenRouter or Google Gemini).
 - Students never receive AWS credentials; tokens are random values stored only as hashes; destructive actions (delete, passwords, AI keys) are terminal-only and never available to an AI editor.
 
 ## Documentation
+
+Not sure where to start? The **[documentation map](docs/README.md)** has a one-page overview of how the project fits together and says which documents are current and which are history.
 
 | Read this | For |
 |---|---|

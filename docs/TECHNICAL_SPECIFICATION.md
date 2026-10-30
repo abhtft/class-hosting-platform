@@ -1,14 +1,14 @@
-# Class Hosting Platform: Technical Specification (Release 1.0, MVP)
+# Class Hosting Platform: Technical Specification
 
-> **This is the main technical source of truth for Release 1.0.** If another document, a comment or a message disagrees with it, this document wins and the other one is wrong and must be fixed. The companion documents ([END_TO_END.md](END_TO_END.md), [API_REFERENCE.md](API_REFERENCE.md), [AI_CONNECTOR.md](AI_CONNECTOR.md), [STUDENT_KIT.md](STUDENT_KIT.md), [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md), [MCP.md](MCP.md), [TEACHER_SETUP.md](TEACHER_SETUP.md), [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md) (how the teacher tooling is built, a learning document), [AWS_LEARNINGS.md](AWS_LEARNINGS.md) (a learning guide, not an operating document), [../implement.md](../implement.md), [../learning.md](../learning.md)) go deeper on one area each. Numbers in section 14 are **machine-checked** against the code by `tests/test_spec.py` on every test run.
+> **This is the main technical source of truth for the platform.** It was written as the Release 1.0 (MVP) baseline and is kept current: the version table below and the change rule say what the current release is. If another document, a comment or a message disagrees with it, this document wins and the other one is wrong and must be fixed. The companion documents ([END_TO_END.md](END_TO_END.md), [API_REFERENCE.md](API_REFERENCE.md), [AI_CONNECTOR.md](AI_CONNECTOR.md), [STUDENT_KIT.md](STUDENT_KIT.md), [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md), [MCP.md](MCP.md), [TEACHER_SETUP.md](TEACHER_SETUP.md), [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md) (how the teacher tooling is built, a learning document), [AWS_LEARNINGS.md](AWS_LEARNINGS.md) (a learning guide, not an operating document), [../implement.md](implement.md), [../learning.md](learning.md)) go deeper on one area each. Numbers in section 14 are **machine-checked** against the code by `tests/test_spec.py` on every test run.
 
 ## 0. Document control
 
 | | |
 |---|---|
-| Release | **1.0 (MVP)**, baseline date 2026-10-23 |
+| Release | baseline **1.0 (MVP)**, 2026-10-23; the current release is in the `VERSION` file (2.x). Sections still say "Release 1.0" where they describe what the baseline contained |
 | Product | Class Hosting Platform: a controlled place where a teacher gives students expiring tokens, and students publish a website, a small backend and (optionally) an AI key, mostly by pushing to GitHub |
-| Code base | this repository, branch `feature/custom-domains-and-portal-hosting` (the release baseline is the commit that adds this document; `git log -1` shows it) |
+| Code base | this repository, branch `main` (releases are tags `vX.Y.Z`; the baseline was the commit that first added this document) |
 | Production | AWS account of the owner, region `us-east-1`, CloudFormation stack `student-hosting` (status `UPDATE_COMPLETE`), portal `https://deploy.example.edu`, student sites `https://<name>.example.edu` |
 | Student kit | version `2.0.3` in the repository (one number for the platform, the kit and the editor package: `VERSION`) (`starter/template/platform.json`); the portal serves what `node admin.mjs portal-publish` last published (the kit zip and `kit-version.json`, the MCP package `class-platform-mcp-<version>.tgz`, the alias `class-platform-mcp.tgz` and `mcp-version.json`). MCP package version `2.0.3` (`starter/mcp/package.json`). **Until `portal-publish` is run the portal still serves kit 1.5.1 and no package** |
 | Audience | the owner/operator, future maintainers, anyone reviewing the design or the security |
@@ -41,7 +41,7 @@ A teacher wants many students to publish real web projects (a site, a backend, A
 | G7 | A **student kit** makes an AI code editor build inside the platform's architecture, checked by tooling before every deploy |
 | G8 | The shared AWS account stays safe: protections against runaway use, alarms to the owner, recoverable files, hashed secrets |
 
-### 1.3 Non-goals (not in Release 1.0)
+### 1.3 Non-goals (not part of the platform; section 12.3 lists each one's status)
 
 SQL or server databases for students (RDS), server-side rendering, long-running processes, websockets, several teacher accounts, student self-registration, billing, a hard model allow-list for AI, AI streaming, a deploy-activity history, key rotation by button, infrastructure for custom domains inside CloudFormation. Section 12.3 lists them with their status.
 
@@ -1060,7 +1060,7 @@ Stop one student's AI or backend with the teacher switches (effective within abo
 
 Teacher tooling (found only by running against a real account): a versioned bucket cannot be deleted while it holds any version, so `destroy` empties all versions; the portal answers 201 for a created token, so a check that expects 200 fails and leaves its throwaway data behind; a hidden-input prompt must not leave the terminal's input paused; line endings change a hash on Windows; `npx` caches a downloaded address, so only pinned release addresses are repeated in messages. Details in [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md).
 
-Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the change set catches them); the gateway must cache "no backend" briefly (2 s) so a fresh deploy is not refused; JSON from providers can start with whitespace; DynamoDB rejects floats; Windows Node can print a libuv assertion if a program calls `process.exit()` while sockets are closing; a test must not run a child synchronously when it hosts a server in the same process. More in [../learning.md](../learning.md).
+Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the change set catches them); the gateway must cache "no backend" briefly (2 s) so a fresh deploy is not refused; JSON from providers can start with whitespace; DynamoDB rejects floats; Windows Node can print a libuv assertion if a program calls `process.exit()` while sockets are closing; a test must not run a child synchronously when it hosts a server in the same process. More in [../learning.md](learning.md).
 
 ### 12.3 Known limitations and open items (priority order)
 

@@ -25,7 +25,7 @@ Browser ──▶ CloudFront ──(router function)──▶ S3 sites/<student>
 | `student/deploy.mjs` | The file you hand to students |
 | `student/deploy.yml` | Optional GitHub Action for students (auto-deploy on push) |
 | `student/portal-deploy.mjs`, `portal-deploy.yml`, `CICD.md` | Token-based deploy of `frontend/` and `backend/` from a laptop or GitHub Actions (guide for students: `student/CICD.md`) |
-| `student/README.md` | Student instructions |
+| `student/LEGACY_DEPLOY_KEY.md` | Student instructions for the deploy-key flow |
 
 ## Documentation map
 
@@ -122,7 +122,7 @@ node admin.mjs list
 node admin.mjs remove bob              # revokes the key within a minute; the site stays up
 ```
 
-Send each student their `DEPLOY_KEY` line, plus `student/deploy.mjs` and `student/README.md`.
+Send each student their `DEPLOY_KEY` line, plus `student/deploy.mjs` and `student/LEGACY_DEPLOY_KEY.md`.
 
 ## Day-to-day
 

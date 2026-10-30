@@ -10,7 +10,8 @@ Other documents, each with a narrower job:
 |---|---|
 | **This file** | The whole picture and the day-to-day workflows |
 | [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP route, request, response and error code |
-| [../README.md](../README.md) | Short intro and the original CLI setup |
+| [../README.md](../README.md) | Short intro, quickstart and known limitations |
+| [TEACHER_SETUP.md](TEACHER_SETUP.md) | **How a teacher installs and runs the platform today** (the installer) |
 | [implement.md](implement.md) | Step-by-step setup and verification, Parts 1 to 4 |
 | [backend_wire.md](backend_wire.md) | Design reasoning and decisions for student backends |
 | [../student/BACKEND.md](../student/BACKEND.md) | Student guide to writing a backend |
@@ -157,7 +158,7 @@ Nothing is deleted automatically: archives, functions and code stay until a huma
 4. **Upload and publish**. The site is live at `https://<slug>.example.edu/` within seconds.
 5. **Expiry:** an amber banner appears in the last 3 days with **Request regeneration**; the teacher answers in the inbox. After expiry the student can still sign in (read-only) for 3 days.
 
-The older command-line route is unchanged: the teacher runs `node admin.mjs add <name>`, and the student runs `node deploy.mjs` with `DEPLOY_KEY` (see `student/README.md`).
+The older command-line route is unchanged: the teacher runs `node admin.mjs add <name>`, and the student runs `node deploy.mjs` with `DEPLOY_KEY` (see `student/LEGACY_DEPLOY_KEY.md`).
 
 The newest route is **deploy from GitHub with the portal token** (no extra keys or AWS access): the student copies `student/portal-deploy.mjs` and `student/portal-deploy.yml` into their repo, stores their token as the secret `PORTAL_TOKEN`, and every push to `main` publishes `backend/` first, then `frontend/`, through the same API the portal uses (so expiry, revoke, the backend switch and the run allowance all apply). It stops working when the token expires. Guide: `student/CICD.md`; end-to-end tested by `tests/test_portal_cli.mjs`. The student page has a **Deploy from GitHub** card with the downloads (`portal-deploy.mjs`, the workflow for the chosen layout, the guide). They are published from their single source in `student/` by `node admin.mjs portal-publish` (the list is `portal-downloads.json`); no token is ever inside a download.
 
@@ -234,6 +235,8 @@ A domain keeps working if the teacher later turns the switch off; the switch onl
 ---
 
 ## 4. Setting it up and operating it
+
+> **Teachers: use the installer.** One command installs and updates everything below; see [TEACHER_SETUP.md](TEACHER_SETUP.md). This section describes the **manual route** (SAM, `samconfig.toml`, `admin.mjs`) that the maintainer uses and that advanced setups can follow; the resources and the safe-deploy routine are the same.
 
 ### 4.1 First-time setup, in order (details: `implement.md`)
 

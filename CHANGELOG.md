@@ -4,6 +4,8 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+- **Documentation review (no code change).** A new `docs/README.md` with a one-page overview and a map saying which documents are current and which are history. `docs/STATE.md` and `HANDOFF.md` rewritten for the 2.x state (what is proven on real AWS, what is not, what is next, the current release procedure). The teacher guide now has a step-by-step rebuild and restore recipe (11.1), what has been proven for export and import, the later-stage CloudFront verification failure, a profile-safety tip and a note that students' kits follow your version. `student/README.md` is now a current student guide; the old deploy-key instructions are in `student/LEGACY_DEPLOY_KEY.md`. The student kit document, the specification header, the API reference (the `dns` hint) and `END_TO_END.md` (the manual route is marked as such) are brought up to date, and broken links are fixed.
+
 ## 2.0.3
 
 Security and supply-chain release: no change to how the platform behaves.

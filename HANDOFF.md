@@ -1,124 +1,102 @@
 # Handoff: where the project stands, how to work on it, what is next
 
-For a new session or a new maintainer. Read this first, then `docs/STATE.md` (honest assessment: strengths, gaps by priority, ship stages), `docs/TEACHER_ARCHITECTURE.md` (how the teacher side is built), the top of `CHANGELOG.md`, and `docs/TECHNICAL_SPECIFICATION.md` section 4.16. No account numbers, domains or keys are in this repository on purpose; the owner keeps those in a private, git-ignored file (see "Private facts" below).
+For a new session or a new maintainer. Read this first, then `docs/STATE.md` (honest assessment: strengths, gaps by priority, ship stages), `docs/README.md` (a map of all the documents), the top of `CHANGELOG.md`, and `docs/TECHNICAL_SPECIFICATION.md`. No account numbers, domains or keys are in this repository on purpose; the owner keeps those in a private, git-ignored file (see section 5).
 
 ## 1. State at the time of writing
 
-- **Repository:** `github.com/abhtft/class-hosting-platform` (public), branch `main`, local clone `D:\Github_Codes\class-hosting-platform-github`. This is the **only** place to develop now. The older private repository (`D:\Github_Codes\student-deploy`) is a backup and holds the owner's production configuration; its content was carried into this repository.
-- **Latest release:** `v1.2.3` (GitHub Release with `class-platform-teacher-1.2.3.tgz`, an alias `class-platform-teacher.tgz` and `sha256sums.txt`). `main` is ahead by **unreleased** work: the project-local token (4d) and the automatic kit sync with teacher rollback (4e, first part), both described in `CHANGELOG.md` under Unreleased and **not yet tested on a real account**. `v1.2.0` has no release files: its CI run failed on an identifier check, which `v1.2.1` fixed.
+- **Repository:** `github.com/abhtft/class-hosting-platform` (public), branch `main`, local clone `D:\Github_Codes\class-hosting-platform-github`. This is the **only** place to develop. The older private repository (`D:\Github_Codes\student-deploy`) is a backup and holds the owner's production configuration.
+- **Latest release:** see `VERSION` and the Releases page (2.0.x). Each release has `class-platform-teacher-<version>.tgz`, an alias `class-platform-teacher.tgz`, `sha256sums.txt` and, from 2.0.3, Sigstore signatures (how to verify: `SECURITY.md`). One number covers the platform, the student kit and the editor package (`class-platform-mcp`).
 - **What exists** (all in this repository):
   - the platform itself (`template.yaml`, `lambda/`, `web/`, `starter/` student kit, `student/` helpers);
-  - the teacher tooling: `setup.mjs` and `installer/` (install, plan and apply, verify, destroy, export and import, transfer, credentials, prompts, custom domains in `tenant.mjs`), `teacher-mcp/` (the editor tools), `teacher-package/` and `build-teacher-package.mjs` (the npm/GitHub package), `.github/workflows/release.yml` (tag, test, build, attest, release);
-  - documentation: `docs/TEACHER_SETUP.md` (the guide for teachers), `docs/TEACHER_ARCHITECTURE.md` (a learning document), `docs/TECHNICAL_SPECIFICATION.md` (source of truth, machine-checked facts), the connector and MCP documents.
-- **Tested for real** (on a throwaway AWS account, not only with fakes): guided install with and without a domain, the certificate and DNS steps, `verify` with a sample site, `destroy --everything` (the account ends completely empty), update by plan and apply, switching all features on, saving AI keys, the "key not set up" message, custom domains end to end with a real domain (HTTPS site served on a student's own domain), `custom-domains --disable`, the release pipeline, running from a GitHub release on Linux.
-- **Tested only against a fake AWS CLI so far:** `export`, `import`, `transfer` (including its DNS CSV), `setup` (saving the AWS key), `update_editor_tools`, and the teacher editor tools inside a real editor. Rehearse before relying on them.
+  - the teacher tooling: `setup.mjs` and `installer/` (install, plan and apply, verify, destroy, export and import, transfer, credentials, custom domains), `teacher-mcp/` (the editor tools, all named `platform_...`), `teacher-package/` and `build-teacher-package.mjs` (the GitHub package), `.github/workflows/` (CI, release with signing, CodeQL, Scorecard, Dependabot);
+  - documentation: `docs/README.md` is the map. The teacher guide is `docs/TEACHER_SETUP.md`, the student guide `student/README.md`, the source of truth `docs/TECHNICAL_SPECIFICATION.md` (machine-checked facts).
+- **Proven on real AWS** (a throwaway account, not only fakes): guided install with and without a domain, the certificate and DNS steps, `verify` with a sample site, update by plan and apply, switching every feature on, saving AI keys, custom domains end to end, `destroy --everything` (the account ends empty), **export, destroy, install, import (students, sites and stored data came back, with the old teacher login)**, the **teacher editor tools in a real editor (Antigravity)**, the student kit syncing itself (edited files replaced after a backup, deleted ones left deleted), a **rollback between two releases**, a deploy with the backend switched off, and the release pipeline.
+- **Not proven:** `transfer` (moving a class between two AWS accounts) has only been tested with simulated accounts: it is labelled experimental. Also unproven: regions other than `us-east-1`, classes beyond a few dozen students, and use by anyone but the author.
+- **A real finding to fix:** AWS can refuse CloudFront resources on an account until it is verified (HTTP 403, "Your account must be verified before you can add new CloudFront resources"). It came back on the test account after a `destroy`, in the middle of a rebuild rehearsal. The installer only recognises it in its pre-install check, so when it appears while the stack is being created the teacher sees AWS's raw "Failed to create/update the stack" line. See item 3 in section 4.
 
 ## 2. How to work
 
 ```bash
-node tests/run.mjs            # the whole suite (37 steps, no AWS needed); needs Node 20+ and Python 3.12 with boto3
+node tests/run.mjs            # the whole suite, no AWS needed; Node 20+ and Python 3.12 with boto3
 node tests/test_<name>.mjs    # one file; the teacher-side tests use a fake AWS CLI (see TEACHER_ARCHITECTURE.md section 11)
 ```
 
-**A real-AWS check** (use a throwaway account, never production): `node setup.mjs install --profile <test>`, set a login with `TEACHER_PASSWORD=... node setup.mjs teacher <name> --profile <test>`, `node setup.mjs verify --user <name> --profile <test>`, then `node setup.mjs destroy --everything --yes --profile <test>` and list what is left. Every bug this found became a permanent test; do it before each release.
+**A real-AWS check** (a throwaway account, never production, and always `--profile`): `node setup.mjs install --profile <test>`, set a login with `TEACHER_PASSWORD=... node setup.mjs teacher <name> --profile <test>`, `node setup.mjs verify --user <name> --profile <test>`, then `node setup.mjs destroy --everything --yes --profile <test>` and list what is left. Every bug this found became a permanent test; do it before each release.
 
 **Release procedure** (a tag is public, so only on the owner's explicit "release X"):
-1. Change `VERSION`, `teacher-mcp/package.json` (same number) and `CHANGELOG.md` (a `## X.Y.Z` section; the release notes are cut from it).
-2. `node tests/run.mjs` must pass. Commit, `git push origin main`, `git tag vX.Y.Z`, `git push origin vX.Y.Z`.
-3. The workflow takes about 3 minutes. Confirm: `curl -sIL .../releases/download/vX.Y.Z/class-platform-teacher-X.Y.Z.tgz` returns 200 and `npx -y <that url> version` prints X.Y.Z. If it does not appear, read the run's failing step from `https://api.github.com/repos/abhtft/class-hosting-platform/actions/runs` (the identifier check and line endings were the two causes so far).
-4. A teacher then updates with `plan`/`apply` (see the guide).
+1. Change the version in **four files together**: `VERSION`, `teacher-mcp/package.json`, `starter/mcp/package.json` (the editor package) and `starter/template/platform.json` (`kitVersion`); a test fails if they differ. Add a `## X.Y.Z` section to `CHANGELOG.md` (the release notes are cut from it), and update the pinned example version in `docs/TEACHER_SETUP.md` and the version facts near the end of `docs/TECHNICAL_SPECIFICATION.md`.
+2. If anything in the student kit changed, record the kit's content hash for the new version in `tests/kit-versions.json` (the failing test prints the line to add). The kit changes whenever `starter/`, `student/portal-deploy.mjs`, the rules or the helpers change.
+3. `node tests/run.mjs` must pass. Check `git status` first (never `git add -A` blindly: a scratch file was once committed that way), commit, `git push origin main`, `git tag vX.Y.Z`, `git push origin vX.Y.Z`.
+4. The workflow takes a few minutes. Confirm: `curl -sIL .../releases/download/vX.Y.Z/class-platform-teacher-X.Y.Z.tgz` returns 200 and `npx -y <that url> version` prints X.Y.Z. If it does not appear, read the failing step at `https://api.github.com/repos/abhtft/class-hosting-platform/actions/runs` (the identifier check and line endings were the usual causes).
+5. A teacher then updates with `plan` and `apply`; students' projects follow on their next command. To go back, publish the previous release (it must be 2.0.0 or later to roll students back).
 
 **Gotchas that cost time**
-- `npx` caches a downloaded address: a plain `.../latest/download/...tgz` can keep running an old copy. Use a pinned address in tests and the `?v=<time>` form for "newest" (documented in the guide).
-- Windows: a shell heredoc with backslashes or `\n` inside code gets mangled. Write files with the editor tools, or put a Python patch script in a file and run it. Files are CRLF in the working copy and LF in the repository; code that hashes file content must ignore line endings (the diagram hash does).
-- Tests that mention a 12-digit account number in an ARN, or a real-looking domain, trip `tests/test_no_identifiers.py` on CI. Use `<ACCOUNT_ID>`-style placeholders or numbers the guard accepts, and run the guard before tagging.
-- `git ls-files` drives the package contents; a deleted-but-not-committed file or a new untracked file affects local builds (the builder skips missing files and includes new, non-ignored ones).
-- A git stash named "teacher tools card (not released)" holds an unreleased portal card ("Teacher tools for your AI editor" on the teacher page, with the update notice and the `teacher-tools.json` the installer would publish). It is a good starting point for item 5 below.
+- `npx` caches a downloaded address: a plain `.../latest/download/...tgz` can keep running an old copy. Use a pinned address in tests and the `?v=<time>` form for "newest" (documented in the guide). In a new terminal the `$PKG` variable is gone: an empty `npx -y "$PKG"` says "could not determine executable".
+- **Profiles:** the AWS CLI's own failure hints do not include `--profile`, so pasting one runs it against the default profile. Always pass `--profile <name>` (or `export AWS_PROFILE=<name>`) and check `aws sts get-caller-identity`. The owner's default profile is production.
+- Windows: a shell heredoc with backslashes or `\n` inside code gets mangled (a `\n` inside a JavaScript string became a real newline more than once). Write code with the editor tools, and keep apostrophes out of single-quoted JavaScript strings. Files are CRLF in the working copy and LF in the repository; code that hashes file content must ignore line endings.
+- Tests that mention a 12-digit account number in an ARN, or a real-looking domain, trip `tests/test_no_identifiers.py` on CI. Use `<ACCOUNT_ID>`-style placeholders and `example.com`.
+- `git ls-files` drives the package contents; a deleted-but-not-committed file or a new untracked file affects local builds.
+- CloudFront takes 15 to 25 minutes to delete and about 15 to create; a `destroy` followed by an `install` is an hour of waiting, plus DNS.
+- A git stash named "teacher tools card (not released)" holds an unreleased portal card ("Teacher tools for your AI editor" with the update notice and the `teacher-tools.json` the installer would publish).
 
 ## 3. Rules the owner set (keep following them)
 
-- Public actions need an explicit go-ahead: pushing a tag or creating a release ("release X"), publishing to npm, creating repositories.
+- Public actions need an explicit go-ahead: pushing a tag or creating a release ("release X"), publishing to npm, creating repositories, changing repository settings.
 - Never touch the owner's **production** AWS account (it hosts a live class) without an explicit instruction naming it. A read-only source for a rehearsal also needs that instruction.
 - No keys, passwords, account numbers, domains, e-mail addresses or tokens in the repository. The identifier guard enforces the shapes it can.
-- Updates are never automatic; destructive or secret actions (delete, passwords, AI keys, IAM) are terminal-only, never editor tools.
+- A teacher's platform never updates by itself, and destructive or secret actions (delete, passwords, AI keys, IAM) are terminal-only, never editor tools. (A student's kit files are the deliberate exception: they follow the teacher's platform automatically, see 4e.)
 - Commits end with the co-author line; documentation is updated with every behaviour change and the spec facts are machine-checked (`tests/test_spec.py`).
 
-## 4. Open items, in the order I would do them
+## 4. What is next, in the order I would do it
 
-1. **Release 1.2.2** (include section 4a, the student agent's feature awareness): print the version on the first line of every command; warn when a copy is older than the newest release (`install`, `upgrade`); update the pinned example version in the guide.
-2. **Student page for custom domains:** when the CNAME points at the wrong address, say what it points at and what it must point at (the portal can look the CNAME up before asking CloudFront). The most common mistake seen was using the platform's *site* address instead of the custom-domain address.
-3. **Rename the teacher editor tools** with a distinct prefix (the student tool set also has `status`), show the AWS account number in every confirmation, and make the server instructions say "call status at the start of a session".
-4. **Rehearse export, import and transfer** on real accounts: `export`, `destroy --everything`, `install`, `import`, then check a student token and a published site; then a real `transfer` between two accounts.
-5. **The portal "Teacher tools" card** (see the stash) and an in-page update notice.
-6. **Publish on npm** (needs an npm account and an `NPM_TOKEN` repository secret; the release workflow already publishes when the secret exists) so the command becomes `npx class-platform-teacher@latest`.
-7. **The owner's production move** to a dedicated AWS account, using the same installer and the transfer command (the owner decides when; read-only on the old account).
-8. **Later:** least-privilege IAM or AWS SSO instead of AdministratorAccess; the CloudFront multi-tenant price check; an automatic upgrade test in CI (install the previous tag, upgrade, verify).
+**Before announcing**
+1. **Owner, repository settings:** turn on private vulnerability reporting (the README, `SECURITY.md` and the issue chooser all point at it), branch protection on `main`, Dependabot alerts, and secret scanning with push protection.
+2. **The clean-room test:** follow only the README quickstart in AWS CloudShell with no domain, as a stranger would, then `destroy`. Note every point of hesitation and fix the docs.
+3. **The installer should print why a stack failed.** On a failed create it should read the stack events and print the first failing reason, and recognise "Your account must be verified before you can add new CloudFront resources" (print the support-case steps and the request id, and say to run `destroy --everything` to clear the failed stack). Today only the pre-install check recognises it.
+4. **Owner:** get the AWS Support case answered for the test account, then finish the interrupted rebuild rehearsal (install, DNS, `finish-domain`, `verify`, `import`, `secrets`).
+5. **`transfer`:** rehearse it on two real accounts, or leave it labelled experimental.
 
-## 4a. Designed, not yet built: the student's agent should know which features are on
+**First tester round:** invite three to five people personally (teachers or trainers who have an AWS account), add a short demo recording to the README, open five to eight `good first issue` / `help wanted` issues from section 4f, then post publicly (LinkedIn, dev.to, Hacker News "Show HN", r/aws, r/edtech). Nothing is published without the owner's go-ahead. Details: `docs/STATE.md` section 5.
 
-**Decision (owner asked, position agreed in discussion):** at build time the student's AI agent must know which features are on or off for *that* student, and it must learn this from the live portal, never from the rules file.
+**Stable (drop "beta"):** an upgrade test in CI (install the previous tag, upgrade, verify), least-privilege IAM or SSO, and one teacher other than the owner has installed, run a class and updated once without help.
 
-**Why:** today `starter/rules/AGENTS.md` only says the teacher "can" switch on class AI and class storage. The agent cannot tell, so it can build a feature that deploys fine and then shows a "not enabled" error at runtime. The portal already knows: `/api/student/me` returns `ai` (available, enabled, provider, model), `backend`, `storage` and `custom_domain` per student. Not yet checked: whether the student MCP `status` tool (`starter/mcp/server.mjs`) or `npm run check` already print these.
+## 4a. Done: the student's agent knows which features are on
 
-**Work to do (target 1.2.2):**
-1. Add a features block to the student MCP `status` tool and to `check`, read from `/api/student/me`.
-2. Add one rule to `starter/rules/AGENTS.md`: before planning anything that uses class AI, class storage, a backend or a custom domain, check the features block first. Do not put the on/off state itself in the rules (it goes stale and the file is shared by every student).
-3. When a feature is off: tell the student plainly, say to ask the teacher to switch it on, and build a version that works without it (for example `localStorage` instead of class storage, or a marked placeholder for the AI part). Never build something that will fail silently.
-4. Re-check on `deploy`: warn if the project uses a helper (`class_ai`, `class_storage`) whose feature is currently off, because the teacher can switch it off after the student started.
-5. Tests for the features block and the deploy warning; update `docs/TECHNICAL_SPECIFICATION.md` (student kit section), the student guide and `CHANGELOG.md`.
+`node portal-deploy.mjs status` (and the editor's `status` tool) prints a "Features for you" block read live from the portal. The rules tell the assistant to call it first and to build without a feature that is off. `deploy` warns when the backend uses `class_ai` or `class_storage` while that feature is off, and skips a backend that is off while still publishing the website. The state is never written into the rules file (it would go stale, and the file is shared by every student).
 
-## 4b. Shipping plan (details in `docs/STATE.md`)
+## 4d. Done: the student token lives only in the project's `.env.local`
 
-- **Today: public beta (1.2.x).** Say so in the README, with what is proven and what is not. Do not call `transfer` safe yet.
-- **Next release, 1.3.0 (release candidate):** Priority 1 of `docs/STATE.md` = student agent feature awareness (4a), real-account rehearsal of `export`/`import`/`transfer`, the teacher editor tools tried in a real editor, the wrong-CNAME message on the student custom-domain page, and the version print/old-copy warning (item 1 below). Announce publicly at this release.
-- **Stable (drop "beta"):** Priority 2 items "upgrade test in CI" and "least-privilege IAM or SSO" done, and one teacher other than the owner has installed, run a class and updated once without help.
-- Order of work: 4a and the 1.2.2 items first (small, visible), then the real-account rehearsals (they need the owner's test account and DNS), then the editor test.
+**Decision (owner):** no computer-wide token file. Reason: two editor windows on one computer silently shared one token (the last login won), and a shared or lab computer would hand the next person the previous student's token. The cost, one `npm run login` per project, is accepted. Built: token lookup is `PORTAL_TOKEN`, `.env.local`, `.env` of the project; `status` and `deploy` say which one was used; `login --global` and `class-platform-mcp login` are refused with the reason; `class-platform-mcp setup` only adds the editor entry; an old `~/.class-platform/token` is mentioned, never read. Keep the protections: `npm run login` refuses to write `.env.local` unless git ignores it, `check` flags a tracked token, and agents must never open `.env.local`.
 
-## 4c. Launching without an audience (details in `docs/STATE.md` section 5)
+## 4e. The teacher's portal is the only authority on versions
 
-The owner has a small following, so the plan is a few real testers, not reach: 3 to 5 outside people who run the install. To do, in order, after 1.3.0: add a "Testers wanted" section and a demo recording to the README; add an "I tried the install" issue template; open 5 to 8 `good first issue` / `help wanted` issues from the gaps in `docs/STATE.md`; invite 3 to 5 people personally; then post publicly (LinkedIn, dev.to, Hacker News "Show HN", r/aws, r/edtech). The assistant offered to draft the README section, the post and the issue texts; nothing is published without the owner's go-ahead.
+**Decision (owner):** the student's kit and tools always match their teacher's platform. A student has no version choice, is not asked, and there is no freeze. Cause: in the first real test of 1.2.2 a project kept an old kit and its agent ignored the new rules, because the kit version had not been bumped and nothing forced a sync.
 
-## 4d. Decided and BUILT (unreleased): the student token lives only in the project's `.env.local` (target 1.3.0)
+**Built and proven:**
+- The portal publishes a hash per kit-owned file (`managed` in `kit-version.json`).
+- Before a `deploy` or `status`, a project compares its files and, if any differ, runs `node tools/platform.mjs sync` and then the same command again. The teacher's copy wins, every replaced file is saved in `.kit-backup/` (the newest five folders are kept), a file the project deleted stays deleted, and line endings are ignored.
+- `upgrade` and `apply` print the rollback command (publish the previous release) when it can work.
+- The editor's `status` tool syncs first, so an agent reads current rules at the start of a session.
+- One version number and one tag for the platform, the kit and the editor package. 2.0.0 was chosen because kits 1.6.0 and 1.7.0 already existed in students' projects, and a lower number would have made them look newer than the portal's kit.
 
-**Decision (owner, after discussion):** drop the computer-wide token file (`~/.class-platform/token`). Reason: two editor windows on the same computer silently shared one token (last login won), and a shared or lab computer would hand the next person the previous student's token. The cost is one `npm run login` per project, which is accepted.
+**Not built:** (a) the portal refusing requests from a stale client (needs the kit hash on the server side, so a Lambda change and a real-account test; it would also catch projects older than 2.0.0, which today need one manual `npm run platform -- update --apply`); (b) a thin, stable launcher for the editor package that downloads the current package from the teacher's portal, so editors never pin a stale one.
 
-**Work to do (spec first, owner approves, then code):**
-1. Token lookup becomes `PORTAL_TOKEN` (environment), `.env.local`, `.env`. No computer-wide file. `class-platform-mcp setup` only adds the editor entry and tells the student to run `npm run login` in each project; `class-platform-mcp login` and `login --global` are removed.
-2. `status` and `deploy` say where the token came from ("token from .env.local") next to "Signed in as ...". A project with no token says to run `npm run login` there.
-3. A one-time notice when an old `~/.class-platform/token` exists: it is no longer read, here is how to delete it, and to run `npm run login` in the project.
-4. Keep the existing protections: `npm run login` refuses to write `.env.local` unless git ignores it, `check` flags a tracked token, agents must never open `.env.local`.
-5. Update `starter/mcp/bin.mjs`, `starter/mcp/setup.mjs`, `student/portal-deploy.mjs`, the student guide, `AGENTS.md`, `docs/TECHNICAL_SPECIFICATION.md` (student kit section), the tests (`test_mcp_package.mjs`, `test_portal_cli.mjs`) and `CHANGELOG.md`.
-
-## 4e. Decided; parts 2, 3 and 6 BUILT (unreleased): the teacher's portal is the only authority on versions (target 1.3.0)
-
-**Status:** built and covered by tests (`test_kit_update.mjs`, `test_mcp.mjs`, `test_portal_cli.mjs`, `test_installer.mjs`, `test_kit.mjs`): the portal publishes a hash per kit-owned file; a project syncs itself before `deploy` and `status` (`tools/platform.mjs sync`, backups in `.kit-backup/`); `upgrade` and `apply` print the rollback command (`publish` of the previous release); the editor `status` tool syncs first. **Still to build:** (1) the portal refusing a stale client (a Lambda change that needs the kit hash on the server side, so it needs a real-account test), (4) one version number and one tag with the migration past kit 1.8.0, (5) the thin launcher package. Projects on a kit older than 1.8.0 need one manual `npm run platform -- update --apply`; only item (1) would catch them automatically.
-
-**Decision (owner, agreed in discussion):** the student's kit and tools always match their teacher's platform. A student has no version choice, is not asked, and there is no freeze. Cause: in the first real test of 1.2.2 a project kept an old kit and its agent ignored the new rules, because the kit version had not been bumped and nothing forced a sync.
-
-**Design, in build order:**
-1. **The portal checks every request.** Student tools send the kit's version and content hash; a stale client gets "kit out of date" back instead of the work being done. This also covers an old `portal-deploy.mjs` in a GitHub Actions deploy.
-2. **The kit repairs itself on use.** On "out of date" the tool replaces the kit's own files (the managed list only, never the student's code or `.env`), retries the same command and prints one line. The teacher's copy wins over a student-edited managed file; the old copy is saved first (for example `.kit-backup/`).
-3. **Teacher rollback.** The previous kit stays published; the teacher can republish it with one command. Automatic sync is only safe because a bad release can be undone quickly. Test each release on a throwaway student first.
-4. **One version number and one tag** for platform, kit and editor package: **DONE in 2.0.0** (`VERSION`, `teacher-mcp/package.json`, `starter/mcp/package.json` and `starter/template/platform.json` are equal, a test checks it; sync is decided by content hash). It started at 2.0.0 because kits 1.6.0 and 1.7.0 already exist in students' projects, and a lower unified number would have made them look newer than the portal's kit (no notice). Bump all four together; record the kit hash for the new version in `tests/kit-versions.json` (the test prints it).
-5. **A thin, stable launcher for the editor package** that downloads the current package from the teacher's portal (checked against the published hash) and runs it, so editors never pin a stale package and `npx` cache problems disappear.
-6. **The rules file is refreshed at the start of each agent session** (the editor tool's first `status` call syncs it), since editors read `AGENTS.md` from disk.
-
-**Known costs:** a bad release reaches every student at once (hence rollback); the sync needs the portal; changes can arrive mid-work. The trust model is unchanged (students already run their teacher's code); keep the hash check and HTTPS from the student's own portal.
+**Known costs:** a bad release reaches every student at once (hence rollback, and "try each release on a throwaway student first"); the sync needs the portal; changes can arrive mid-work. The trust model is unchanged (students already run their teacher's code); keep the hash check and HTTPS from the student's own portal.
 
 ## 4f. Launch audit: known pain points, and what is deferred
 
-A walk through the teacher and student journeys (2.0.1) found these. The launch-critical ones are fixed in 2.0.2; the rest are listed in the README as known limitations and are the first things to build after the launch.
+A walk through the teacher and student journeys found these. The launch-critical ones were fixed in 2.0.2; the rest are listed in the README as known limitations and are the first things to build after the launch.
 
 **Deferred, in the order I would do them:**
 1. **Class-wide defaults and bulk actions.** Tokens are created one at a time and each feature is switched on per student (about 150 clicks for 30 students). Smallest useful step: "new students start with these features on", then "apply to all".
 2. **Teacher notifications.** Regeneration requests and expiries only show on the teacher page; the SNS topic for alarms exists and can be reused.
 3. **Cost visibility and the budget alert** (the installer could ask for an alert email and create the budget).
 4. **Co-teachers and an audit log** (one teacher login today).
-5. **Least-privilege IAM or SSO** instead of AdministratorAccess; publish on npm (shorter command).
+5. **Least-privilege IAM or SSO** instead of AdministratorAccess; publish on npm (a shorter command).
 6. **Make the student side data-driven:** the feature list in `student/portal-deploy.mjs` is hardcoded; the portal should return a generic feature list the client renders, before the next feature is added.
 7. **A checklist for every new (costly) feature:** off by default, per-student switch, server-enforced cap, usage metering the teacher can see, a teacher-wide emergency off, cleanup in `destroy`, a features-block entry, tests.
-8. **Trust signals to finish after the launch:** switch on (owner, repository settings) Dependabot alerts, secret scanning with push protection, branch protection on `main` (Scorecard scores it) and private vulnerability reporting; read the first Scorecard and CodeQL results and fix the serious ones before adding any badge; pin the GitHub Actions to commit SHAs (Dependabot then keeps them current); add an SBOM to each release; **check the first signed release** (the `sign` job in `release.yml` runs only on a tag: confirm the `.sigstore.json` assets appear and that the `cosign verify-blob` command in `SECURITY.md` works, then re-check the Scorecard Signed-Releases line); apply for the OpenSSF Best Practices badge (passing level); close the planned access-logging exceptions in `.checkov.yaml`; a paid third-party review only when an institution asks for one.
-9. Upgrade test in CI; more than one region; a load test; Vite major upgrade (dev-server advisories); the portal refusing a stale client and the thin launcher package (4e).
+8. **Trust signals to finish after the launch:** switch on (owner, repository settings) Dependabot alerts, secret scanning with push protection, branch protection on `main` (Scorecard scores it) and private vulnerability reporting; read the first Scorecard and CodeQL results and fix the serious ones before adding any badge; add an SBOM to each release; **check the first signed release** (the `sign` job in `release.yml` runs only on a tag: confirm the `.sigstore.json` assets appear and that the `cosign verify-blob` command in `SECURITY.md` works, then re-check the Scorecard Signed-Releases line); apply for the OpenSSF Best Practices badge (passing level); close the planned access-logging exceptions in `.checkov.yaml`; a paid third-party review only when an institution asks for one. (The actions are already pinned to commit SHAs, from 2.0.3.)
+9. Upgrade test in CI; more than one region; a load test; the Vite major upgrade (dev-server advisories); the portal "Teacher tools" card (see the stash); the CloudFront multi-tenant price check; the owner's production move to a dedicated AWS account (the owner decides when; the new account needs CloudFront verification first).
 
 ## 5. Private facts (not in this repository)
 

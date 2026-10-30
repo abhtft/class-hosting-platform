@@ -126,10 +126,12 @@ Flow: `upload-url`, then `PUT` the zip bytes to `uploadUrl` (no extra headers ne
 | Route | Body | Notes |
 |---|---|---|
 | `PUT /api/student/domain` | `{ "domain": "www.example.com" }` | requires **Domain: on**, an active token, no existing domain. `403` with `Owner not enabled for you. Please contact site owner.`; `409` already have one / domain used by another site; `400` invalid (bare domain, `example.edu` name, AWS address). Returns `200 { "token": <view> }` |
-| `GET /api/student/domain/status` | none | advances setup by one step and returns `{ "token": <view> }`; poll about every 8 seconds |
+| `GET /api/student/domain/status` | none | advances setup by one step and returns `{ "token": <view>, "dns": <hint> }`; poll about every 8 seconds |
 | `DELETE /api/student/domain` | none | starts removal; returns the view (state `removing`, then none) |
 
 `custom_domain.state` in the view: `none` → `waiting_dns` → `issuing_certificate` → `finishing` → `live` (and `removing`). `cname_target` is the record to create.
+
+**The `dns` hint** (in the answers of `PUT /api/student/domain` and `GET /api/student/domain/status`, only while the state is `waiting_dns`): `{ "state": "ok" | "missing" | "wrong", "found": "<what the student's CNAME points at>", "target": "<what it must point at>", "message": "<plain text for the student>" }`, or `null` when the lookup could not answer. The portal asks a public resolver over HTTPS for the student's CNAME (two seconds at most), so the page can say "your CNAME points at X, but it must point at Y" (the usual mistake is the platform's site address). Nothing is stored and nothing is invented when the lookup fails.
 
 ### Class AI usage
 
