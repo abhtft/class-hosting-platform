@@ -56,9 +56,9 @@ Run that line once per terminal window, then use `npx -y "$PKG" <command>` (Powe
 
 **A pinned version** (to repeat a result, follow a guide written for one version, or go back after a problem):
 ```bash
-PKG=https://github.com/abhtft/class-hosting-platform/releases/download/v2.0.3/class-platform-teacher-2.0.3.tgz
+PKG=https://github.com/abhtft/class-hosting-platform/releases/download/v2.0.4/class-platform-teacher-2.0.4.tgz
 ```
-Replace `2.0.3` with the version you want (all versions are on the repository's Releases page, each with its changelog and checksum).
+Replace `2.0.4` with the version you want (all versions are on the repository's Releases page, each with its changelog and checksum).
 
 In the rest of this guide `<package>` means `npx -y "$PKG"` and `--profile <name>` is the AWS profile of the account (see section 3). Add `--dry-run` to the commands that change things to see every AWS command without running any.
 
