@@ -2,7 +2,9 @@
 
 ## Reporting a problem
 
-Please report security problems **privately**: use GitHub's "Report a vulnerability" (Security tab of this repository) rather than a public issue. Include what you found, how to reproduce it, and which version (`VERSION` file). You will get an answer within a few days.
+Please report security problems **privately**, not as a public issue: use GitHub's [Report a vulnerability](https://github.com/abhtft/class-hosting-platform/security/advisories/new) form (Security tab of this repository). Include what you found, how to reproduce it, and which version (`VERSION` file). Please do not include real student data, passwords, keys or account numbers.
+
+**What to expect.** This is a volunteer-run project, so these are targets, not guarantees: an acknowledgement within **3 days**, an assessment within **7 days**, and a fix or a mitigation for a confirmed vulnerability within **30 days** (sooner for anything that exposes student data or credentials). We will tell you when it is fixed and, if you wish, credit you in the release notes. Please give us that time before disclosing publicly (coordinated disclosure). A fix is published as a new release; the teacher guide explains how to update.
 
 ## What this project is, security-wise
 
