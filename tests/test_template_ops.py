@@ -81,4 +81,10 @@ for name in ("DeployFunction", "SweeperFunction"):
 assert re.search(r"Action: s3:DeleteObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/userdata/\*'", block("DeployFunction")), "the portal may only delete students' stored files (the teacher's clear), never read or write them"
 assert template.count("s3:PutObject") == 3, "every S3 write grant is reviewed (two lists above, class storage's userdata/): extend this check for a new one"
 
+# ---- the kit signing key: only the account's administrators (the teacher's own credentials) can use it ----
+signing = block("KitSigningKey")
+assert "KeyUsage: SIGN_VERIFY" in signing and "KeySpec: ECC_NIST_P256" in signing, "an ECDSA P-256 signing key (what students' tools verify)"
+assert re.findall(r"kms:[A-Za-z*]+", template) == ["kms:*"] and "Action: 'kms:*'" in signing, "no function role may have any kms: permission: only the key policy's account administrators"
+assert re.search(r"KitSigningKeyId:\n\s+Description: [^\n]*\n\s+Value: !Ref KitSigningKey", template), "portal-publish reads the key id from the stack outputs"
+
 print("test_template_ops.py: all passed")

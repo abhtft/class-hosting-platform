@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { verifyBytes } from '../starter/template/tools/signing.mjs';
 
 export const SAMPLE_MARKER = 'Your class platform works';
 export const sampleHtml = () => `<!doctype html>
@@ -84,6 +85,14 @@ export async function runVerify({ portal, login = null, features = [], repo, fet
   add('The student MCP package is published', mcp.status === 200, `HTTP ${mcp.status}`);
   const kit = await get(`${base}/kit-version.json`);
   add('The student kit is published', kit.status === 200, `HTTP ${kit.status}`);
+  // the kit students' computers run is signed by the platform's own key (so writing the portal's files is not enough to change it)
+  {
+    const manifest = kit.status === 200 ? Buffer.from(await kit.arrayBuffer()) : null;
+    const signature = await get(`${base}/kit-version.json.sig`);
+    const key = await get(`${base}/signing-key.pub`);
+    const ok = manifest && signature.status === 200 && key.status === 200 && verifyBytes(manifest, await signature.text(), await key.text());
+    add('The student kit is signed by the platform key', ok, 'the kit is unsigned or its signature does not match the published key (run the upgrade: it adds the key and publishes the kit again)');
+  }
   add('The teacher list needs a login (401 without one)', (await call('/api/admin/tokens')).status === 401, 'it answered without a login');
   add('A student page needs a token (401 without one)', (await call('/api/student/me')).status === 401, 'it answered without a token');
 

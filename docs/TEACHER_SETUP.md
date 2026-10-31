@@ -34,7 +34,7 @@ After the install you have, in your AWS account:
 | **Student kit and editor tools** | what a student downloads or connects to, served from your own portal |
 | **Optional features**, each off for every student until you switch it on for that student | a small backend, class AI (OpenRouter or Google Gemini), class storage, the student's own domain |
 
-**Cost.** An idle platform costs close to nothing (S3, DynamoDB on demand, CloudFront and Lambda only when used). The cost drivers are student traffic, AI use (capped per student by you) and stored data. Choose **pay-as-you-go** for CloudFront (the "Switch to a plan" banner in the AWS console is an optional monthly bundle; a class does not need it) and add an **AWS Budget** with an email alert in the AWS console. Student custom domains use CloudFront multi-tenant tenants: check their price in your AWS billing console.
+**Cost.** An idle platform costs close to nothing (S3, DynamoDB on demand, CloudFront and Lambda only when used). The cost drivers are student traffic, AI use (capped per student by you) and stored data. Choose **pay-as-you-go** for CloudFront (the "Switch to a plan" banner in the AWS console is an optional monthly bundle; a class does not need it) and add an **AWS Budget** with an email alert in the AWS console. Student custom domains use CloudFront multi-tenant tenants: check their price in your AWS billing console. The key that **signs the student kit** (see section 9) is an AWS KMS key and costs about **$1 per month**.
 
 ## 2. How to run a command
 
@@ -233,9 +233,19 @@ Asks for your teacher login (used once, never saved), then acts like a student a
 - the teacher page and student pages refuse a visitor without a login;
 - your teacher login works; a student token can be created and used;
 - every feature the platform has is offered to students;
+- the student kit is **signed by your platform's key** (a kit that is unsigned, or signed by another key, is named);
 - a **sample site is published and is live** on your own address, and a site that does not exist is refused.
 
 Each line is `ok` or `FAIL` with the reason. It leaves nothing behind. Run it after an install, an update, a feature change or a transfer. `verify --no-login` runs only the public checks.
+
+### Kit signing (what it protects, and the one rare thing students may have to do)
+
+Students' projects update their kit (the tools and rules they run) from your portal before every deploy. So that being able to write the portal's files is **not** enough to change what runs on a student's computer, the platform creates a signing key in AWS KMS (about $1 per month; the private half never leaves AWS, and none of the platform's functions can use it). Every time the portal is published (install, upgrade, `publish`), the kit's version file is **signed with your credentials**. Each student's project pins the public key from its first signed kit and from then on accepts a kit update only if it is signed by that key and is not older than the one it has (a rollback you publish is always newer).
+
+- You do nothing day to day. An existing platform gets the key with the next **upgrade**; students pin it with their next deploy.
+- If a student's project ever refuses a kit ("not signed by the key this project trusts"), their deploy still works with the kit they have, and they tell you. The cause is almost always that the platform moved to a **new AWS account** (a new key). Tell them to run `npm run trust` in their project: it shows the old and the new key, and they type the first four characters of the new one to confirm.
+- Not covered: the editor package (`class-platform-mcp`) and the portal's web pages. The platform's functions cannot write either (see the security notes); only your own credentials can publish.
+- `destroy` removes the key (AWS keeps it for 7 days before deleting it).
 
 ## 10. Use your AI editor: the teacher tools
 

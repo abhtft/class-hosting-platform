@@ -189,6 +189,10 @@ async function syncKit() {
   if (!remote?.managed || !kitDrift(process.cwd(), remote.managed).length) return false;
   console.log('▶ Your kit is not the same as your teacher\'s platform. Bringing it in line first...');
   const updated = spawnSync(process.execPath, [join('tools', 'platform.mjs'), 'sync', '--portal', PORTAL_URL], { stdio: 'inherit' });
+  if (updated.status === 3) { // the kit is not signed by the key this project trusts: platform.mjs already said so. Never block the student's work on it.
+    console.log('⚠ Carrying on with the kit you have.');
+    return false;
+  }
   if (updated.status !== 0) fail('Your kit is out of step with your teacher\'s platform and could not be brought in line (see above). Nothing was done. Try again; if it repeats, tell your teacher.');
   const again = spawnSync(process.execPath, [process.argv[1], ...args], { stdio: 'inherit', env: { ...process.env, PLATFORM_KIT_SYNCED: '1' } });
   process.exitCode = again.status ?? 1;

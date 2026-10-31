@@ -1,6 +1,7 @@
 // Moving a class to another AWS account (installer/transfer.mjs) with two fake accounts: the DNS file, the refusals (same account, wrong account numbers,
 // a used target), the steps in order (install the target, copy the data, check it, write the file), resuming after the certificate's DNS record, the
 // final attach of the domain, and that the old account is never changed.
+import { localSigner } from '../starter/publish-files.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -77,18 +78,22 @@ function account(id, { stack = null, parameters = {}, tokens = [], stored = [], 
   };
   return { fn, calls, w, log };
 }
+const kitSigner = localSigner(); // the fake portal publishes a kit signed by its own key, like a real one
+const KIT = Buffer.from(JSON.stringify({ v: 1 }));
 const shared = { slug: '' }; // the throwaway student's name, so the sample site address contains it like a real one
 function portalFetch(url) {
   return async (u, init = {}) => {
     const path = u.replace(url, '');
     const method = init.method ?? 'GET';
     const auth = init.headers?.authorization;
-    const reply = (status, body, text) => ({ status, json: async () => body, text: async () => text ?? '' });
+    const reply = (status, body, text) => ({ status, json: async () => body, text: async () => text ?? '', arrayBuffer: async () => Buffer.from(text ?? JSON.stringify(body ?? {})) });
+    if (path === '/kit-version.json.sig') return reply(200, null, kitSigner.sign(KIT));
+    if (path === '/signing-key.pub') return reply(200, null, kitSigner.publicKeyPem);
     if (u.startsWith('https://zz-verify')) return reply(200, null, sampleHtml());
     if (u.startsWith('https://zz-')) return reply(404, null, 'no');
     if (path === '' || path === '/') return reply(200, null, 'x');
     if (path === '/mcp-version.json') return reply(200, { v: 1 });
-    if (path === '/kit-version.json') return reply(200, { v: 1 });
+    if (path === '/kit-version.json') return reply(200, { v: 1 }, KIT.toString());
     if (path === '/api/admin/tokens' && method === 'GET') return reply(auth ? 200 : 401, {});
     if (path === '/api/student/me') return auth === 'Bearer ST' ? reply(200, { token: { backend: { available: true }, storage: { available: true } } }) : reply(401, {});
     if (path === '/api/teacher/login') return JSON.parse(init.body).password === 'pw' ? reply(200, { session: 'T' }) : reply(401, {});

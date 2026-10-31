@@ -124,6 +124,7 @@ Two lines in the student's backend: `from class_ai import ask` / `answer = ask("
 | A student ships a `.env` | Checker blocks it in `backend/` and in git; the platform refuses it too |
 | The kit itself | Generic and safe for a public repository: a test scans every kit file for tokens, keys, emails and personal paths; a manifest lists the sha256 of every file |
 | Hidden code | No code is injected into a student's package: `class_ai` is a visible file in `backend/` |
+| A tampered kit update | The kit updates itself from your portal, but only if its version file is signed by your teacher's key (pinned in `platform.json` by your first kit) and is not older than the one you have. Otherwise nothing is changed, you see why, and `npm run deploy` carries on with the kit you have. `npm run trust` re-pins only after your teacher says the platform moved |
 | Deploy abuse | The token only deploys to the student's own site and function; expiry, revoke, the backend switch and the AI cap all still apply |
 
 ## 7. Publishing the kit

@@ -251,8 +251,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.api("GET")
         name = self.path.split("?")[0].lstrip("/") or "index.html"
         path = os.path.normpath(os.path.join(WEB, name))
-        if name in ("starter-kit.zip", "kit-version.json", "mcp-version.json") or re.fullmatch(r"class-platform-mcp(-[\w.]+)?\.tgz", name):  # built on first request exactly like portal-publish does
-            return self.send(200, kit_file(name), "application/zip" if name.endswith(".zip") else "application/gzip" if name.endswith(".tgz") else "application/json")
+        if name in ("starter-kit.zip", "kit-version.json", "kit-version.json.sig", "signing-key.pub", "mcp-version.json") or re.fullmatch(r"class-platform-mcp(-[\w.]+)?\.tgz", name):  # built on first request exactly like portal-publish does
+            return self.send(200, kit_file(name), "application/zip" if name.endswith(".zip") else "application/gzip" if name.endswith(".tgz") else "text/plain" if name.endswith((".sig", ".pub")) else "application/json")
         if name in DOWNLOADS:  # the student downloads, published next to the pages (see portal-downloads.json)
             path = os.path.normpath(os.path.join(here, "..", DOWNLOADS[name]))
             return self.send(200, open(path, "rb").read(), "text/plain; charset=utf-8")

@@ -78,8 +78,8 @@ await step('class AI with Gemini: provider switch, private-key proxy, forced mod
   }
 });
 
-await step('teacher installer and updater (fake AWS CLI): try and domain install, plan/apply bound to the shown plan, feature switches; terminal prompts; verify with a sample site; saved AWS access and editor entry updates; export, import and the transfer between accounts; custom domains; teacher MCP; the npm package', () => {
-  for (const test of ['test_installer.mjs', 'test_prompts.mjs', 'test_verify.mjs', 'test_credentials.mjs', 'test_tenant.mjs', 'test_data.mjs', 'test_transfer.mjs', 'test_teacher_mcp.mjs', 'test_teacher_package.mjs']) {
+await step('teacher installer and updater (fake AWS CLI), kit signing: try and domain install, plan/apply bound to the shown plan, feature switches; terminal prompts; verify with a sample site; saved AWS access and editor entry updates; export, import and the transfer between accounts; custom domains; teacher MCP; the npm package', () => {
+  for (const test of ['test_installer.mjs', 'test_prompts.mjs', 'test_verify.mjs', 'test_credentials.mjs', 'test_tenant.mjs', 'test_data.mjs', 'test_transfer.mjs', 'test_teacher_mcp.mjs', 'test_teacher_package.mjs', 'test_signing.mjs']) {
     const r = spawnSync('node', [join(here, test)], { encoding: 'utf8' });
     assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
   }

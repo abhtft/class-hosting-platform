@@ -42,7 +42,7 @@ function listFiles(dir) {
   });
 }
 
-export function buildKit(out, { force = false, portalUrl = '' } = {}) {
+export function buildKit(out, { force = false, portalUrl = '', signingKey = '' } = {}) {
   out = resolve(out);
   if (existsSync(out) && readdirSync(out).length) {
     if (!force) throw new Error(`${out} is not empty. Use --force to replace its contents.`);
@@ -79,7 +79,11 @@ export function buildKit(out, { force = false, portalUrl = '' } = {}) {
     if (fixed !== text) writeFileSync(file, fixed);
   }
 
-  const platform = JSON.parse(readFileSync(join(out, 'platform.json'), 'utf8'));
+  const platformFile = join(out, 'platform.json');
+  // the public key that signs this platform's kit updates: a new project pins it (see tools/signing.mjs); the source tree has none
+  if (signingKey) writeFileSync(platformFile, `${JSON.stringify({ ...JSON.parse(readFileSync(platformFile, 'utf8')), signingKey }, null, 2)}
+`);
+  const platform = JSON.parse(readFileSync(platformFile, 'utf8'));
   const files = Object.fromEntries(listFiles(out).map((f) => [relative(out, f).split(sep).join('/'), createHash('sha256').update(readFileSync(f)).digest('hex')]).sort());
   writeFileSync(join(out, 'kit-manifest.json'), `${JSON.stringify({ kit: platform.kit, kitVersion: platform.kitVersion, files }, null, 2)}\n`);
   // what the portal publishes next to the zip (kit-version.json): the oldest kit it still fully supports, and the package.json scripts the kit owns
@@ -92,11 +96,11 @@ export function buildKit(out, { force = false, portalUrl = '' } = {}) {
 }
 
 /** Build the kit and write it as ONE zip file (deterministic: the same kit always gives the same bytes). Returns {version, sha256, files}. */
-export function buildKitZip(zipFile, { portalUrl = '' } = {}) {
+export function buildKitZip(zipFile, { portalUrl = '', signingKey = '' } = {}) {
   const temp = mkdtempSync(join(tmpdir(), 'kit-zip-'));
   try {
     const kit = join(temp, 'kit');
-    const { version, minKit, scripts, managed } = buildKit(kit, { portalUrl });
+    const { version, minKit, scripts, managed } = buildKit(kit, { portalUrl, signingKey });
     const entries = listFiles(kit).map((f) => ({ name: relative(kit, f).split(sep).join('/'), data: readFileSync(f) }));
     const zip = zipEntries(entries);
     mkdirSync(dirname(resolve(zipFile)), { recursive: true });

@@ -1,15 +1,21 @@
 // `verify` (installer/verify.mjs) against a fake portal in the same process: every check passes on a healthy install, each failure is named,
 // the throwaway student is always revoked and cleaned up, a wrong password creates nothing, and a portal that is down does not crash it.
 import assert from 'node:assert/strict';
+import { localSigner } from '../starter/publish-files.mjs';
 import { checkTeacherLogin, runVerify, SAMPLE_MARKER, sampleHtml, unknownSite } from '../installer/verify.mjs';
 
 const PORTAL = 'https://deploy.example.test';
 
-function fakePortal({ password = 'right-password', sites = true, features = true, kit = true } = {}) {
+const KIT = Buffer.from(JSON.stringify({ kitVersion: '1.6.0', serial: 1 }));
+
+/** signing: 'ok' (signed by the key it publishes), 'none' (no signature files) or 'forged' (signed by some other key). */
+function fakePortal({ password = 'right-password', sites = true, features = true, kit = true, signing = 'ok' } = {}) {
+  const platformKey = localSigner();
+  const signature = signing === 'ok' ? platformKey.sign(KIT) : localSigner().sign(KIT);
   const log = [];
   const live = new Map();
   let lastSlug = '';
-  const reply = (status, body, text) => ({ status, json: async () => body, text: async () => text ?? JSON.stringify(body ?? {}) });
+  const reply = (status, body, text) => ({ status, json: async () => body, text: async () => text ?? JSON.stringify(body ?? {}), arrayBuffer: async () => Buffer.from(text ?? JSON.stringify(body ?? {})) });
   const fetchImpl = async (url, init = {}) => {
     const path = url.replace(PORTAL, '');
     const method = init.method ?? 'GET';
@@ -18,7 +24,9 @@ function fakePortal({ password = 'right-password', sites = true, features = true
     if (url.startsWith('https://zz-')) return live.has(url) ? reply(200, null, sampleHtml()) : reply(404, null, 'no');
     if (path === '/') return reply(200, null, '<html>portal</html>');
     if (path === '/mcp-version.json') return reply(200, { version: '1.0.0' });
-    if (path === '/kit-version.json') return kit ? reply(200, { kitVersion: '1.6.0' }) : reply(404, null);
+    if (path === '/kit-version.json') return kit ? reply(200, JSON.parse(KIT), KIT.toString()) : reply(404, null);
+    if (path === '/kit-version.json.sig') return signing === 'none' || !kit ? reply(404, null) : reply(200, null, signature);
+    if (path === '/signing-key.pub') return signing === 'none' || !kit ? reply(404, null) : reply(200, null, platformKey.publicKeyPem);
     if (path === '/api/admin/tokens' && method === 'GET') return reply(auth ? 200 : 401, { error: 'login' });
     if (path === '/api/student/me') return auth === 'Bearer STUDENT' ? reply(200, { token: features ? { backend: { available: true }, ai: { available: true, providers: ['openrouter', 'gemini'] }, storage: { available: true } } : {} }) : reply(401, {});
     if (path === '/api/teacher/login') return JSON.parse(init.body).password === password ? reply(200, { session: 'TEACHER' }) : reply(401, { error: 'no' });
@@ -39,7 +47,7 @@ const failedNames = (r) => r.checks.filter((c) => !c.ok).map((c) => c.name);
   const cleaned = [];
   const r = await runVerify({ portal: PORTAL, login: { username: 'teacher', password: 'right-password' }, features: ['backend', 'ai', 'gemini', 'storage'], repo: '.', fetchImpl: p.fetchImpl, publish: p.publish, cleanup: async (slug) => cleaned.push(slug), sleep: async () => {} });
   assert.equal(r.ok, true, JSON.stringify(failedNames(r)));
-  for (const expected of ['The portal home page opens', 'The student MCP package is published', 'The student kit is published', 'The teacher list needs a login (401 without one)',
+  for (const expected of ['The portal home page opens', 'The student MCP package is published', 'The student kit is published', 'The student kit is signed by the platform key', 'The teacher list needs a login (401 without one)',
     'A student page needs a token (401 without one)', 'The teacher can sign in', 'A student token can be created', 'The student can sign in with the token',
     'The feature "gemini" is offered to students', 'The student can publish a site', 'The published site is live and shows its page', 'A site that does not exist is refused']) {
     assert.ok(names(r).includes(expected), `missing check: ${expected}`);
@@ -67,6 +75,14 @@ const failedNames = (r) => r.checks.filter((c) => !c.ok).map((c) => c.name);
   const noKit = fakePortal({ kit: false });
   const k = await runVerify({ portal: PORTAL, login: null, repo: '.', fetchImpl: noKit.fetchImpl });
   assert.ok(failedNames(k).includes('The student kit is published'));
+
+  // an unsigned kit, or one signed by some other key, is named; students' computers would refuse it
+  for (const signing of ['none', 'forged']) {
+    const bad = fakePortal({ signing });
+    const r = await runVerify({ portal: PORTAL, login: null, repo: '.', fetchImpl: bad.fetchImpl });
+    assert.ok(failedNames(r).includes('The student kit is signed by the platform key'), signing);
+    assert.ok(!failedNames(r).includes('The student kit is published'));
+  }
   console.log('  ok  a missing site, feature or kit is named exactly; cleanup runs after a failure');
 }
 

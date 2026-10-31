@@ -5,6 +5,7 @@
 //   node tools/platform.mjs update             show what would change (nothing is written)
 //   node tools/platform.mjs update --apply     write the changes
 //   node tools/platform.mjs update --apply --force   also replace platform files you edited yourself
+//   node tools/platform.mjs trust              pin a new signing key after your teacher moved the platform (shows both keys, asks you to confirm)
 //   node tools/platform.mjs sync               make every platform file match the teacher's platform, no questions (what `npm run deploy` does by itself):
 //                                              files you edited are replaced, and every replaced file is first copied to .kit-backup/<time>/
 //
@@ -16,6 +17,8 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline';
+import { fingerprint, judgeManifest, refusalText, verifyBytes } from './signing.mjs';
 import { missingScripts } from './update-notice.mjs';
 import { readZip } from './zip.mjs';
 
@@ -32,6 +35,13 @@ const readJson = (path, fallback = {}) => { try { return JSON.parse(readFileSync
 /** fail() ends the run by throwing, so the process exits by itself (calling process.exit() while network connections are still closing
  *  can print a scary libuv assertion on Windows with newer Node versions). */
 class Stop extends Error {}
+/** A kit not signed by the key this project trusts: exit code 3, so `npm run deploy` can tell it from a broken download and carry on with the current kit. */
+class Refused extends Stop {}
+function refuse(message) {
+  console.error(`
+✖ ${message}`);
+  throw new Refused(message);
+}
 function fail(message) {
   console.error(`
 ✖ ${message}`);
@@ -49,15 +59,22 @@ async function main() {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  const remoteInfo = JSON.parse((await download('kit-version.json')).toString('utf8'));
+  const rawInfo = await download('kit-version.json');
+  const remoteInfo = JSON.parse(rawInfo.toString('utf8'));
+  const signature = await fetch(`${portal}/kit-version.json.sig`).then((r) => (r.ok ? r.text() : null), () => null); // none on a platform that does not sign (yet)
+  const pin = platform.signingKey ?? ''; // the public key this project trusts: set by the first signed kit, changed only by `trust`
+  const judged = judgeManifest({ rawManifest: rawInfo, signature, pin, installedSerial: platform.serial ?? 0 });
+  if (command === 'trust') return trust({ rawInfo, signature, download, platform });
   console.log(`Your kit: ${platform.kitVersion ?? 'unknown'}   Portal kit: ${remoteInfo.kitVersion}`);
   if (command === 'status') {
+    console.log(!pin ? 'Kit signing: not pinned yet (your next kit update pins your teacher\'s key).' : judged.ok ? `✔ Kit signing: signed by your teacher's key ${fingerprint(pin)}.` : `✖ Kit signing: ${refusalText(judged.reason)}`);
     const lacking = Object.keys(missingScripts(root, remoteInfo));
     if (lacking.length) console.log(`package.json is missing kit scripts: ${lacking.join(', ')}  (run: node tools/platform.mjs update --apply)`);
     console.log(platform.kitVersion === remoteInfo.kitVersion && !lacking.length ? '✔ Up to date.' : platform.kitVersion === remoteInfo.kitVersion ? '' : 'A newer kit is available: run  node tools/platform.mjs update');
     return;
   }
-  if (command !== 'update' && command !== 'sync') fail('Usage: node tools/platform.mjs status | update [--apply] [--force] | sync');
+  if (command !== 'update' && command !== 'sync') fail('Usage: node tools/platform.mjs status | update [--apply] [--force] | sync | trust');
+  if (!judged.ok) refuse(refusalText(judged.reason)); // before anything is downloaded or written
 
   const syncing = command === 'sync'; // no questions: apply, replace edited files too, keep a copy of everything replaced
   const apply = syncing || args.includes('--apply');
@@ -68,6 +85,12 @@ async function main() {
   try { files = readZip(zip); } catch (error) { fail(`The kit zip could not be read: ${error.message}`); }
 
   const remotePlatform = JSON.parse(files.get('platform.json')?.toString('utf8') ?? '{}');
+  // A project with no pin yet takes the key that came with the kit (it always trusted its first kit), but only if this manifest really is signed by it.
+  let adoptedKey = '';
+  if (!pin && signature && remotePlatform.signingKey) {
+    if (!verifyBytes(rawInfo, signature, remotePlatform.signingKey)) refuse(refusalText('bad-signature'));
+    adoptedKey = remotePlatform.signingKey;
+  }
   const managed = remotePlatform.managed ?? [];
   if (!managed.length) fail('The portal kit lists no managed files, so nothing was changed.');
   const isManaged = (path) => managed.some((m) => (m.endsWith('/') ? path.startsWith(m) : path === m));
@@ -125,7 +148,7 @@ async function main() {
   }
   const manifest = readJson('kit-manifest.json', { files: {} });
   writeFileSync(join(root, 'kit-manifest.json'), `${JSON.stringify({ ...manifest, kitVersion: remoteInfo.kitVersion, files: installed }, null, 2)}\n`);
-  writeFileSync(join(root, 'platform.json'), `${JSON.stringify({ ...platform, kitVersion: skipped.length ? platform.kitVersion : remoteInfo.kitVersion, managed }, null, 2)}\n`);
+  writeFileSync(join(root, 'platform.json'), `${JSON.stringify({ ...platform, kitVersion: skipped.length ? platform.kitVersion : remoteInfo.kitVersion, managed, ...(pin || adoptedKey ? { signingKey: pin || adoptedKey, serial: judged.serial } : {}) }, null, 2)}\n`);
   if (backedUp) { // keep only the newest few backup folders (their names are timestamps), so repeated syncs never fill the disk
     const folders = readdirSync(join(root, '.kit-backup'), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
     for (const old of folders.slice(0, Math.max(0, folders.length - KEEP_BACKUPS))) rmSync(join(root, '.kit-backup', old), { recursive: true, force: true });
@@ -135,7 +158,22 @@ async function main() {
   else console.log(`\n✔ Updated ${toWrite.length} file(s)${skipped.length ? `; ${skipped.length} edited file(s) kept as they are (kit version stays ${platform.kitVersion})` : ` to kit ${remoteInfo.kitVersion}`}.${saved} Run: npm run check`);
 }
 
+/** `trust`: the platform now signs with a different key (it moved to a new account). Shows both fingerprints and asks the student to confirm with the teacher. */
+async function trust({ rawInfo, signature, download, platform }) {
+  const published = (await download('signing-key.pub')).toString('utf8');
+  if (!signature || !verifyBytes(rawInfo, signature, published)) fail('The portal does not publish a kit signed by its own key, so there is nothing to trust. Tell your teacher.');
+  const now = fingerprint(published);
+  const old = platform.signingKey ? fingerprint(platform.signingKey) : '';
+  if (old === now) { console.log(`✔ You already trust this key (${now}). Nothing to do.`); return; }
+  if (!process.stdin.isTTY) fail('Run this yourself in a terminal (npm run trust): it needs your confirmation.');
+  console.log(`The key your project trusts: ${old || '(none yet)'}\nThe key your portal now signs with: ${now}\n\nOnly continue if your teacher told you the platform moved or the key changed.`);
+  const answer = await new Promise((done) => { const rl = createInterface({ input: process.stdin, output: process.stdout }); rl.question(`Type ${now.slice(0, 4)} to trust the new key: `, (a) => { rl.close(); done(a.trim().toUpperCase()); }); });
+  if (answer !== now.slice(0, 4)) fail('Not confirmed. Nothing was changed.');
+  writeFileSync(join(root, 'platform.json'), `${JSON.stringify({ ...platform, signingKey: published, serial: Number(JSON.parse(rawInfo.toString('utf8')).serial) || 0 }, null, 2)}\n`);
+  console.log('✔ Done. Your next  npm run deploy  brings the kit in line with the new platform.');
+}
+
 main().catch((error) => {
   if (!(error instanceof Stop)) console.error(error);
-  process.exitCode = 1;
+  process.exitCode = error instanceof Refused ? 3 : 1;
 });

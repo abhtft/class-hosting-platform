@@ -161,6 +161,31 @@ Globals:
 
 Resources:
   # ---------- Storage ----------
+  # The key that signs the student kit (kit-version.json). The private half never leaves KMS; no function role has any kms: permission,
+  # so only the teacher's own credentials can sign. Students' computers accept a kit update only if it is signed by this key.
+  KitSigningKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Signs the student kit published by the teacher (the platform's functions cannot use it)
+      KeySpec: ECC_NIST_P256
+      KeyUsage: SIGN_VERIFY
+      PendingWindowInDays: 7
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountAdministrators
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+
+  KitSigningKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub 'alias/${AWS::StackName}-kit-signing'
+      TargetKeyId: !Ref KitSigningKey
+
   SitesBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -1030,6 +1055,9 @@ Resources:
       AlarmActions: [!Ref AlertsTopic]
 
 Outputs:
+  KitSigningKeyId:
+    Description: The KMS key that signs the student kit (used by portal-publish)
+    Value: !Ref KitSigningKey
   DeployApiUrl:
     Description: Paste into API_URL in student/deploy.mjs
     Value: !Sub 'https://${DeployApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'

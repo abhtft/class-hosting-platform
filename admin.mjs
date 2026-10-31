@@ -74,7 +74,7 @@ if (command === 'add') {
 } else if (command === 'portal-publish') {
   const root = dirname(fileURLToPath(import.meta.url));
   const web = join(root, 'web');
-  const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.yml': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.zip': 'application/zip', '.tgz': 'application/gzip' };
+  const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.yml': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.zip': 'application/zip', '.tgz': 'application/gzip', '.sig': 'text/plain; charset=utf-8', '.pub': 'text/plain; charset=utf-8' };
   // Pages from web/, plus the student downloads (portal-downloads.json maps published name -> source file, so each has one source of truth).
   const downloads = JSON.parse(readFileSync(join(root, 'portal-downloads.json'), 'utf8'));
   const uploads = [
@@ -83,9 +83,13 @@ if (command === 'add') {
   ];
   // The student kit (zip + version file) and the MCP package (one tarball per version, the newest alias, mcp-version.json), all built fresh from
   // starter/ by the same code the local dev portal uses.
-  const { buildPublishFiles } = await import('./starter/publish-files.mjs');
+  const { buildPublishFiles, kmsSigner } = await import('./starter/publish-files.mjs');
   const kitTemp = mkdtempSync(join(tmpdir(), 'kit-publish-'));
-  const built = buildPublishFiles(kitTemp, outputs.PortalUrl);
+  // The kit is signed with the platform's KMS key (created by the stack; the platform's functions cannot use it). A stack without the key (installed
+  // before 2.1) publishes unsigned until `upgrade` adds it.
+  const signer = outputs.KitSigningKeyId ? kmsSigner(aws, outputs.KitSigningKeyId) : null;
+  if (!signer) console.log('Note: this stack has no kit signing key yet, so the kit is published unsigned. Run the upgrade to add it.');
+  const built = buildPublishFiles(kitTemp, outputs.PortalUrl, { signer });
   for (const name of built.files) uploads.push([name, join(kitTemp, name)]);
   const kit = { version: built.kitVersion };
   const files = uploads.map(([name]) => name);
@@ -98,7 +102,7 @@ if (command === 'add') {
   for (const key of listed.filter((k) => !files.includes(k.slice('portal/'.length)) && !/^portal\/class-platform-mcp-[\w.-]+\.tgz$/.test(k))) aws('s3', 'rm', `s3://${outputs.BucketName}/${key}`);
   aws('cloudfront', 'create-invalidation', '--distribution-id', outputs.PortalDistributionId, '--paths', '/*');
   rmSync(kitTemp, { recursive: true, force: true });
-  console.log(`Published ${files.length} files (including the student kit ${kit.version} and class-platform-mcp ${built.mcpVersion}). Portal: ${outputs.PortalUrl}`);
+  console.log(`Published ${files.length} files (including the ${built.signed ? 'signed ' : ''}student kit ${kit.version} and class-platform-mcp ${built.mcpVersion}). Portal: ${outputs.PortalUrl}`);
 } else if (command === 'verify-cleanup') {
   // Remove what `setup.mjs verify` left behind: the throwaway student's token rows and its sample site. Only names that verify itself makes.
   const slug = names[0] ?? '';
