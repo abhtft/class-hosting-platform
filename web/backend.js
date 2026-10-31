@@ -329,17 +329,20 @@ function storageSection(token, ctx) {
 // ---------- logs ----------
 function logsSection(ctx) {
   const output = h('pre', { class: 'logs hidden' });
+  const errorsOnly = h('input', { type: 'checkbox', id: 'logs-errors' });
+  const window = h('select', { 'aria-label': 'How far back' }, ...[[15, '15 minutes'], [60, '1 hour'], [180, '3 hours']].map(([m, label]) => h('option', { value: m, selected: m === 60 }, label)));
   const button = h('button', { class: 'small', onclick: async () => {
     try {
-      const { lines } = await ctx.call('/api/student/backend/logs');
-      output.textContent = lines.length ? lines.map((l) => `${new Date(l.t * 1000).toLocaleTimeString()}  ${l.message}`).join('\n') : 'No log lines in the last hour.';
-      output.classList.remove('hidden');
+      const { lines, minutes, truncated } = await ctx.call(`/api/student/backend/logs?minutes=${window.value}${errorsOnly.checked ? '&errors=1' : ''}`);
+      const text = lines.map((l) => `${new Date(l.t * 1000).toLocaleTimeString()}  ${l.message}`).join('\n');
+      output.textContent = lines.length ? `${text}${truncated ? '\n(More lines than could be read: showing the newest. Choose a shorter time.)' : ''}` : `No ${errorsOnly.checked ? 'error ' : ''}log lines in the last ${minutes} minutes.`;
     } catch (e) {
       output.textContent = e.message;
-      output.classList.remove('hidden');
     }
+    output.classList.remove('hidden');
+    output.scrollTop = output.scrollHeight; // the newest line is at the bottom
   } }, 'Show recent logs');
-  return h('div', { class: 'stack' }, h('div', {}, button), output);
+  return h('div', { class: 'stack' }, h('div', { style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' }, button, window, h('label', { for: 'logs-errors' }, errorsOnly, ' Errors only')), output);
 }
 
 function removeButton(ctx, errorBox) {

@@ -182,6 +182,15 @@ const TOOLS = [
     },
   },
   {
+    name: 'logs',
+    description: 'Read what the published backend of the student printed lately (the newest lines, errors and tracebacks included; secrets the student set as variables are hidden). Use it FIRST when the live site answers "function_error" / 502, a feature does nothing, or the student says the backend is broken: read the error, fix the code, run check_project, ask before deploying again. Use errors=true to see only errors.',
+    inputSchema: { type: 'object', properties: { errors: { type: 'boolean', description: 'only error lines and tracebacks' }, minutes: { type: 'integer', description: 'how far back to look (1 to 180, default 60)' }, path: PATH_PROPERTY }, additionalProperties: false },
+    async run({ errors, minutes, path } = {}) {
+      const root = projectRoot(path);
+      return run(scriptFor(root, 'deploy'), ['logs', ...(errors ? ['--errors'] : []), ...(Number.isInteger(minutes) ? ['--minutes', String(minutes)] : [])], 60000, root);
+    },
+  },
+  {
     name: 'update_kit',
     description: 'Bring the class kit\'s own files (the rules for AI editors, tools/, the deploy script, the helpers class_ai and class_storage, the check) up to date from the portal. It never touches the student\'s own code, .env files or files the student edited. IMPORTANT: ask the student first and call this with confirm=true only after they say yes. Afterwards tell them to restart this tool server (or reload the editor).',
     inputSchema: { type: 'object', properties: { confirm: { type: 'boolean', description: 'true only after the student agreed to update' }, path: PATH_PROPERTY }, required: ['confirm'], additionalProperties: false },

@@ -20,13 +20,13 @@ Why it matters here: students are beginners. Instead of learning `npm run check`
 |---|---|
 | Package | `class-platform-mcp` (published by the teacher's portal, not on the public npm registry) |
 | Transport | **stdio**: the editor starts the process and exchanges one JSON-RPC 2.0 message per line on stdin/stdout |
-| Tools | `init_project`, `check_project`, `deploy`, `status`, `update_kit` |
+| Tools | `init_project`, `check_project`, `deploy`, `status`, `logs`, `update_kit` |
 | Who writes the files | The tools run existing scripts (`check.mjs`, `portal-deploy.mjs`, `platform.mjs`) and unpack the starter kit; nothing else |
 | Token | Never in the editor's settings. Read from the environment or the project's `.env.local` (`npm run login` saves it there). There is no computer-wide token |
 | Code | `starter/mcp/server.mjs` (the one server), `bin.mjs` (command entry), `setup.mjs` (editor setup), `jsonc.mjs`, `package.json`; built by `starter/build-mcp-package.mjs` |
 | Tests | `tests/test_mcp.mjs`, `tests/test_mcp_package.mjs`, plus the update tests (`test_update_notice.mjs`, `test_kit_update.mjs`) |
 
-## 3. The five tools
+## 3. The six tools
 
 | Tool | What it does | Asks the student first? |
 |---|---|---|
@@ -34,6 +34,7 @@ Why it matters here: students are beginners. Instead of learning `npm run check`
 | `check_project` | Same as `npm run check`: layout, limits, imports, secrets | No (read-only) |
 | `deploy` | Runs the check, **refuses to publish if it fails**, then publishes backend first, then frontend, and returns the live address. Optional `only: frontend | backend`. One deploy at a time | **Yes** |
 | `status` | Is the saved token valid and for how many days; is a newer kit or a newer MCP package available. Deploys nothing | No |
+| `logs` | What the student's published backend printed lately: the newest lines, errors and tracebacks included, secrets the student set as variables shown as `***`. `errors=true` shows only errors; `minutes` looks further back (1 to 180). The first thing to read when the live backend answers 502 or does nothing. Same as `npm run logs`. |
 | `update_kit` | Brings the kit's own files (rules, `tools/`, deploy script, helpers) up to date. Never touches the student's code, `.env` files or files the student edited | **Yes** |
 
 The "ask first" rule is written into each tool's **description**, which is what the AI reads. The tools also enforce it: without `confirm: true` they do nothing and answer with the sentence the AI should say to the student.
@@ -53,7 +54,7 @@ Student ──"publish my site"──▶ AI editor ──starts──▶ npx -y 
 The protocol part of `server.mjs` is small (about 60 lines):
 
 1. **`initialize`**: the server answers with its name (`class-platform`), its version and a short `instructions` text for the AI ("ask first; never ask for the token").
-2. **`tools/list`**: returns the five tools with their JSON Schemas.
+2. **`tools/list`**: returns the six tools with their JSON Schemas.
 3. **`tools/call`**: runs the tool and answers `{ content: [{ type: 'text', text }], isError }`.
 4. **`ping`** is answered; unknown methods get JSON-RPC error `-32601`, unknown tools `-32602`, bad JSON `-32700`.
 
@@ -133,7 +134,7 @@ Run the same setup command again. It reports "Token: already saved and valid", a
 | Corrupting editor settings | Backup first, merge only our entry, refuse JSONC |
 | Supply chain | The package comes from the teacher's own portal over HTTPS, is `private`, has no dependencies and is built from this repository |
 
-Residual risk to be honest about: the MCP server runs with the student's own permissions on their computer, like any program they start. It does only what its five tools do.
+Residual risk to be honest about: the MCP server runs with the student's own permissions on their computer, like any program they start. It does only what its six tools do.
 
 ## 9. Keeping students up to date
 

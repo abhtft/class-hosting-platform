@@ -12,6 +12,7 @@
     "platform": "node tools/platform.mjs",
     "trust": "node tools/platform.mjs trust",
     "build": "npm --prefix frontend run build",
+    "logs": "node portal-deploy.mjs logs",
     "deploy": "node portal-deploy.mjs"
   }
 }

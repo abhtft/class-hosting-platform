@@ -324,17 +324,69 @@ def delete_env(item, var, now):
     return _write_env(item, name, variables)
 
 
-def logs(item, now, limit=50):
-    name = settings(item).get("function_name")
-    if not name:
-        return []
+LOG_LIMIT_DEFAULT, LOG_LIMIT_MAX = 50, 100
+LOG_MINUTES_DEFAULT, LOG_MINUTES_MAX = 60, 180
+LOG_PAGE, LOG_PAGES = 500, 6  # up to 3000 events are read per request, then the newest ones are kept
+LOG_CUT = 1500                # a long message keeps its END (the real error is at the end of a traceback)
+LOG_MIN_SECRET = 6            # an environment variable value shorter than this is not masked (too many false hits)
+# CloudWatch filter syntax: any of these words (case matters)
+LOG_ERRORS_PATTERN = '?ERROR ?Error ?Exception ?Traceback ?Unhandled ?"Task timed out" ?"Runtime.OutOfMemory"'
+
+
+def _clamp(value, default, low, high):
     try:
-        events = client("logs").filter_log_events(logGroupName=f"/aws/lambda/{name}", limit=limit, startTime=(now - 3600) * 1000)["events"]
+        return max(low, min(high, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _log_noise(message):
+    """START/END lines say nothing; a REPORT line matters only when the run failed (it then carries a Status)."""
+    return message.startswith(("START RequestId", "END RequestId")) or (message.startswith("REPORT RequestId") and "Status:" not in message)
+
+
+def _mask(message, secrets):
+    for secret in secrets:
+        message = message.replace(secret, "***")
+    return message
+
+
+def logs(item, now, minutes=LOG_MINUTES_DEFAULT, limit=LOG_LIMIT_DEFAULT, errors=False):
+    """The NEWEST log lines of the student's function (oldest first), without the START/END noise, with the end of long messages kept and the
+    values of the student's own environment variables masked, so a pasted log never carries a secret that was printed by mistake."""
+    minutes = _clamp(minutes, LOG_MINUTES_DEFAULT, 1, LOG_MINUTES_MAX)
+    limit = _clamp(limit, LOG_LIMIT_DEFAULT, 1, LOG_LIMIT_MAX)
+    name = settings(item).get("function_name")
+    result = {"lines": [], "minutes": minutes, "truncated": False}
+    if not name:  # the group comes from the student's own record, never from the request
+        return result
+    arguments = {"logGroupName": f"/aws/lambda/{name}", "limit": LOG_PAGE, "startTime": (now - minutes * 60) * 1000}
+    if errors:
+        arguments["filterPattern"] = LOG_ERRORS_PATTERN
+    kept = []
+    try:
+        for _ in range(LOG_PAGES):
+            page = client("logs").filter_log_events(**arguments)
+            kept = [e for e in kept + page["events"] if not _log_noise(e["message"])][-limit:]
+            if not page.get("nextToken"):
+                break
+            arguments["nextToken"] = page["nextToken"]
+        else:
+            result["truncated"] = True  # more than LOG_PAGES pages: only the newest of what was read is shown
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            return []
+            return result
         raise
-    return [{"t": e["timestamp"] // 1000, "message": e["message"].rstrip()[:500]} for e in events][-limit:]
+    try:
+        secrets = sorted({v for v in _current_env(name).values() if len(v) >= LOG_MIN_SECRET}, key=len, reverse=True)
+    except ClientError:
+        secrets = []
+    for e in kept:
+        message = _mask(e["message"].rstrip(), secrets)
+        if len(message) > LOG_CUT:
+            message = "[...cut] " + message[-LOG_CUT:]
+        result["lines"].append({"t": e["timestamp"] // 1000, "message": message})
+    return result
 
 
 def remove(item, now):

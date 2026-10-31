@@ -55,8 +55,8 @@ def zip_bytes(files):
     return buf.getvalue()
 
 
-def call(method, path, body=None, session=None, at=None):
-    event = {"rawPath": path, "requestContext": {"http": {"method": method, "sourceIp": "1.1.1.1"}},
+def call(method, path, body=None, session=None, at=None, query=None):
+    event = {"rawPath": path, "requestContext": {"http": {"method": method, "sourceIp": "1.1.1.1"}}, "queryStringParameters": query,
              "headers": {"authorization": f"Bearer {session}"} if session else {}, "body": json.dumps(body or {})}
     result = portal.handle(event, site_url, now=at if at is not None else now)
     return result["statusCode"], json.loads(result["body"])
@@ -177,6 +177,52 @@ assert gw("/b/alice/")[1]["greeting"] is None
 # ===================== logs =====================
 lines = call("GET", "/api/student/backend/logs", session=alice)[1]["lines"]
 assert lines and all(l["message"] == "hello log" for l in lines)
+
+# the NEWEST lines come back (oldest first), without START/END noise; the end of a long message is kept; env values are masked; errors-only works
+group = "/aws/lambda/sd-alice"
+logs.groups[group] = []
+for i in range(120):
+    logs.add(group, f"line {i}", at=now - 600 + i)
+logs.add(group, "START RequestId: abc Version: $LATEST", at=now - 1)
+logs.add(group, "END RequestId: abc", at=now - 1)
+logs.add(group, "REPORT RequestId: abc Duration: 3 ms Billed Duration: 4 ms", at=now - 1)
+
+
+def log_lines(**query):
+    status, body = call("GET", "/api/student/backend/logs", session=alice, query=query or None)
+    assert status == 200, body
+    return body
+
+
+body = log_lines()
+assert [l["message"] for l in body["lines"]] == [f"line {i}" for i in range(70, 120)], "the newest 50, oldest first, START/END/REPORT dropped"
+assert body["minutes"] == 60 and body["truncated"] is False
+assert [l["message"] for l in log_lines(limit="5")["lines"]] == [f"line {i}" for i in range(115, 120)]
+assert len(log_lines(limit="100000")["lines"]) == 100 and len(log_lines(limit="junk")["lines"]) == 50, "limit is clamped to 100; junk means the default"
+assert log_lines(minutes="1")["lines"] == [], "only the last minute: nothing that old (the noise is dropped too)"
+assert log_lines(minutes="99999")["minutes"] == 180, "the window is capped at three hours"
+backends.LOG_PAGE, backends.LOG_PAGES = 10, 3
+try:
+    short = log_lines(limit="100")
+    assert short["truncated"] is True and short["lines"][-1]["message"] == "line 29", "more than the pages read: it says so"
+finally:
+    backends.LOG_PAGE, backends.LOG_PAGES = 500, 6
+logs.add(group, "Traceback (most recent call last):\n  File 'app.py', line 3\nKeyError: 'name'", at=now - 5)
+logs.add(group, "[ERROR] something broke", at=now - 4)
+logs.add(group, "Task timed out after 10.00 seconds", at=now - 3)
+assert [l["message"][:9] for l in log_lines(errors="1")["lines"]] == ["Traceback", "[ERROR] s", "Task time"], "errors only"
+logs.add(group, "x" * 4000 + "THE REAL ERROR", at=now - 2)
+cut = log_lines(limit="1")["lines"][0]["message"]
+assert cut.startswith("[...cut] ") and cut.endswith("THE REAL ERROR") and len(cut) < 1600, "a long message keeps its end"
+assert call("PUT", "/api/student/backend/env", {"name": "SECRETVAR", "value": "topsecret-value-42"}, alice)[0] == 200
+assert call("PUT", "/api/student/backend/env", {"name": "SHORTVAR", "value": "abc"}, alice)[0] == 200
+logs.add(group, "connecting with topsecret-value-42 and abc", at=now - 1)
+masked = log_lines(limit="1")["lines"][0]["message"]
+assert masked == "connecting with *** and abc", masked
+assert call("DELETE", "/api/student/backend/env/SECRETVAR", session=alice)[0] == 200 and call("DELETE", "/api/student/backend/env/SHORTVAR", session=alice)[0] == 200
+_, zed, _ = new_student("zed")
+assert call("GET", "/api/student/backend/logs", session=zed, query={"minutes": "180"})[1] == {"lines": [], "minutes": 180, "truncated": False}, "a student without a backend sees nothing; the group name never comes from the request"
+logs.groups[group] = []
 
 # ===================== run allowance =====================
 carol_id, carol, _ = new_student("carol")

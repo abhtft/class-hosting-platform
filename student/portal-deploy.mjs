@@ -6,6 +6,7 @@
 //   node portal-deploy.mjs --skip-build    deploy the frontend's existing build folder
 //   node portal-deploy.mjs --frontend web --backend api    use other folder names
 //   node portal-deploy.mjs status          is the saved token valid, and for how long (deploys nothing)
+//   node portal-deploy.mjs logs [--errors] [--minutes 30] [--limit 50]   the newest lines your backend printed (what to read when it answers 502 or does the wrong thing)
 //   node portal-deploy.mjs login           save your token for THIS project (asks for it, checks it, writes .env.local); `npm run login`
 //
 // Expected layout:   frontend/  your app (built with `npm run build` into dist/, build/ or out/)
@@ -217,6 +218,24 @@ async function status() {
   for (const line of featureLines(token)) console.log(line);
 }
 
+/** `logs`: what your backend printed lately (newest last). `--errors` shows only errors and tracebacks. Secrets you set as variables are hidden as ***. */
+async function logs() {
+  const saved = readToken();
+  if (!saved) fail(NO_TOKEN());
+  const { session, token } = await signIn(saved);
+  if (!token.backend?.available) fail('Your teacher has not switched the backend on for you, so there are no logs.');
+  const query = new URLSearchParams();
+  for (const name of ['minutes', 'limit']) if (option(`--${name}`)) query.set(name, option(`--${name}`));
+  if (flag('--errors')) query.set('errors', '1');
+  const { lines, minutes, truncated } = await api('GET', `/api/student/backend/logs${query.size ? `?${query}` : ''}`, { session });
+  if (!lines.length) {
+    console.log(`No ${flag('--errors') ? 'error ' : ''}log lines in the last ${minutes} minutes. ${flag('--errors') ? 'Try without --errors, or call your backend once and run this again.' : 'Call your backend once (open the page that uses it) and run this again.'}`);
+    return;
+  }
+  for (const line of lines) console.log(`${new Date(line.t * 1000).toLocaleTimeString()}  ${line.message}`);
+  if (truncated) console.log('(There were more lines than could be read; only the newest are shown. Use --minutes with a smaller number.)');
+}
+
 /** `login`: ask for the token, check it with the portal, save it to .env.local. The token is never printed. */
 async function login(given) {
   if (flag('--global')) fail('Saving one token for the whole computer was removed: it let two windows share one student by accident. Run  npm run login  inside each project instead (it saves the token in that project\'s .env.local).');
@@ -391,6 +410,7 @@ async function main() {
   if (args[0] === 'login') return login(option('--token'));
   if (await syncKit()) return;
   if (args[0] === 'status') return status();
+  if (args[0] === 'logs') return logs();
   const only = option('--only');
   if (only && !['frontend', 'backend'].includes(only)) fail('--only must be "frontend" or "backend".');
   const frontendDir = option('--frontend', 'frontend');

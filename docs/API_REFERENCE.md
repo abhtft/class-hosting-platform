@@ -150,7 +150,7 @@ Flow: `upload-url`, then `PUT` the zip bytes to `uploadUrl` (no extra headers ne
 | `POST /api/student/backend/publish` | none | validates the uploaded zip and creates or updates `sd-<slug>`; `200 { "token": <view> }` (state `creating`) |
 | `PUT /api/student/backend/env` | `{ "name": "API_KEY", "value": "..." }` | `200 { "token": <view> }`; the view lists **names only** |
 | `DELETE /api/student/backend/env/{NAME}` | none | `200 { "token": <view> }` |
-| `GET /api/student/backend/logs` | none | `200 { "lines": [ { "t": 1792600000, "message": "..." } ] }` (last hour, up to 50) |
+| `GET /api/student/backend/logs?minutes=&limit=&errors=1` | none | `200 { "lines": [ { "t": 1792600000, "message": "..." } ], "minutes": 60, "truncated": false }`: the **newest** `limit` lines (default 50, at most 100) of the last `minutes` (default 60, at most 180), oldest first. START/END lines are left out, a long message keeps its end, values of the student's own variables are shown as `***`, and `errors=1` keeps only errors and tracebacks. The log group is the student's own function; it never comes from the request |
 | `DELETE /api/student/backend` | none | removes the function and its log group; the teacher's settings stay |
 
 Errors: `403` backend not enabled (`Owner not enabled for you…`) or token not active; `400` invalid zip (no entry file, both `index.mjs` and `app.py`, `.env` file, unsafe path or symlink, too many or too large files, or a switch of runtime: remove the backend first) or invalid env name/value (not `AWS_*`, `LAMBDA_*`, `_*`, `TZ`; value ≤ 1,024 characters; at most 20 variables and 4,096 bytes); `409` function not ready, or still updating; `502` AWS refused the deployment (message shown); `503` backends not set up.

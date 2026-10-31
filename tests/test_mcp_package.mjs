@@ -106,7 +106,7 @@ try {
   const projectA = join(work, 'my-first-project');
   mkdirSync(projectA);
   const a = await editor(bin, { roots: projectA }).start();
-  assert.deepEqual(await a.list(), ['init_project', 'check_project', 'deploy', 'status', 'update_kit']);
+  assert.deepEqual(await a.list(), ['init_project', 'check_project', 'deploy', 'status', 'logs', 'update_kit']);
   const refused = await a.tool('init_project', {});
   assert.equal(refused.isError, true);
   assert.match(refused.content[0].text, /Nothing written.*confirm=true/s);
@@ -249,6 +249,6 @@ try {
   console.log('mcp package: all passed');
 } finally {
   portal.kill();
-  rmSync(work, { recursive: true, force: true });
+  try { rmSync(work, { recursive: true, force: true }); } catch { /* Windows may still hold a file for a moment; the real failure must not be hidden by this */ }
 }
 process.exit(0);

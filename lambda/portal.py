@@ -24,7 +24,7 @@ Student (the token itself is the login -> signed session, 12 h):
   POST /api/student/upload-url, /api/student/publish   deploy (handled in app.py)
   PUT/DELETE /api/student/domain, GET /api/student/domain/status   custom domain (see domains.py)
   GET/DELETE /api/student/backend, POST .../backend/upload-url|publish, PUT .../backend/env, DELETE .../backend/env/<NAME>,
-  GET .../backend/logs                                              student backend (see backends.py; runs behind gateway.py)
+  GET .../backend/logs?minutes=&limit=&errors=1                     the newest log lines of the student's backend (see backends.py)
   GET  /api/student/ai                   refresh the AI usage numbers (ai.py)
   GET  /api/student/storage              storage usage including the file count and size (storage.py)
 
@@ -523,7 +523,8 @@ def student_backend(method, path, body, event, now, site_url):
     elif method == "DELETE" and env_name:
         item = backends.delete_env(item, env_name.group(1), now)
     elif (method, sub) == ("GET", "/logs"):
-        return reply(200, lines=backends.logs(item, now))
+        query = event.get("queryStringParameters") or {}
+        return reply(200, **backends.logs(item, now, minutes=query.get("minutes"), limit=query.get("limit"), errors=query.get("errors") in ("1", "true")))
     elif (method, sub) == ("DELETE", ""):
         item = backends.remove(item, now)
     else:

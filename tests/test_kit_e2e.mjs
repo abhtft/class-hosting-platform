@@ -97,6 +97,15 @@ ${out}`);
   assert.equal(modelCalls.length, 1, 'no call reaches the model while the AI is off');
   say('Python: AI switched off -> a friendly not_enabled answer and no model call');
 
+  // the student's AI agent can read what the backend printed: `npm run logs` (portal-deploy.mjs logs), all lines or errors only
+  const allLogs = deploy(kit, 'logs');
+  assert.equal(allLogs.status, 0, allLogs.stdout + allLogs.stderr);
+  assert.match(allLogs.stdout, /\d{1,2}:\d{2}|No log lines in the last 60 minutes/, 'it prints lines (or says there are none), never a crash');
+  const errorLogs = deploy(kit, 'logs', '--errors', '--minutes', '30');
+  assert.equal(errorLogs.status, 0, errorLogs.stdout + errorLogs.stderr);
+  assert.match(errorLogs.stdout, /No error log lines in the last 30 minutes|\d{1,2}:\d{2}/);
+  say('the kit can read the backend logs: all lines or errors only, for a chosen number of minutes');
+
   // ---- class storage: the teacher switches it on AFTER the function exists; the kit's /notes route saves and reads through the real storage API ----
   const storageOn = (enabled) => post(`/api/admin/tokens/${aliceId}/storage`, { enabled }, teacher);
   const notes = (method, body) => gateway('/notes', { method, ...(body ? { body: JSON.stringify(body) } : {}) });

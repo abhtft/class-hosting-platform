@@ -124,6 +124,7 @@ Choose the simplest option that fits and **tell the student its limits**:
 | `npm run check` | The platform check: layout, limits, imports, secrets. **Run it before every commit.** |
 | `npm run build` | Builds the site into `frontend/dist`. |
 | `npm run doctor` | Checks Node, Python and git on the computer. |
+| `npm run logs` | What the published backend printed lately (`-- --errors` for errors only). The first thing to read when the live backend misbehaves. |
 | `npm run login` | **The student runs this themselves, once per project.** It asks for the portal token (hidden), checks it and saves it in this project's `.env.local`. There is no computer-wide token. |
 | `npm run deploy` | Publishes the backend, then the frontend, straight from this computer. |
 | `npm run mcp-config` | Prints the settings that connect an AI editor's tool server (see "Deploying"). |
@@ -173,5 +174,5 @@ Deploying from GitHub (push to `main`) is the alternative for students who use G
 | `/api/...` returns 404 `no_backend` | The backend has not been deployed yet: push, then check the Actions tab. |
 | `AiError not_enabled` | The class AI is not switched on for the student: ask the teacher. |
 | `AiError cap_reached` | The AI allowance is used up: ask the teacher. |
-| Backend answers 502 `function_error` | The function crashed: read the logs in the portal (Backend card > Show recent logs). |
+| Backend answers 502 `function_error`, or a backend feature does nothing | Read what the backend printed: the `logs` tool, or `npm run logs -- --errors` (add `--minutes 30` to look back further; without `--errors` you also see your own `print` lines). Read the error at the END of a traceback, fix the code, run `npm run check`, then ask the student before deploying again. The portal's Backend card shows the same logs. |
 | Works locally, not deployed | A non-standard-library import, a file outside `backend/`, or a hard-coded localhost address: `npm run check` finds these. |

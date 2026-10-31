@@ -162,13 +162,21 @@ class FakeLogs:
             raise ClientError({"Error": {"Code": "ResourceNotFoundException"}}, "DeleteLogGroup")
         del self.groups[logGroupName]
 
-    def add(self, group, message):
-        self.groups.setdefault(group, []).append({"timestamp": int(time.time() * 1000), "message": message})
+    def add(self, group, message, at=None):
+        self.groups.setdefault(group, []).append({"timestamp": int((time.time() if at is None else at) * 1000), "message": message})
 
-    def filter_log_events(self, logGroupName, limit=50, startTime=0):
+    def filter_log_events(self, logGroupName, limit=50, startTime=0, filterPattern="", nextToken=None):
+        """Like CloudWatch: events oldest first, `limit` per page with a nextToken, and a `?word ?"two words"` pattern (any of them, case matters)."""
         if logGroupName not in self.groups:
             raise ClientError({"Error": {"Code": "ResourceNotFoundException"}}, "FilterLogEvents")
-        return {"events": [e for e in self.groups[logGroupName] if e["timestamp"] >= startTime][-limit:]}
+        import re
+        words = [a or b for a, b in re.findall(r'\?(?:"([^"]+)"|(\S+))', filterPattern)]
+        events = [e for e in self.groups[logGroupName] if e["timestamp"] >= startTime and (not words or any(w in e["message"] for w in words))]
+        events.sort(key=lambda e: e["timestamp"])
+        start = int(nextToken or 0)
+        page = events[start:start + limit]
+        self.page_calls = getattr(self, "page_calls", 0) + 1
+        return {"events": page, **({"nextToken": str(start + limit)} if start + limit < len(events) else {})}
 
 
 class FakeLambda:
