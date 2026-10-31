@@ -2,7 +2,7 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
-## Unreleased
+## 2.1.0
 
 - **A stale site can no longer stay stale for a year.** Published files told CloudFront to keep them for a year, relying on the publish to clear them. If that clearing ever failed (AWS throttling, or the custom domain's own cache), visitors kept seeing the old site with no sign of it, and a failure of the main clearing even failed the publish after the files were already live. Now the lifetime is one day at most (browsers still revalidate pages on every visit), a failed clearing never fails the publish, and the student's answer says plainly that the old version may show for a while and to publish again. Normal publishes behave exactly as before (cleared at once). Applies to files published after you run `upgrade`; a site is re-stamped the next time its student publishes.
 
