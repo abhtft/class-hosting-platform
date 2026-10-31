@@ -298,7 +298,7 @@ Use this after `destroy --everything`, or to bring a class into a new account. T
 <package> destroy                    # remove the platform; keeps student data and your AI keys
 <package> destroy --everything       # for a test account: also removes the student data, parameters and AI keys
 ```
-First it shows what it will remove (students, distributions, buckets, functions, tables), then asks for your **teacher login** (checked against your portal; if the portal does not answer, the typed phrase still applies) and for you to type the stack name (or `delete everything`). It removes the custom-domain pieces first, empties the sites bucket including every old version, deletes the stack (CloudFront takes 15 to 25 minutes), removes the installer's staging bucket and its saved state. **Your DNS records are yours to remove.** A "start over" is `destroy --everything`, then `install`.
+First it shows what it will remove (students, distributions, buckets, functions, tables), then asks for your **teacher login** (checked against your portal; if the portal does not answer, the typed phrase still applies) and for you to type the stack name (or `delete everything`). It removes the custom-domain pieces first, empties the sites bucket including every old version, deletes the stack (CloudFront takes 15 to 25 minutes), deletes the students' backend functions (`sd-...`, created at run time, not part of the stack) with their log groups (`--everything` also clears the platform's own log groups), removes the installer's staging bucket and its saved state. **Your DNS records are yours to remove**, and so are the per-student AI keys at OpenRouter (revoke them in its dashboard). A "start over" is `destroy --everything`, then `install`.
 
 ## 13. If something goes wrong
 

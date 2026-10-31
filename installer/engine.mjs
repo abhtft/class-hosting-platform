@@ -507,6 +507,23 @@ export function checkEnvironment(ctx) {
   return { ...out, account: found.account, identity: found.arn, stackStatus: found.stackStatus, notes: found.notes, message: `Ready. AWS account ${found.account}${found.stackStatus ? `, stack ${ctx.stack}: ${found.stackStatus}` : ', no stack yet'}.` };
 }
 
+/** The student backend functions (`sd-<slug>`) of THIS platform. They are created at run time, so they are not part of the stack and deleting the stack leaves them
+ *  behind (with no role to run as). A function counts as ours when its name starts with sd- AND it runs as this stack's sandbox role, so an unrelated function or
+ *  another platform's student functions in the same account are never touched. Returns [] when they cannot be listed (the count is then unknown, not an error). */
+export function studentFunctions(ctx, resources) {
+  const role = resources.find((r) => r.LogicalResourceId === 'StudentSandboxRole' && r.ResourceStatus !== 'DELETE_COMPLETE')?.PhysicalResourceId;
+  if (!role) return [];
+  try {
+    const names = call(ctx, ['lambda', 'list-functions', '--query', `Functions[?starts_with(FunctionName, 'sd-') && ends_with(Role, '/${role}')].FunctionName`], { json: true });
+    return Array.isArray(names) ? names : [];
+  } catch { return []; }
+}
+
+/** Delete a log group; one that is not there is fine. Lambda creates these itself, so the stack never owns them and never removes them. */
+function deleteLogGroup(ctx, name) {
+  try { call(ctx, ['logs', 'delete-log-group', '--log-group-name', name]); } catch { /* not there */ }
+}
+
 /** What `destroy` is about to remove, in numbers a teacher understands. Read only. */
 export function inventory(ctx) {
   let resources = [];
@@ -522,7 +539,7 @@ export function inventory(ctx) {
   }
   let portalUrl = null;
   try { portalUrl = stackOutputs(ctx).outputs.PortalUrl ?? null; } catch { /* no outputs */ }
-  return { exists: true, portalUrl, students, buckets: count('AWS::S3::Bucket'), tables: count('AWS::DynamoDB::Table'), distributions: count('AWS::CloudFront::Distribution'), functions: count('AWS::Lambda::Function'), parameters: count('AWS::SSM::Parameter') };
+  return { exists: true, portalUrl, students, buckets: count('AWS::S3::Bucket'), tables: count('AWS::DynamoDB::Table'), distributions: count('AWS::CloudFront::Distribution'), functions: count('AWS::Lambda::Function'), studentFunctions: studentFunctions(ctx, live).length, parameters: count('AWS::SSM::Parameter') };
 }
 
 /** Run the checks against the installed platform. `login` is {username, password} (used once, never stored) or null for the public checks only. */
@@ -562,9 +579,17 @@ export async function destroy(ctx, { everything = false } = {}) {
   const buckets = of('AWS::S3::Bucket');
   const tables = of('AWS::DynamoDB::Table');
   const parameters = of('AWS::SSM::Parameter');
+  const studentFns = studentFunctions(ctx, resources);
+  const removedFunctions = [];
+  const failedFunctions = [];
   if (resources.length) {
     const { teardownCustomDomains } = await import('./tenant.mjs');
     await teardownCustomDomains(ctx, { say });
+    // the students' own backend functions are not in the stack: delete them (and their log groups) first, or they would be left running as a deleted role
+    for (const name of studentFns) {
+      try { call(ctx, ['lambda', 'delete-function', '--function-name', name]); removedFunctions.push(name); } catch (e) { failedFunctions.push(`${name}: ${e.message}`); }
+      deleteLogGroup(ctx, `/aws/lambda/${name}`);
+    }
     say('Emptying the sites bucket (all versions)...');
     for (const bucket of buckets) emptyBucket(ctx, bucket);
     say('Deleting the stack. CloudFront takes a few minutes to remove...');
@@ -584,13 +609,19 @@ export async function destroy(ctx, { everything = false } = {}) {
     if (!exists(ctx, ['ssm', 'get-parameter', '--name', name])) continue;
     if (everything) call(ctx, ['ssm', 'delete-parameter', '--name', name]); else kept.push(`parameter ${name}`);
   }
+  // the platform's own functions' log groups: Lambda created them at the first run, so the stack never owned them; a clean account has none (kept by default: they help diagnose)
+  if (everything) for (const fn of of('AWS::Lambda::Function')) deleteLogGroup(ctx, `/aws/lambda/${fn}`);
   const staging = `${ctx.stack.toLowerCase()}-artifacts-${account}`;
   if (exists(ctx, ['s3api', 'head-bucket', '--bucket', staging])) { emptyBucket(ctx, staging); call(ctx, ['s3api', 'delete-bucket', '--bucket', staging]); }
   const hasSecret = exists(ctx, ['secretsmanager', 'describe-secret', '--secret-id', 'openrouter']);
   if (hasSecret && everything) call(ctx, ['secretsmanager', 'delete-secret', '--secret-id', 'openrouter', '--force-delete-without-recovery']);
   else if (hasSecret) kept.push('secret openrouter (your AI keys)');
   if (!ctx.dryRun) rmSync(join(stateDir(ctx), 'install.json'), { force: true });
-  return { ok: true, kept, message: kept.length
+  const main = kept.length
     ? `Deleted the platform ${ctx.stack}. Kept on purpose (data you may want): ${kept.join(', ')}. For a completely clean account run destroy again with --everything. DNS records you added are yours to remove.`
-    : `Deleted the platform ${ctx.stack} and everything the install created. DNS records you added are yours to remove.` };
+    : `Deleted the platform ${ctx.stack} and everything the install created. DNS records you added are yours to remove.`;
+  const functionsNote = removedFunctions.length ? `Also deleted ${removedFunctions.length} student backend function${removedFunctions.length === 1 ? '' : 's'} and their logs.` : '';
+  const failedNote = failedFunctions.length ? `Could NOT delete these student functions: ${failedFunctions.join('; ')}. Delete each with: aws lambda delete-function --function-name <name>.` : '';
+  const aiNote = hasSecret && everything ? 'If you used class AI, the per-student keys the platform created at OpenRouter stay valid until their spending cap: revoke them in your OpenRouter dashboard.' : '';
+  return { ok: failedFunctions.length === 0, kept, removedFunctions, failedFunctions, message: [main, functionsNote, failedNote, aiNote].filter(Boolean).join(' ') };
 }

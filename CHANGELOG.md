@@ -4,6 +4,8 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+- **`destroy` now removes the students' backend functions too.** Students' backends (`sd-<name>` Lambda functions) are created at run time, not by the stack, so a destroy used to leave them and their log groups in the account. Now `destroy` finds the functions that use this platform's student sandbox role (never another platform's, never a function without the `sd-` name), deletes them and their log groups, and the preview counts them. `destroy --everything` also deletes the platform's own function log groups. A function that cannot be deleted is reported with the exact command, and the result is not "ok". Per-student OpenRouter keys are not revoked by AWS: after a destroy with class AI, revoke them in your OpenRouter dashboard (the message says so).
+
 ## 2.0.4
 
 - **The installer now says why a stack failed.** `aws cloudformation deploy` only reports "Failed to create/update the stack" and a hint with no `--profile` (so pasting it ran against your default account). Now, when the install, `finish-domain` or the custom-domain setup fails, the installer reads the stack events, finds the first real failure (not the "cancelled" ones after it) and prints it. It recognises AWS's CloudFront account verification error ("Your account must be verified before you can add new CloudFront resources", with its request id) and explains the support case; it recognises a domain name already claimed by another distribution; and every command it prints carries your `--profile`. It advises `destroy --everything` only when a **first create** left a failed stack behind; a failed update is rolled back, the platform keeps working, and the message says so.

@@ -317,7 +317,7 @@ export async function main(argv, overrides = {}) {
         console.log('');
         if (inv.exists) {
           console.log(`This will delete the platform "${ctx.stack}"${inv.portalUrl ? ` (${inv.portalUrl})` : ''}:`);
-          console.log(`  ${inv.students ?? 'an unknown number of'} student${inv.students === 1 ? '' : 's'}, ${inv.distributions} CloudFront distributions, ${inv.buckets} bucket${inv.buckets === 1 ? '' : 's'} (every published site), ${inv.functions} functions, ${inv.tables} table${inv.tables === 1 ? '' : 's'}`);
+          console.log(`  ${inv.students ?? 'an unknown number of'} student${inv.students === 1 ? '' : 's'}, ${inv.distributions} CloudFront distributions, ${inv.buckets} bucket${inv.buckets === 1 ? '' : 's'} (every published site), ${inv.functions} functions, ${inv.tables} table${inv.tables === 1 ? '' : 's'}${inv.studentFunctions ? `, ${inv.studentFunctions} student backend function${inv.studentFunctions === 1 ? '' : 's'}` : ''}`);
           console.log(flags.everything ? '  ALSO: the student data table, the saved parameters and the AI keys secret (--everything).' : '  Kept: the student data table and the AI keys secret (add --everything to remove those too).');
         } else console.log(`There is no platform stack "${ctx.stack}" here; only leftovers (such as the installer's staging bucket) are cleaned.`);
         console.log('');

@@ -31,6 +31,16 @@ function fakeAws(world = {}) {
     if (svc === 'ssm' && op === 'get-parameter') { if (!w.params?.has(opt('--name'))) throw new Error('ParameterNotFound'); return '{}'; }
     if (svc === 'ssm' && op === 'delete-parameter') { w.params.delete(opt('--name')); return ''; }
     if (svc === 'secretsmanager' && op === 'delete-secret') { delete w.secrets[opt('--secret-id')]; return ''; }
+    if (svc === 'lambda' && op === 'list-functions') { // the CLI applies --query; the fake mimics the one destroy sends
+      const role = /ends_with\(Role, '\/([^']+)'\)/.exec(opt('--query') ?? '')?.[1] ?? '';
+      return JSON.stringify((w.lambdas ?? []).filter((f) => f.name.startsWith('sd-') && f.role.endsWith(`/${role}`)).map((f) => f.name));
+    }
+    if (svc === 'lambda' && op === 'delete-function') {
+      if (w.failDelete?.includes(opt('--function-name'))) throw new Error('AccessDeniedException: not allowed to delete this function');
+      w.lambdas = (w.lambdas ?? []).filter((f) => f.name !== opt('--function-name'));
+      return '';
+    }
+    if (svc === 'logs' && op === 'delete-log-group') { w.logGroups = (w.logGroups ?? []).filter((g) => g !== opt('--log-group-name')); (w.deletedLogGroups ??= []).push(opt('--log-group-name')); return ''; }
     if (svc === 'cloudfront') { if (w.cloudfrontError) throw new Error(w.cloudfrontError); return '{}'; }
     if (svc === 's3api' && op === 'head-bucket') { if (!w.buckets.has(opt('--bucket')) || (w.gone ?? []).includes(opt('--bucket'))) throw new Error('404'); return ''; }
     if (svc === 's3api' && op === 'create-bucket') { w.buckets.add(opt('--bucket')); return ''; }
@@ -297,6 +307,62 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   rmSync(join(repo, 'release.json'));
   assert.equal((await engine.status(context(fake).ctx)).latestVersion, null, 'a git checkout has no release to compare with');
   console.log('  ok  status announces a newer GitHub release with the exact command, ignores odd answers and offline');
+}
+
+// ---------- destroy also removes the students' backend functions (they are not in the stack) ----------
+{
+  const SANDBOX = 'student-hosting-StudentSandboxRole-AbC123';
+  const ACCT = String(Math.floor(1e11 + 5e10));
+  const roleArn = (name) => `arn:aws:iam::${ACCT}:role/${name}`;
+  const resources = [
+    { ResourceType: 'AWS::S3::Bucket', LogicalResourceId: 'SitesBucket', PhysicalResourceId: 'sites-b', ResourceStatus: 'CREATE_COMPLETE' },
+    { ResourceType: 'AWS::IAM::Role', LogicalResourceId: 'StudentSandboxRole', PhysicalResourceId: SANDBOX, ResourceStatus: 'CREATE_COMPLETE' },
+    { ResourceType: 'AWS::Lambda::Function', LogicalResourceId: 'DeployFunction', PhysicalResourceId: 'student-hosting-DeployFunction-X1', ResourceStatus: 'CREATE_COMPLETE' }];
+  const make = (extra = {}) => fakeAws({ stack: 'CREATE_COMPLETE', resources, buckets: new Set(['sites-b']), versions: { 'sites-b': [] }, tables: new Set(), params: new Set(), secrets: {},
+    lambdas: [
+      { name: 'sd-alice', role: roleArn(SANDBOX) },
+      { name: 'sd-bob', role: roleArn(SANDBOX) },
+      { name: 'sd-carol', role: roleArn('another-platform-StudentSandboxRole-Zz') }, // another platform's student in the same account: never ours
+      { name: 'my-own-function', role: roleArn(SANDBOX) },                          // not an sd- name: never ours
+    ],
+    logGroups: ['/aws/lambda/sd-alice', '/aws/lambda/sd-bob', '/aws/lambda/student-hosting-DeployFunction-X1'], ...extra });
+  const names = (fake) => fake.w.lambdas.map((f) => f.name).sort();
+  // the preview counts them
+  assert.equal(engine.inventory(context(make()).ctx).studentFunctions, 2, 'only this platform\'s student functions are counted');
+  // a plain destroy removes this platform's student functions and their log groups, and nothing else
+  reset();
+  let fake = make();
+  let out = await engine.destroy(context(fake, { progress: () => {} }).ctx);
+  assert.deepEqual(names(fake), ['my-own-function', 'sd-carol'], 'a function of another platform or without the sd- name is left alone');
+  assert.deepEqual(fake.w.deletedLogGroups.sort(), ['/aws/lambda/sd-alice', '/aws/lambda/sd-bob'], 'their log groups go with them; the platform\'s own are kept by default');
+  assert.deepEqual(out.removedFunctions.sort(), ['sd-alice', 'sd-bob']);
+  assert.match(out.message, /Also deleted 2 student backend functions and their logs/);
+  assert.equal(out.ok, true);
+  // --everything also removes the platform's own function log groups (Lambda created them, so the stack never owned them)
+  reset();
+  fake = make();
+  out = await engine.destroy(context(fake, { progress: () => {} }).ctx, { everything: true });
+  assert.ok(fake.w.deletedLogGroups.includes('/aws/lambda/student-hosting-DeployFunction-X1'), 'a clean account has no leftover platform log groups');
+  // a function that cannot be deleted is reported, the stack is still deleted, and the result is not "ok"
+  reset();
+  fake = make({ failDelete: ['sd-bob'] });
+  out = await engine.destroy(context(fake, { progress: () => {} }).ctx);
+  assert.equal(fake.w.stack, null, 'the stack is deleted even when one student function could not be');
+  assert.equal(out.ok, false);
+  assert.match(out.message, /Could NOT delete these student functions: sd-bob: AccessDeniedException/);
+  assert.match(out.message, /aws lambda delete-function --function-name <name>/);
+  // a dry run deletes nothing
+  reset();
+  fake = make();
+  await engine.destroy(context(fake, { dryRun: true, progress: () => {} }).ctx, { everything: true });
+  assert.equal(fake.w.lambdas.length, 4, 'a dry run deletes no function');
+  assert.equal(fake.w.deletedLogGroups, undefined, 'and no log group');
+  // with class AI used (the secret exists), the teacher is told the OpenRouter keys are theirs to revoke
+  reset();
+  fake = make({ secrets: { openrouter: '{"K":"v"}' } });
+  out = await engine.destroy(context(fake, { progress: () => {} }).ctx, { everything: true });
+  assert.match(out.message, /revoke them in your OpenRouter dashboard/);
+  console.log('  ok  destroy removes this platform\'s student backend functions and their log groups (never another platform\'s or non-sd- ones), the platform log groups with --everything, reports a function it cannot delete, and tells you about the OpenRouter keys');
 }
 
 // ---------- a failed stack is explained, not just "Failed to create/update the stack" ----------
