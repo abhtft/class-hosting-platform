@@ -43,6 +43,7 @@ The teacher switches the backend, class AI, class storage and a custom domain on
 ```
 README.md  PROMPTS.md          quickstart (6 steps) and starter prompts
 AGENTS.md                      the platform's rules for the AI (canonical)
+INTERVIEW.md                   the short interview the AI runs before a new app: a few plain questions, then a one-page SPEC.md you approve
 GEMINI.md  CLAUDE.md           copies / import for Gemini CLI + Antigravity and Claude Code
 .claude/skills/class-platform  .cursor/rules/  .github/copilot-instructions.md  .windsurfrules   the same rules for other editors
 frontend/                      working React + Vite + TypeScript site (calls /api, asks the AI through the backend)

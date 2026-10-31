@@ -39,6 +39,10 @@ route, `localStorage`, class storage (`class_storage`) or an external HTTP servi
 9. **One backend language.** `app.py` **or** `index.mjs`, not both. To switch to Node: delete `backend/app.py`, `backend/class_ai.py` and `backend/class_storage.py`, then move the files from `variants/node-backend/` into `backend/` (and delete the `variants/` folder).
 10. **Do not edit** `.github/workflows/deploy.yml`, `portal-deploy.mjs`, `tools/` or `platform.json` unless the student's teacher asked for it.
 
+## Start with the student's idea (new app or big change)
+
+Before writing code for a **new** app or a large change, read `INTERVIEW.md` and run the short interview: at most two rounds of 3 to 6 plain questions with choices and a default, never about technology. Then write `SPEC.md` (one page, the student's words), show a short summary and ask "Is this right?". Build only after a yes. Skip the interview when the student already gave a detailed description or says to just build it. Keep `SPEC.md` current when the plan changes.
+
 ## Check which features are on before you plan
 
 The teacher switches class AI, class storage, the backend and a custom domain on **per student**, and can switch them off again. This file cannot say what is on for this student, and you must not guess. **Before planning or writing anything that uses class AI, class storage, a backend or a custom domain, find out:** call the `status` tool (or run `node portal-deploy.mjs status`) and read the "Features for you" block. It is read live from the portal, and it also brings the kit (including this file) up to date, so **call it first in every session**. If it reports that the kit was updated, re-read this file before you continue.

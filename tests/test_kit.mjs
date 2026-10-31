@@ -222,6 +222,18 @@ assert.equal(read(join(again, 'kit-manifest.json')), read(join(kit, 'kit-manifes
 assert.deepEqual(listAll(kit).filter((f) => readFileSync(f).includes(Buffer.from([13, 10]))), [], 'no CRLF line endings in the kit');
 say('building twice gives the same manifest; every text file uses LF');
 
+// the short interview: the assistant asks a few plain questions and agrees a one-page SPEC.md before it builds
+{
+  const interview = lf(join(kit, 'INTERVIEW.md'));
+  assert.ok(JSON.parse(read(join(kit, 'platform.json'))).managed.includes('INTERVIEW.md'), 'INTERVIEW.md is a platform file: it follows your teacher version');
+  for (const need of ['At most two rounds', '3 to 6 questions', 'Never ask about technology', 'SPEC.md', 'Is this right?', 'Skip it', 'cannot do', 'class storage']) assert.ok(interview.includes(need), `INTERVIEW.md must say: ${need}`);
+  for (const kind of ['Personal or portfolio site', 'Shop or small business', 'Event or invitation', 'Quiz, game or learning tool', 'Notes, blog or journal', 'Tracker or dashboard', 'Form or survey', 'AI helper or chatbot']) assert.ok(interview.includes(kind), `the interview covers: ${kind}`);
+  for (const copy of ['AGENTS.md', 'GEMINI.md', '.github/copilot-instructions.md', '.windsurfrules', '.cursor/rules/class-platform.mdc', '.claude/skills/class-platform/SKILL.md']) assert.match(lf(join(kit, copy)), /read `INTERVIEW.md` and run the short interview/, `${copy} sends the assistant to the interview`);
+  const questions = interview.slice(interview.indexOf('## Questions every app needs'), interview.indexOf('## Writing'));
+  assert.ok(questions.length > 500 && !/React|Vite|Lambda|DynamoDB|database/.test(questions), 'the questions never ask the student about technology');
+  say('the kit ships INTERVIEW.md (rounds, defaults, platform limits, nine kinds of app, SPEC.md) and every editor rule file points to it');
+}
+
 // the kit's contents may only change together with a kitVersion bump: without one, `status` and the update notice tell students "up to date"
 // (found in the first real test of 1.2.2, when the rules and portal-deploy.mjs changed under kit 1.6.0). tests/kit-versions.json records
 // kitVersion -> a hash of every kit file except the version line itself; the hashes come from the LF-normalised manifest, so any computer gets the same one.

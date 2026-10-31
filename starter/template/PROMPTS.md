@@ -8,7 +8,7 @@ Paste one into your AI assistant. Edit the idea to be yours. The assistant alrea
 - *"Make a study buddy chat: a text box and a conversation list. Each message goes to my backend, which asks the class AI to explain it simply."*
 - *"Make a recipe helper: the user types ingredients, the AI suggests a dish. Keep the last 5 suggestions in localStorage."*
 - *"Make a to-do list that is stored in localStorage, with a button 'Suggest next task' that asks the class AI."*
-- *"Turn my idea into this platform's structure: [describe your idea]. Ask me questions first if something is unclear."*
+- *"Turn my idea into this platform's structure: [describe your idea]. Ask me questions first if something is unclear."* (your assistant follows `INTERVIEW.md`: a few short questions, then a one-page `SPEC.md` for you to approve before it builds)
 
 ## Improve what you have
 

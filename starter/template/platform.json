@@ -35,6 +35,7 @@
     "backend/class_storage.py",
     "variants/node-backend/class_storage.mjs",
     "backend/class_storage.mjs",
-    "PROMPTS.md"
+    "PROMPTS.md",
+    "INTERVIEW.md"
   ]
 }
