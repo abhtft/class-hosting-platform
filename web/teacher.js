@@ -144,7 +144,7 @@ function requestRow(t) {
     h('div', { class: 'student-main' }, h('span', { class: 'title' }, t.student_name || t.slug),
       h('span', { class: 'small muted' }, `${t.slug} · requested ${date(t.regen.requested_at)}`),
       t.regen.note ? h('span', { class: 'quote' }, `“${t.regen.note}”`) : null),
-    h('div', { class: 'student-state' }, statusPill(t), h('span', { class: 'small muted' }, t.archived ? 'Site is offline; approving brings it back' : expiryText(t))),
+    h('div', { class: 'student-state' }, statusPill(t), h('span', { class: 'small muted' }, t.archived ? 'Site is offline; open it and choose Bring online (or extend)' : expiryText(t))),
     h('div', { class: 'btns' },
       h('button', { class: 'small primary', onclick: () => approve(t, original) }, 'Approve'),
       h('button', { class: 'small danger', onclick: () => deny(t) }, 'Deny')));
@@ -273,7 +273,7 @@ function drawerContent(t) {
         h('dt', {}, 'Expires'), h('dd', {}, date(t.expires_at)),
         h('dt', {}, 'Goes offline'), h('dd', {}, date(t.offline_at)),
         h('dt', {}, 'Last deploy'), h('dd', {}, t.last_deploy_at ? date(t.last_deploy_at) : 'never')),
-      live ? h('div', { class: 'btns' }, btn('Extend…', () => extend(t)), !t.archived ? btn('Take offline…', () => offline(t)) : null, btn('Revoke…', () => revoke(t), 'danger')) : h('p', { class: 'small muted', style: 'margin:0' }, 'This token is revoked. Features are locked.')),
+      live ? h('div', { class: 'btns' }, btn('Extend…', () => extend(t)), !t.archived ? btn('Take offline…', () => offline(t)) : (t.expires_at > now() ? btn('Bring online', () => online(t)) : null), btn('Revoke…', () => revoke(t), 'danger')) : h('p', { class: 'small muted', style: 'margin:0' }, 'This token is revoked. Features are locked.')),
     h('h3', { class: 'section-title' }, 'Features'),
     ...(features.length ? features : [h('p', { class: 'small muted', style: 'margin:0' }, 'No optional features are switched on for this platform yet. Switch them on in your terminal with:  plan --enable backend,ai,gemini,storage  and then  apply <id>  (see the teacher guide). Each one stays off for every student until you switch it on here.')]));
 }
@@ -402,6 +402,11 @@ async function toggleDomain(t) {
 async function offline(t) {
   const r = await ask({ title: `Take ${t.slug} offline?`, text: 'The site stops being served now. Files are archived, not deleted, and come back if you extend the token or approve a request.', confirm: 'Take offline', danger: true });
   if (r) act(`/api/admin/tokens/${t.id}/offline`, {}, 'Site taken offline');
+}
+
+async function online(t) {
+  const r = await ask({ title: `Bring ${t.slug} back online?`, text: 'The archived files are served again now. The token keeps its expiry date; extend it as well if you want more time.', confirm: 'Bring online' });
+  if (r) act(`/api/admin/tokens/${t.id}/online`, {}, 'Site is back online');
 }
 
 async function revoke(t) {

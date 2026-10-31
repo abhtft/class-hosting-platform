@@ -28,6 +28,14 @@ for (const path of ['AGENTS.md', 'GEMINI.md', 'CLAUDE.md', '.claude/skills/class
   'frontend/src/App.tsx', 'frontend/src/api.ts', 'backend/app.py', 'backend/class_ai.py', 'backend/class_storage.py', 'variants/node-backend/index.mjs', 'variants/node-backend/class_ai.mjs', 'variants/node-backend/class_storage.mjs']) {
   assert.ok(existsSync(join(kit, path)), `the kit is missing ${path}`);
 }
+// npm never packs a file named .gitignore or .npmignore (found on a real account: kits published from the released package had no .gitignore), so the source template
+// must not rely on one: it keeps gitignore.txt and the builder renames it
+const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
+const dropped = walk(join(repo, 'starter', 'template')).filter((f) => /(^|[\\/])\.(gitignore|npmignore)$/.test(f));
+assert.deepEqual(dropped, [], 'npm would drop these files from the released package; keep the content under another name and rename it in build-kit.mjs');
+assert.equal(read(join(kit, '.gitignore')), lf(join(repo, 'starter', 'template', 'gitignore.txt')), 'the kit .gitignore is the template gitignore.txt');
+assert.ok(!existsSync(join(kit, 'gitignore.txt')), 'gitignore.txt is renamed, not shipped twice');
+say('the kit gets its .gitignore from gitignore.txt (npm would drop a .gitignore from the package); no npm-dropped file in the template');
 for (const [name, content] of Object.entries(ruleFiles(rules))) {
   if (name === 'CLAUDE.md') assert.match(read(join(kit, name)), /@AGENTS\.md/);
   else assert.ok(read(join(kit, name)).includes(rules), `${name} must carry the full rules, identical to AGENTS.md`);

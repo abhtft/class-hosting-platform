@@ -42,6 +42,9 @@ Body `{ "days": 1..365 }`. Adds to the current expiry (or counts from now if alr
 ### `POST /api/admin/tokens/{id}/offline`
 Archives the site now (moved to `archive/<slug>/`). → `200 { "token": <view> }`.
 
+### `POST /api/admin/tokens/{id}/online`
+Restores an archived site from `archive/<slug>/` and leaves the expiry unchanged. → `200 { "token": <view> }`. `409` if the token is revoked, the site is already online, or the token has expired (extend it instead).
+
 ### `GET /api/admin/requests`
 Pending regeneration requests, oldest first → `200 { "requests": [ <view>, ... ] }`.
 

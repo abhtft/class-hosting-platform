@@ -154,6 +154,18 @@ assert "sites/live/index.html" not in store
 call("POST", f"/api/admin/tokens/{live_id}/extend", {"days": 5}, admin)
 assert portal.view(portal.db().get(f"tok#{live_id}"), now, app.site_url)["can_deploy"] is True
 
+# "Bring online": the explicit way back for a live token, expiry unchanged; refused for an expired token (it would be archived again) and for a site already online
+call("POST", f"/api/admin/tokens/{live_id}/offline", {}, admin)
+expiry = portal.db().get(f"tok#{live_id}")["expires_at"]
+assert "sites/live/index.html" not in store
+code, body = call("POST", f"/api/admin/tokens/{live_id}/online", {}, admin)
+assert code == 200 and body["token"]["status"] == "active" and body["token"]["archived"] is False, body
+assert "sites/live/index.html" in store and "archive/live/index.html" not in store
+assert portal.db().get(f"tok#{live_id}")["expires_at"] == expiry, "the expiry is not changed"
+assert call("POST", f"/api/admin/tokens/{live_id}/online", {}, admin)[0] == 409, "already online"
+assert call("POST", f"/api/admin/tokens/{gone_id}/online", {}, admin)[0] == 409, "an expired token must be extended, not just brought online"
+assert "sites/gone/index.html" not in store
+
 assert app.sweep({}, None) == {"archived": [], "failed": [], "domains_removed": []}  # Lambda entry point
 
 # legacy CLI route still works unchanged

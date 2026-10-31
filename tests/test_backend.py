@@ -210,7 +210,11 @@ finally:
 logs.add(group, "Traceback (most recent call last):\n  File 'app.py', line 3\nKeyError: 'name'", at=now - 5)
 logs.add(group, "[ERROR] something broke", at=now - 4)
 logs.add(group, "Task timed out after 10.00 seconds", at=now - 3)
-assert [l["message"][:9] for l in log_lines(errors="1")["lines"]] == ["Traceback", "[ERROR] s", "Task time"], "errors only"
+# what a current runtime really writes for a timeout (seen on a real account): only a REPORT line with a Status, and an INIT_START line before a cold start
+logs.add(group, "REPORT RequestId: 1f2e\tDuration: 25000.00 ms\tBilled Duration: 25147 ms\tMemory Size: 256 MB\tMax Memory Used: 47 MB\tStatus: timeout", at=now - 3)
+logs.add(group, "INIT_START Runtime Version: python:3.12.mainlinev2.v82\tRuntime Version ARN: arn:aws:lambda:us-east-1::runtime:abc", at=now - 3)
+assert [l["message"][:9] for l in log_lines(errors="1")["lines"]] == ["Traceback", "[ERROR] s", "Task time", "REPORT Re"], "errors only: a timeout reported only by its REPORT Status is found"
+assert not [l for l in log_lines(limit="100")["lines"] if l["message"].startswith("INIT_START")], "INIT_START is noise"
 logs.add(group, "x" * 4000 + "THE REAL ERROR", at=now - 2)
 cut = log_lines(limit="1")["lines"][0]["message"]
 assert cut.startswith("[...cut] ") and cut.endswith("THE REAL ERROR") and len(cut) < 1600, "a long message keeps its end"

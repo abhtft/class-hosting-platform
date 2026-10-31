@@ -216,7 +216,7 @@ if (!secretsFound) add('ok', 'secrets-ok', 'No keys or tokens found in your file
 // ---------- git hygiene ----------
 const gitignore = join(root, '.gitignore');
 if (!existsSync(gitignore)) {
-  add('error', 'gitignore-missing', '.gitignore is missing.', 'Restore it from the kit: it keeps .env files and node_modules out of GitHub.');
+  add('error', 'gitignore-missing', '.gitignore is missing.', 'Create a file named .gitignore in the project folder with at least these lines (your AI editor can do it): .env  .env.*  *.local  node_modules/  dist/  __pycache__/  .kit-backup/ . It keeps secrets and build output out of GitHub.');
 } else {
   const lines = readFileSync(gitignore, 'utf8').split(/\r?\n/).map((l) => l.trim());
   if (!lines.some((l) => ['.env', '.env*', '.env.*', '*.local'].includes(l))) add('error', 'gitignore-env', '.gitignore does not exclude .env files.', 'Add the lines  .env  and  .env.*  (and  *.local ) to .gitignore.');

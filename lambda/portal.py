@@ -7,6 +7,7 @@ Teacher (password -> signed session, 8 h):
   POST /api/admin/tokens/{id}/revoke
   POST /api/admin/tokens/{id}/extend     {days}
   POST /api/admin/tokens/{id}/offline    take the site offline now (archived, restorable)
+  POST /api/admin/tokens/{id}/online     bring a taken-offline site back, expiry unchanged (409 if the token expired or is revoked: extend it instead)
   GET  /api/admin/requests               pending regeneration requests
   POST /api/admin/tokens/{id}/approve    {days}      new duration counted from now; brings an offline site back
   POST /api/admin/tokens/{id}/deny       {reason?}
@@ -501,7 +502,7 @@ def dispatch(method, path, body, event, now, site_url):
             import domains
             item = domains.set_access(get_token(access.group(1)), body.get("enabled"))
             return reply(200, token=view(item, now, site_url))
-        match = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/(revoke|extend|offline|approve|deny)", path)
+        match = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/(revoke|extend|offline|online|approve|deny)", path)
         if method == "POST" and match:
             return token_action(get_token(match.group(1)), match.group(2), body, now, site_url)
     return reply(404, error="Unknown route.")
@@ -640,6 +641,14 @@ def token_action(item, action, body, now, site_url):
         item = db().update(item["pk"], {"revoked": True})
     elif action == "offline":
         item = take_offline(item, now)
+    elif action == "online":  # bring a taken-offline site back WITHOUT changing the expiry (an expired token needs an extension, or the sweeper would archive it again)
+        if item.get("revoked"):
+            raise PortalError(409, "This token is revoked.")
+        if not item.get("archived"):
+            raise PortalError(409, "The site is already online.")
+        if now >= item["expires_at"]:
+            raise PortalError(409, "This token has expired. Extend it to bring the site back.")
+        item = reactivate(item, item["expires_at"], {})
     elif action == "extend":
         days = parse_days(body)
         if item.get("revoked"):

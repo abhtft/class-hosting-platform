@@ -11,7 +11,7 @@
 //
 // Nothing secret and nothing personal goes in: the kit is generic and can live in a public repository.
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,6 +50,8 @@ export function buildKit(out, { force = false, portalUrl = '', signingKey = '' }
   }
   mkdirSync(out, { recursive: true });
   cpSync(join(here, 'template'), out, { recursive: true });
+  // npm never packs a file named .gitignore, so the template keeps it as gitignore.txt: a kit built from the released teacher package would otherwise lack it
+  renameSync(join(out, 'gitignore.txt'), join(out, '.gitignore'));
 
   const copy = (from, to) => {
     mkdirSync(dirname(join(out, to)), { recursive: true });

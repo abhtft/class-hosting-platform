@@ -4,6 +4,14 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+Found by running 2.1.0 on a real account with a real student.
+
+- **The student kit now has its `.gitignore` when your portal publishes it.** `npm` never puts a file named `.gitignore` into a package, so the teacher package you run had no `.gitignore` to copy, and every kit your portal published (2.0.x and 2.1.0) lacked it. A new student's `npm run check` then failed, and `npm run login` inside a git folder refused to save the token ("`.env.local` is not ignored"), until someone created the file. The template now keeps it as `gitignore.txt` and the kit builder renames it, and a test fails if a file npm would drop is ever added to the template again. The check's hint now says what to put in the file (it used to say "restore it from the kit", which was impossible). **To apply:** `upgrade` publishes the new kit; a student who already has a project without `.gitignore` creates it (the check shows the lines) or copies it from a freshly downloaded kit.
+
+- **Errors-only logs now show timeouts.** The current Python and Node runtimes write a timeout only as a `REPORT ... Status: timeout` line, not as "Task timed out", so `npm run logs --errors` and the portal's "Errors only" box hid the most common failure. They now look for `Status: timeout` and `Status: error` too, and the `INIT_START` lines at every cold start are dropped as noise. Needs `upgrade` (the platform's own function).
+
+- **A "Bring online" button for a site you took offline.** A site taken offline came back only through Extend or a request approval, and the card then showed no way back. The Token card now has **Bring online**: it serves the archived files again and leaves the expiry as it is (an expired token must be extended, because the sweeper would archive the site again; a revoked one cannot be brought back). The API has `POST /api/admin/tokens/{id}/online`. Needs `upgrade`.
+
 - **A leftover saved state can no longer plan to remove your features.** `plan`, `upgrade` and the feature switches started from a small file the tool keeps on your computer (`~/.class-platform-teacher/install.json`). That file is keyed only by the stack name, so a file left by another AWS account or profile (for example a test platform with every feature off) made the plan for your real platform say "remove the backend, AI and storage and the student data table". The guard that refuses to replace or remove data stopped it, so nothing was ever changed, but the plan was useless until you deleted the file by hand. Now, once an install is finished, the live stack is the truth: if its features or domain differ from the saved file, the plan uses the live stack and corrects the file. An install that is still in progress is left alone. No AWS change; takes effect when you run the new version's `plan` or `upgrade`.
 
 ## 2.1.0

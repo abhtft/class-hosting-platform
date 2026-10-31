@@ -329,8 +329,9 @@ LOG_MINUTES_DEFAULT, LOG_MINUTES_MAX = 60, 180
 LOG_PAGE, LOG_PAGES = 500, 6  # up to 3000 events are read per request, then the newest ones are kept
 LOG_CUT = 1500                # a long message keeps its END (the real error is at the end of a traceback)
 LOG_MIN_SECRET = 6            # an environment variable value shorter than this is not masked (too many false hits)
-# CloudWatch filter syntax: any of these words (case matters)
-LOG_ERRORS_PATTERN = '?ERROR ?Error ?Exception ?Traceback ?Unhandled ?"Task timed out" ?"Runtime.OutOfMemory"'
+# CloudWatch filter syntax: any of these words (case matters). The current Python and Node runtimes report a timeout ONLY as `REPORT ... Status: timeout`
+# (seen on a real account: there is no "Task timed out" line), so the Status words are what finds it; the older wording stays for older runtimes.
+LOG_ERRORS_PATTERN = '?ERROR ?Error ?Exception ?Traceback ?Unhandled ?"Task timed out" ?"Runtime.OutOfMemory" ?"Status: timeout" ?"Status: error"'
 
 
 def _clamp(value, default, low, high):
@@ -341,8 +342,8 @@ def _clamp(value, default, low, high):
 
 
 def _log_noise(message):
-    """START/END lines say nothing; a REPORT line matters only when the run failed (it then carries a Status)."""
-    return message.startswith(("START RequestId", "END RequestId")) or (message.startswith("REPORT RequestId") and "Status:" not in message)
+    """START/END/INIT_START lines say nothing; a REPORT line matters only when the run failed (it then carries a Status)."""
+    return message.startswith(("START RequestId", "END RequestId", "INIT_START")) or (message.startswith("REPORT RequestId") and "Status:" not in message)
 
 
 def _mask(message, secrets):
