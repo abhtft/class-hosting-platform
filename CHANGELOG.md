@@ -2,7 +2,7 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
-## Unreleased
+## 2.1.1
 
 Found by running 2.1.0 on a real account with a real student.
 
