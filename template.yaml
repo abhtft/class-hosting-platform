@@ -729,8 +729,14 @@ Resources:
       Policies:
         - Statement:
             - Effect: Allow
-              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
-              Resource: !Sub '${SitesBucket.Arn}/*'
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject] # never portal/: that folder holds the student kit and the portal pages, and only the teacher's own credentials publish there
+              Resource:
+                - !Sub '${SitesBucket.Arn}/sites/*'
+                - !Sub '${SitesBucket.Arn}/archive/*'
+                - !Sub '${SitesBucket.Arn}/uploads/*'
+            - Effect: Allow # the teacher's "clear this student's files" only deletes; it never reads or writes a student's stored files
+              Action: s3:DeleteObject
+              Resource: !Sub '${SitesBucket.Arn}/userdata/*'
             - Effect: Allow
               Action: s3:ListBucket
               Resource: !GetAtt SitesBucket.Arn
@@ -828,8 +834,11 @@ Resources:
       Policies:
         - Statement:
             - Effect: Allow
-              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
-              Resource: !Sub '${SitesBucket.Arn}/*'
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject] # never portal/ (the kit and portal pages)
+              Resource:
+                - !Sub '${SitesBucket.Arn}/sites/*'
+                - !Sub '${SitesBucket.Arn}/archive/*'
+                - !Sub '${SitesBucket.Arn}/uploads/*'
             - Effect: Allow
               Action: s3:ListBucket
               Resource: !GetAtt SitesBucket.Arn

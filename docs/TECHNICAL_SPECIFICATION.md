@@ -274,7 +274,7 @@ Rules: counters change only through atomic conditional updates (`counter_add` / 
 | `sites/<slug>/` | the student's published site | old versions expire after 30 days |
 | `uploads/` | temporary zips (`<slug>.zip`, `<slug>-backend.zip`) | deleted after 1 day, with their old versions |
 | `archive/<slug>/` | sites taken offline (moved, never deleted automatically) | kept; restorable |
-| `portal/` | the portal pages and downloads (written by `admin.mjs portal-publish`) | replaced on publish |
+| `portal/` | the portal pages and downloads (written by `admin.mjs portal-publish` with the teacher's own credentials; no platform function can write there) | replaced on publish |
 | `userdata/<slug>/` | a student's files (class storage only; never served by CloudFront) | kept; old versions expire after 30 days; the bucket allows browser POST and GET only through presigned links |
 
 Versioning makes an overwritten or deleted file recoverable for 30 days (runbook in [END_TO_END.md section 4.5b](END_TO_END.md)). CloudFront reads only `sites/*` (and `portal/*` for the portal) through origin access control; the bucket blocks all public access.

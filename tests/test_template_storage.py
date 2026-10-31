@@ -54,7 +54,7 @@ deploy = block("DeployFunction")
 grants = re.findall(r"Action: \[([^\]]*)\]\n\s+Resource: !GetAtt StudentDataTable\.Arn", deploy)
 assert grants == ["dynamodb:Query, dynamodb:BatchWriteItem, dynamodb:DeleteItem"], grants
 assert "- UseStorage" in deploy and "DATA_TABLE: !If [UseStorage, !Ref StudentDataTable, '']" in deploy, "only when storage is on"
-assert "userdata" not in deploy, "its bucket access is the existing one; nothing new names userdata"
+assert deploy.count("userdata") == 1 and "Action: s3:DeleteObject\n              Resource: !Sub '${SitesBucket.Arn}/userdata/*'" in deploy, "the portal names userdata once: delete only (the teacher's clear), no read or write"
 assert "STORAGE_URL: !If [UseStorage" in block("DeployFunction"), "the portal function learns the storage address"
 assert re.search(r"AllowedMethods: \[POST, GET\]\n\s+AllowedHeaders: \['\*'\]\n\s+AllowedOrigins: \['\*'\]", block("SitesBucket")), "browsers may POST to and GET from presigned links"
 assert "Principal: '*'" not in template and "PublicAccessBlockConfiguration" in block("SitesBucket"), "the bucket stays private"

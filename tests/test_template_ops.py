@@ -67,4 +67,18 @@ _sam = open(os.path.join(root, "samconfig.toml"), encoding="utf8").read()
 if re.search(r"^parameter_overrides", _sam, re.M):  # a teacher's own samconfig; the public repository ships a template with no overrides
     assert "/student-deploy/alert-email" in _sam, "samconfig names the SSM parameter only"
 
+# ---- the kit and the portal pages (portal/) are published only by the teacher's own credentials ----
+# The functions that take untrusted uploads must never be able to write there: a student's computer runs the kit it downloads from it.
+assert "${SitesBucket.Arn}/*'" not in template, "no grant on the whole bucket: name the prefixes (sites, archive, uploads, userdata)"
+grants = re.findall(r"Action: \[s3:GetObject, s3:PutObject, s3:DeleteObject\][^\n]*\n\s+Resource:\n((?:\s+- [^\n]+\n)+)", template)
+assert len(grants) == 2, "the upload-handling functions list their prefixes; a new S3 write grant must be added to this check"
+for statement in grants:
+    for line in statement.strip().split("\n"):
+        if "SitesBucket.Arn" in line:  # (the list ends where the next statement starts)
+            assert re.search(r"/(sites|archive|uploads)/\*'", line), f"a function that handles uploads may only write its own prefixes: {line.strip()}"
+for name in ("DeployFunction", "SweeperFunction"):
+    assert not [l for l in block(name).split("\n") if "SitesBucket.Arn}/" in l and "portal" in l], f"{name} must not be granted portal/"
+assert re.search(r"Action: s3:DeleteObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/userdata/\*'", block("DeployFunction")), "the portal may only delete students' stored files (the teacher's clear), never read or write them"
+assert template.count("s3:PutObject") == 3, "every S3 write grant is reviewed (two lists above, class storage's userdata/): extend this check for a new one"
+
 print("test_template_ops.py: all passed")
