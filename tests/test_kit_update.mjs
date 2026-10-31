@@ -125,7 +125,7 @@ try {
   assert.ok(remoteInfo.managed && Object.keys(remoteInfo.managed).length > 10, 'the portal publishes a hash for every file the kit owns');
   assert.ok('AGENTS.md' in remoteInfo.managed && 'portal-deploy.mjs' in remoteInfo.managed && 'tools/platform.mjs' in remoteInfo.managed);
   assert.ok(!('frontend/src/App.tsx' in remoteInfo.managed) && !('backend/app.py' in remoteInfo.managed), "the student's own files are never in the list");
-  const { kitDrift } = await (async () => { process.env.PORTAL_DEPLOY_NO_MAIN = '1'; return import(`${pathToFileURL(join(repo, 'student', 'portal-deploy.mjs')).href}?drift`); })();
+  const { kitDrift, needsPin } = await (async () => { process.env.PORTAL_DEPLOY_NO_MAIN = '1'; return import(`${pathToFileURL(join(repo, 'student', 'portal-deploy.mjs')).href}?drift`); })();
   const synced = fresh('synced');
   assert.deepEqual(kitDrift(synced, remoteInfo.managed), [], 'a fresh kit matches the portal');
   const crlf = fresh('crlf');
@@ -153,6 +153,9 @@ try {
   assert.equal(read(join(backupDir, 'tools', 'doctor.mjs')), '// my doctor\n');
   assert.deepEqual(kitDrift(synced, remoteInfo.managed), [], 'after a sync nothing drifts');
   assert.match(platform(synced, 'sync', '--portal', portal).text, /0 file\(s\) updated/, 'a second sync has nothing to do');
+  assert.equal(needsPin(synced, remoteInfo), false, 'after a sync the project has pinned the platform key');
+  assert.equal(needsPin(fresh('unpinned'), remoteInfo), true, 'a project from before signing is brought in once, even though no file differs');
+  assert.equal(needsPin(fresh('unsigned-platform'), { ...remoteInfo, keyId: undefined }), false, 'a platform that does not sign needs no pin');
   const goodKitZip = Buffer.from(await (await fetch(`${portal}/starter-kit.zip`)).arrayBuffer());
   const badHash = await hostile(goodKitZip, 'f'.repeat(64));
   const refusedSync = await platformAsync(fresh('refused'), 'sync', '--portal', badHash);

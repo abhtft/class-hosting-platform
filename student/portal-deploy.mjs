@@ -176,6 +176,12 @@ export function kitDrift(root, managed) {
   }).map(([path]) => path);
 }
 
+/** A signed platform and a project that has not pinned its key yet (it came from before signing): one sync pins it, even when no file differs. */
+export function needsPin(root, remote) {
+  if (!remote?.keyId) return false;
+  try { return !JSON.parse(readFileSync(join(root, 'platform.json'), 'utf8')).signingKey; } catch { return false; }
+}
+
 /** Returns true when the kit was updated and this command was run again (the caller must stop: that run did the work). */
 async function syncKit() {
   if (process.env.PLATFORM_KIT_SYNC === 'off' || process.env.PLATFORM_KIT_SYNCED) return false;
@@ -186,8 +192,10 @@ async function syncKit() {
     if (!response.ok) return false;
     remote = await response.json();
   } catch { return false; }
-  if (!remote?.managed || !kitDrift(process.cwd(), remote.managed).length) return false;
-  console.log('▶ Your kit is not the same as your teacher\'s platform. Bringing it in line first...');
+  if (!remote?.managed) return false;
+  const drift = kitDrift(process.cwd(), remote.managed).length;
+  if (!drift && !needsPin(process.cwd(), remote)) return false;
+  console.log(drift ? '▶ Your kit is not the same as your teacher\'s platform. Bringing it in line first...' : '▶ Recording the key your teacher signs the kit with...');
   const updated = spawnSync(process.execPath, [join('tools', 'platform.mjs'), 'sync', '--portal', PORTAL_URL], { stdio: 'inherit' });
   if (updated.status === 3) { // the kit is not signed by the key this project trusts: platform.mjs already said so. Never block the student's work on it.
     console.log('⚠ Carrying on with the kit you have.');
