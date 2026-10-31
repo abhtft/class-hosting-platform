@@ -167,26 +167,32 @@ def publish(name, tenant_id=None):
     stale = [key for key in list_keys(prefix) if key[len(prefix):] not in entries]
     delete_keys(stale)
 
-    invalidate(name, tenant_id)
+    cache_note = invalidate(name, tenant_id)
     s3.delete_object(Bucket=BUCKET, Key=zip_key)
 
     result = {"url": site_url(name), "files": len(entries), "removed": len(stale)}
-    warning = base_path_warning(name, archive.read(entries["index.html"]))
+    warning = " ".join(w for w in (base_path_warning(name, archive.read(entries["index.html"])), cache_note) if w)
     if warning:
         result["warning"] = warning
     return reply(200, **result)
 
 
 def invalidate(name, tenant_id=None):
+    """Clear the CDN copies of a site after a publish. Never fails the publish (the files are already live in S3): returns a sentence for the student
+    when something could not be cleared, and the copies then expire by themselves within CDN_SECONDS."""
+    notes = []
     # Cache entries are keyed by the rewritten URI (/sites/<name>/...); /<name>/* covers the viewer path in path mode.
     paths = [f"/sites/{name}/*", f"/{name}/*"]
-    cloudfront.create_invalidation(
-        DistributionId=DISTRIBUTION_ID,
-        InvalidationBatch={"Paths": {"Quantity": len(paths), "Items": paths}, "CallerReference": f"{name}-{time.time_ns()}"},
-    )
+    try:
+        cloudfront.create_invalidation(
+            DistributionId=DISTRIBUTION_ID,
+            InvalidationBatch={"Paths": {"Quantity": len(paths), "Items": paths}, "CallerReference": f"{name}-{time.time_ns()}"},
+        )
+    except Exception as e:
+        print(f"cache invalidation failed for {name}: {e}")
+        notes.append("Your site is published, but the old version may still show for up to a day. Publish again in a few minutes to refresh it.")
     if tenant_id:
-        # The student's custom domain is a separate CloudFront tenant with its own cache (objects live up to a year).
-        # A failure here must not fail the deploy: the site is already published on the main address.
+        # The student's custom domain is a separate CloudFront tenant with its own cache.
         try:
             cloudfront.create_invalidation_for_distribution_tenant(
                 Id=tenant_id,
@@ -194,6 +200,8 @@ def invalidate(name, tenant_id=None):
             )
         except Exception as e:
             print(f"custom-domain cache invalidation failed for {name}: {e}")
+            notes.append("Your own domain may show the previous version for up to a day. Publishing again refreshes it.")
+    return " ".join(notes)
 
 
 def delete_keys(keys):
@@ -275,12 +283,14 @@ def content_type(path):
     return guessed
 
 
+CDN_SECONDS = 86400  # CloudFront keeps a file for a day at most; a publish clears it at once (invalidate), and if that ever fails the old copy still expires
+
+
 def cache_control(path):
-    # CloudFront keeps everything until the next publish invalidates it (s-maxage);
     # browsers always revalidate HTML and keep other files for 5 minutes.
     if path.endswith(".html"):
-        return "public, max-age=0, must-revalidate, s-maxage=31536000"
-    return "public, max-age=300, s-maxage=31536000"
+        return f"public, max-age=0, must-revalidate, s-maxage={CDN_SECONDS}"
+    return f"public, max-age=300, s-maxage={CDN_SECONDS}"
 
 
 def list_keys(prefix):

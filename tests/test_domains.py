@@ -130,8 +130,16 @@ app.invalidate("alice")
 assert len(cf.invalidations) == 1, "no tenant, no tenant invalidation"
 real = cf.create_invalidation_for_distribution_tenant
 cf.create_invalidation_for_distribution_tenant = lambda **kw: (_ for _ in ()).throw(RuntimeError("throttled"))
-app.invalidate("alice", "dt_1")
+note = app.invalidate("alice", "dt_1")
+assert "own domain may show the previous version for up to a day" in note, "the student is told, the deploy still succeeds"
 cf.create_invalidation_for_distribution_tenant = real
+assert app.invalidate("alice", "dt_1") == "", "nothing to say when everything was cleared"
+real_main = cf.create_invalidation
+cf.create_invalidation = lambda **kw: (_ for _ in ()).throw(RuntimeError("TooManyInvalidationsInProgress"))
+note = app.invalidate("alice")
+assert "old version may still show for up to a day" in note, "a failed main invalidation is a warning, not a failed publish"
+cf.create_invalidation = real_main
+assert "s-maxage=86400" in app.cache_control("index.html") and "s-maxage=86400" in app.cache_control("a.js"), "a stale copy can never outlive a day, even when an invalidation fails"
 
 # ---- removal: disable first, delete once deployed, then the name is free again ----
 cf.deployed = False

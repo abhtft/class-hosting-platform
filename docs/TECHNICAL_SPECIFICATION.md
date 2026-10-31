@@ -424,7 +424,7 @@ sequenceDiagram
 <!-- /diagram -->
 
 - **Limits:** zip at most 50 MB, unzipped at most 200 MB, at most 2,000 files; names with `__MACOSX/`, `.DS_Store`, `Thumbs.db` are ignored; absolute or `..` paths are refused; `index.html` must be at the top of the zip (a zip of the build folder itself is accepted: one top folder is stripped).
-- **Headers:** HTML gets `public, max-age=0, must-revalidate, s-maxage=31536000`; other files `public, max-age=300, s-maxage=31536000`. CloudFront keeps everything until the next publish invalidates it.
+- **Headers:** HTML gets `public, max-age=0, must-revalidate, s-maxage=86400`; other files `public, max-age=300, s-maxage=86400`. A publish invalidates the site's CloudFront copies (and the custom domain's) at once; if an invalidation fails the publish still succeeds, the answer carries a warning, and an old copy can live at most a day.
 - **Requires an active token** (`403` otherwise); success records `last_deploy_at`.
 - **Presigned URLs** must use a SigV4 client (virtual addressing); a legacy signature fails with `SignatureDoesNotMatch` as soon as the browser adds a `Content-Type` (found in testing, pinned by a test).
 - **Legacy CLI** (`x-deploy-key: <name>.<secret>`, keys in the SSM map managed with `admin.mjs add|remove|list`): routes `POST /upload-url` and `POST /publish` on `DeployApi`, same publish code.
