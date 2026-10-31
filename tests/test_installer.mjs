@@ -288,6 +288,41 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   console.log('  ok  every feature is installed by default (off per student); "none" and explicit lists work; several features can be switched on in one plan');
 }
 
+// ---------- a saved state from another account or profile must never plan the removal of a live platform's features ----------
+{
+  const live = { BackendEnabled: 'true', AiEnabled: 'true', AiGeminiEnabled: 'false', StorageEnabled: 'true', RootDomain: '' };
+  const changes = [{ Action: 'Modify', LogicalResourceId: 'PortalFunction', ResourceType: 'AWS::CloudFront::Function', Replacement: 'False' }];
+  const save = (state) => { mkdirSync(join(repo, '.class-platform'), { recursive: true }); writeFileSync(join(repo, '.class-platform', 'install.json'), JSON.stringify(state)); };
+  const lastDeploy = (fake) => fake.calls.filter((a) => a[1] === 'deploy').pop();
+  reset();
+  // the state another profile left: same stack name, every feature off, install finished
+  save({ stack: 'student-hosting', profile: 'other', domain: '', certificateArn: '', features: [], phase: 'ready', installedVersion: '2.0.4' });
+  const stale = fakeAws({ stack: 'UPDATE_COMPLETE', parameters: live, nextChanges: changes });
+  const planned = await engine.plan(context(stale).ctx);
+  for (const p of ['BackendEnabled=true', 'AiEnabled=true', 'StorageEnabled=true']) assert.ok(lastDeploy(stale).includes(p), `the live stack's ${p} is kept`);
+  assert.ok(!lastDeploy(stale).some((a) => /Enabled=false/.test(a) && /^(Backend|Ai|Storage)Enabled/.test(a)), 'no live feature is switched off');
+  assert.equal(planned.blocked, false);
+  assert.deepEqual(stateOf().features, ['ai', 'backend', 'storage'], 'the saved state now matches the live stack');
+  // a feature switch starts from the live stack too
+  reset();
+  save({ stack: 'student-hosting', profile: 'other', domain: '', certificateArn: '', features: [], phase: 'ready', installedVersion: '2.0.4' });
+  const toggled = fakeAws({ stack: 'UPDATE_COMPLETE', parameters: live, nextChanges: changes });
+  await engine.featurePlan(context(toggled).ctx, 'gemini', true);
+  for (const p of ['BackendEnabled=true', 'AiEnabled=true', 'StorageEnabled=true', 'AiGeminiEnabled=true']) assert.ok(lastDeploy(toggled).includes(p), p);
+  // a state that already matches the live stack is left exactly as it is
+  reset();
+  save({ stack: 'student-hosting', profile: 'new', domain: '', certificateArn: '', features: ['ai', 'backend', 'storage'], phase: 'ready', installedVersion: '2.0.4', marker: 'keep' });
+  await engine.plan(context(fakeAws({ stack: 'UPDATE_COMPLETE', parameters: live, nextChanges: changes })).ctx);
+  assert.equal(stateOf().marker, 'keep');
+  assert.equal(stateOf().adopted, undefined);
+  // an install that is not finished is never replaced by the live stack
+  reset();
+  save({ stack: 'student-hosting', profile: 'new', domain: '', certificateArn: '', features: [], phase: 'deploying' });
+  await fails(() => engine.plan(context(fakeAws({ stack: 'UPDATE_COMPLETE', parameters: live })).ctx), /not finished/);
+  reset();
+  console.log('  ok  a stale saved state (another profile, features off) never plans the removal of a live platform: the live stack wins; unfinished installs are left alone');
+}
+
 // ---------- a newer GitHub release is announced with the exact command ----------
 {
   const fake = fakeAws({ stack: 'UPDATE_COMPLETE', parameters: {} });

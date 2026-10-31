@@ -75,16 +75,40 @@ function writeState(ctx, state) {
 /** The custom-domain ids a stack's parameters carry, or null when custom domains are not set up. */
 export const tenantFromParameters = (p) => (p.TenantDistributionId ? { distributionId: p.TenantDistributionId, connectionGroupId: p.ConnectionGroupId || '', routingEndpoint: p.RoutingEndpoint || '' } : null);
 
+const featuresFromParameters = (p, tenant) => [...Object.entries(FEATURES).filter(([, name]) => p[name] === 'true').map(([f]) => f), ...(tenant ? ['customdomains'] : [])].sort();
+const liveComplete = (found) => Boolean(found.status) && /COMPLETE$/.test(found.status) && !/ROLLBACK|DELETE/.test(found.status);
+
 export function adoptState(ctx) {
   const known = readState(ctx);
   if (known) return known;
   let found;
   try { found = stackOutputs(ctx); } catch { return null; }
-  if (!found.status || !/COMPLETE$/.test(found.status) || /ROLLBACK|DELETE/.test(found.status)) return null;
+  if (!liveComplete(found)) return null;
   const p = found.parameters;
   const tenant = tenantFromParameters(p);
-  const features = [...Object.entries(FEATURES).filter(([, name]) => p[name] === 'true').map(([f]) => f), ...(tenant ? ['customdomains'] : [])].sort();
+  const features = featuresFromParameters(p, tenant);
   const state = { stack: ctx.stack, profile: ctx.profile, domain: p.RootDomain || '', certificateArn: p.CertificateArn || '', features, tenant, phase: 'ready', installedVersion: null, adopted: true };
+  writeState(ctx, state);
+  return state;
+}
+
+/**
+ * What a plan starts from. The saved state only records what an earlier run chose; once the install is finished the live stack is the truth.
+ * A state file left by another account or profile (the stack name is the same, "student-hosting") must never switch features off and so plan the
+ * removal of a live platform's backend, AI or storage: when the live stack's features or domain differ from the saved ones, the live stack wins.
+ */
+export function currentState(ctx) {
+  const known = readState(ctx);
+  if (!known || known.phase !== 'ready') return adoptState(ctx);
+  let found;
+  try { found = stackOutputs({ ...ctx, stack: known.stack }); } catch { return known; }
+  if (!liveComplete(found)) return known;
+  const p = found.parameters;
+  const tenant = tenantFromParameters(p);
+  const features = featuresFromParameters(p, tenant);
+  const domain = p.RootDomain || '';
+  if (JSON.stringify(features) === JSON.stringify([...(known.features ?? [])].sort()) && domain === (known.domain || '')) return known;
+  const state = { ...known, domain, certificateArn: p.CertificateArn || '', features, tenant, adopted: true };
   writeState(ctx, state);
   return state;
 }
@@ -398,7 +422,7 @@ export const planId = (changeSetId, items) => createHash('sha256').update(JSON.s
 
 /** Describe what a deploy would change, in plain words, without changing anything. `change` edits the stored configuration (for example turning a feature on). */
 export async function plan(ctx, change = {}) {
-  const state = adoptState(ctx);
+  const state = currentState(ctx);
   if (!state) throw new InstallError('Nothing is installed from this folder yet.', `Run \`${cli(ctx)} install\` first.`);
   if (state.phase !== 'ready') throw new InstallError(`The install is not finished (step: ${state.phase}).`, 'Finish the install first.');
   const config = normalise({ ...state, ...change, features: change.features ?? state.features, stack: state.stack, profile: ctx.profile || state.profile });
@@ -452,7 +476,7 @@ export async function apply(ctx, id) {
 
 /** Feature switch = a plan with that feature turned on or off. */
 export const featurePlan = (ctx, feature, on) => {
-  const state = readState(ctx) ?? adoptState(ctx);
+  const state = currentState(ctx);
   const wanted = (Array.isArray(feature) ? feature : [feature]).filter(Boolean);
   for (const name of wanted) if (!FEATURES[name]) throw new InstallError(`Unknown feature "${name}".`, `Choose from: ${Object.keys(FEATURES).join(', ')}.`);
   const features = new Set(state?.features ?? []);
