@@ -88,6 +88,8 @@ await step('teacher installer and updater (fake AWS CLI), kit signing: try and d
 await step('web: folder checks and zip builder (zip validated by the Lambda code)', () => {
   const r = spawnSync('node', [join(here, 'test_web.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);
+  const usage = spawnSync('node', [join(here, 'test_usage.mjs')], { encoding: 'utf8' });
+  assert.equal(usage.status, 0, usage.stderr || usage.stdout);
 });
 
 await step('class AI helper (Python): friendly errors, retries, offline mock, key never printed', () => {

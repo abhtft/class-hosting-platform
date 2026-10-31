@@ -1,3 +1,4 @@
+import { capsText, classUsage } from './usage.js';
 import { api, ApiError, ask, copyText, date, duration, expiryBar, h, lifeText, now, session, statusPill, toast, usd } from './common.js';
 
 const $ = (id) => document.getElementById(id);
@@ -86,7 +87,7 @@ function render() {
   const pending = requests.length;
   $('badge').textContent = pending;
   $('badge').classList.toggle('hidden', pending === 0);
-  for (const name of ['students', 'requests', 'storage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
+  for (const name of ['students', 'requests', 'storage', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
   $('toolbar').classList.toggle('hidden', tab !== 'students');
   $('stats').replaceChildren(...stats());
   let rows;
@@ -96,6 +97,8 @@ function render() {
     rows = shown.length ? shown.map(studentRow) : [h('div', { class: 'empty' }, tokens.length ? 'No student matches your search.' : 'No tokens yet. Click “New token” to create one.')];
   } else if (tab === 'requests') {
     rows = requests.length ? requests.map(requestRow) : [h('div', { class: 'empty' }, 'No pending requests.')];
+  } else if (tab === 'usage') {
+    rows = usageTab();
   } else {
     rows = storageTab();
   }
@@ -148,6 +151,25 @@ function requestRow(t) {
 }
 
 const expiryText = (t) => (t.status === 'active' ? `Expires in ${duration(t.expires_at - now())}` : `Expired ${duration(now() - t.expires_at)} ago`);
+
+// ---------- the usage tab: what the class is using and the most it could cost, from the list already loaded ----------
+function usageTab() {
+  const { rows, totals } = classUsage(tokens);
+  const head = h('div', { class: 'tiles inner' },
+    tile('Backend on', totals.backendOn, `of ${totals.students} students`),
+    tile('Runs used', totals.runsUsed.toLocaleString(), `of ${totals.runsAllowed.toLocaleString()} allowed`),
+    tile('AI spent', usd(totals.aiSpent), `${totals.aiOn} with the AI on · caps add up to ${capsText(totals.aiCaps, usd)}`),
+    tile('Need attention', totals.attention, totals.attention ? '80% or more of an allowance used' : 'nobody is near a limit'));
+  const note = h('p', { class: 'privacy small muted' }, 'The most the class AI can cost is the sum of the caps above (each student stops at their own cap). Backend runs cost AWS pennies; the run allowance keeps them bounded. Lower a cap or switch a feature off from the details of each student.');
+  if (!rows.length) return [head, note, h('div', { class: 'empty' }, 'No student has the backend or the class AI switched on yet.')];
+  return [head, note, h('div', { class: 'stable' }, ...rows.map((r) => {
+    const t = tokens.find((x) => x.id === r.id);
+    return h('div', { class: `urow ${r.worst >= 80 ? 'flag' : ''}` },
+      h('button', { class: 'link-button', onclick: () => openDrawer(r.id), title: 'Open details' }, t ? avatar(t, 'sm') : null, h('span', {}, r.name)),
+      r.runs ? meter('Runs', r.runs.used, r.runs.limit, `${r.runs.used.toLocaleString()} / ${r.runs.limit.toLocaleString()} ${PER[r.runs.period] || ''}`) : h('span', { class: 'small muted' }, 'Backend off'),
+      r.ai ? meter('AI spend', r.ai.spent, r.ai.cap, `${usd(r.ai.spent)} / ${usd(r.ai.cap)} ${PER[r.ai.period] || ''}`) : h('span', { class: 'small muted' }, 'AI off'));
+  }))];
+}
 
 // ---------- the storage tab: sizes and counts for the whole class, never the content ----------
 function storageTab() {
@@ -458,6 +480,7 @@ $('new-token').onclick = newToken;
 $('search').addEventListener('input', (e) => { query = e.target.value; render(); });
 $('tab-students').onclick = () => { tab = 'students'; render(); };
 $('tab-requests').onclick = () => { tab = 'requests'; render(); };
+$('tab-usage').onclick = () => { tab = 'usage'; render(); };
 $('tab-storage').onclick = async () => { tab = 'storage'; render(); await loadOverview(); render(); };
 
 setInterval(() => { if (session('teacher') && !document.hidden && !document.querySelector('dialog[open]:not(.drawer)')) load(); }, 60000);

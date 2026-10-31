@@ -29,7 +29,7 @@ After the install you have, in your AWS account:
 
 | Part | What it is for |
 |---|---|
-| **Teacher page** (`https://deploy.<your domain>/teacher.html`) | create student tokens, switch features on per student, see usage |
+| **Teacher page** (`https://deploy.<your domain>/teacher.html`) | create student tokens, switch features on per student, see usage (the **Usage** tab shows runs and AI spend for the whole class, the most the AI can cost, and who is near a limit) |
 | **Student sites** (`https://<student>.<your domain>/`) | each student publishes their website; it is served from S3 through CloudFront |
 | **Student kit and editor tools** | what a student downloads or connects to, served from your own portal |
 | **Optional features**, each off for every student until you switch it on for that student | a small backend, class AI (OpenRouter or Google Gemini), class storage, the student's own domain |

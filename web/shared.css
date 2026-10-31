@@ -148,6 +148,8 @@ button.student:focus-visible { outline: 2px solid var(--accent); outline-offset:
 .stable { display: grid; }
 .srow { display: grid; grid-template-columns: minmax(130px, 1.1fr) 112px minmax(120px, 1fr) minmax(120px, 1fr) 110px 70px; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
 .srow.flag { background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.urow { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr); gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
+.urow.flag { background: color-mix(in srgb, var(--warn) 9%, transparent); }
 .link-button { all: unset; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; min-width: 0; }
 .link-button:hover span, .link-button:focus-visible span { text-decoration: underline; }
 .privacy { margin: 8px 16px 12px; }
@@ -190,6 +192,7 @@ dialog.drawer::backdrop { background: rgba(10, 14, 24, .5); }
   .request { grid-template-columns: 40px minmax(0, 1fr); }
   .request .student-state, .request .btns { grid-column: 1 / -1; }
   .srow { grid-template-columns: 1fr auto; }
+  .urow { grid-template-columns: 1fr; }
   .srow > * { min-width: 0; }
   dialog.drawer { width: 100vw; }
 }
