@@ -53,6 +53,10 @@ def client(name):
             from botocore.config import Config
             _clients[name] = boto3.client("s3", region_name=os.environ.get("AWS_REGION"),
                                           config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}))
+        elif name == "lambda-long":
+            # the job runner waits for a job function for up to 15 minutes; boto's default read timeout is 60 seconds, and a retry would run the job twice
+            from botocore.config import Config
+            _clients[name] = boto3.client("lambda", config=Config(read_timeout=930, connect_timeout=10, retries={"max_attempts": 0}))
         else:
             _clients[name] = boto3.client(name)
     return _clients[name]
@@ -97,8 +101,10 @@ def usage(item, now):
 def view(item, now):
     if not available():
         return {"available": False}
+    import jobs
     b = settings(item)
     return {
+        "jobs": jobs.view(item, now),
         "available": True, "enabled": bool(b.get("enabled")), "state": b.get("state", "none"), "runtime": b.get("runtime", ""),
         "deployed_at": b.get("deployed_at"), "env_names": b.get("env_names", []), "error": b.get("error", ""),
         "limits": {"memory_mb": MEMORY_MB, "timeout_seconds": TIMEOUT_SECONDS, "zip_mb": MAX_ZIP_BYTES // 1048576},
@@ -126,12 +132,17 @@ def set_backend(item, body, now):
         if not isinstance(body["enabled"], bool):
             raise PortalError(400, "enabled must be true or false.")
         changes["enabled"] = body["enabled"]
+    import jobs
+    job_changes = jobs.parse_settings(body)
+    changes.update(job_changes)
     if changes.get("enabled") and "runs_limit" not in b and "runs_limit" not in changes:
         changes["runs_limit"] = DEFAULT_RUNS  # first time on: a sensible default allowance
         changes.setdefault("runs_period", "month")
     item = _save(item, **changes)
     if "enabled" in changes and settings(item).get("function_name"):
         _apply_concurrency(settings(item)["function_name"], changes["enabled"])
+    if job_changes:  # create, resize or refuse the second function that runs the jobs
+        item = jobs.sync_function(item)
     return item
 
 
@@ -234,8 +245,10 @@ def publish(item, now):
     except ClientError as e:
         raise PortalError(502, f"Could not deploy your backend: {e.response['Error'].get('Message', 'AWS error')}")
     extra = {"env_names": sorted(ai_vars)} if ai_vars and not b.get("function_name") else {}
-    return _save(item, state="creating", runtime=runtime, handler=handler, function_name=name,
+    item = _save(item, state="creating", runtime=runtime, handler=handler, function_name=name,
                  pending_sha=hashlib.sha256(body).hexdigest(), error="", **extra)
+    import jobs
+    return jobs.sync_function(item, code_changed=True)  # the same code also goes to the job function when jobs are on
 
 
 def _prepare_function(name, enabled):
@@ -285,6 +298,8 @@ def _write_env(item, name, variables):
         if e.response["Error"]["Code"] == "ResourceConflictException":
             raise PortalError(409, "Your function is still updating. Try again in a few seconds.")
         raise PortalError(502, f"Could not save the variable: {e.response['Error'].get('Message', 'AWS error')}")
+    import jobs
+    jobs.mirror_env(item, variables)
     return _save(item, env_names=sorted(variables))
 
 
@@ -394,6 +409,8 @@ def remove(item, now):
     """Explicit removal by the student. Keeps the teacher's settings (on/off and allowance)."""
     b = settings(item)
     name = b.get("function_name")
+    import jobs
+    jobs.remove_function(item)
     if name:
         try:
             client("lambda").delete_function(FunctionName=name)
@@ -404,5 +421,5 @@ def remove(item, now):
             client("logs").delete_log_group(logGroupName=f"/aws/lambda/{name}")
         except ClientError:
             pass
-    keep = {k: v for k, v in b.items() if k in ("enabled", "runs_limit", "runs_period")}
+    keep = {k: v for k, v in b.items() if k in ("enabled", "runs_limit", "runs_period", "jobs_enabled", "jobs_per_day", "jobs_concurrent", "jobs_minutes")}
     return db().update(item["pk"], {"backend": {**keep, "state": "none"}})

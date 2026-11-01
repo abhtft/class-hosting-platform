@@ -7,6 +7,7 @@ Checks, in order (each failure is a small JSON error, and only a run that passes
   4 student backend exists and the token's lifecycle allows it   5 teacher toggle (ON/OFF)  6 per-visitor-IP rate limit
   7 in-flight limiter (protects the rest of the AWS account)      8 run allowance (atomic)    9 invoke
 Then the response is validated and shaped. See docs/backend_wire.md section 5.
+The reserved path /_jobs (background jobs, see jobs.py) is answered after check 6 and never reaches the student's function.
 """
 import base64
 import hashlib
@@ -19,6 +20,7 @@ import time
 from botocore.exceptions import ClientError
 
 import backends
+import jobs
 import portal
 from portal import db
 
@@ -75,6 +77,9 @@ def handler(event, context=None, now=None):
     ip_key = f"ip#{slug}#{hashlib.sha1(ip.encode()).hexdigest()[:12]}#{now // 60}"
     if db().counter_add(ip_key, 1, limit=setting("PER_IP_PER_MINUTE", 120), ttl=now + 120, now=now) is None:
         return reply(429, {"retry-after": "30"}, error="too_many_requests", message="Too many requests. Please slow down.")
+
+    if rest == "/_jobs" or rest.startswith("/_jobs/"):  # background jobs (jobs.py): answered here, never passed to the student's web function
+        return jobs.handle(item, event, rest, now)
 
     slots = [("inflight#global", setting("INFLIGHT_GLOBAL", 3)), (f"inflight#{slug}", setting("INFLIGHT_STUDENT", 2))]
     taken = []

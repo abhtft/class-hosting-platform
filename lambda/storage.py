@@ -167,6 +167,8 @@ def apply_to_function(item):
         if e.response["Error"]["Code"] == "ResourceConflictException":
             raise PortalError(409, "The student's function is updating. Press the switch again in a few seconds; nothing is lost.")
         raise PortalError(502, f"Could not update the student's function: {e.response['Error'].get('Message', 'AWS error')}")
+    import jobs
+    jobs.mirror_env(item, variables)  # the job function carries the same class storage settings
     return backends._save(item, env_names=sorted(variables))
 
 

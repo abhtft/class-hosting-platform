@@ -190,6 +190,7 @@ class FakeLambda:
         self.invoke_error = None  # (code, message): invoke itself fails (e.g. TooManyRequestsException)
         self.function_error = None  # message: the function "crashes" with this errorMessage
         self.concurrency_error = False
+        self.platform = {}  # name -> callable(event): a PLATFORM function (the job runner) run in-process when it is invoked
 
     @staticmethod
     def _error(code, message="", op="Call"):
@@ -261,6 +262,10 @@ class FakeLambda:
 
     # ---- invoke: runs the student's real code ----
     def invoke(self, FunctionName, InvocationType, Payload):
+        if FunctionName in self.platform:  # not a student function: run it in-process; an Event invoke is answered 202 like AWS does
+            self.calls.append(("invoke_platform", FunctionName, InvocationType))
+            self.platform[FunctionName](json.loads(Payload))
+            return {"StatusCode": 202 if InvocationType == "Event" else 200, "Payload": Body(b"")}
         self.calls.append(("invoke", FunctionName))
         if self.invoke_error:
             raise self._error(*self.invoke_error, "Invoke")

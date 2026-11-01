@@ -51,6 +51,11 @@ await step('backends: allowance, limiter, gateway, deploy flow, Python and Node 
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('background jobs: teacher limits, the job function, start and read through the gateway, runner, failures, limits, removal', () => {
+  const r = spawnSync(python, [join(here, 'test_jobs.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('backends: template IAM scoping and switches', () => {
   const r = spawnSync(python, [join(here, 'test_template_backend.py')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

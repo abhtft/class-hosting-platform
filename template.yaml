@@ -556,6 +556,8 @@ Resources:
           # otherwise close a loop: Distribution -> BackendApi -> GatewayFunction -> Distribution (CloudFormation refuses it).
           DISTRIBUTION_ID: ''
           DISTRIBUTION_DOMAIN: ''
+          JOB_RUNNER_FUNCTION: !Ref JobRunnerFunction # background jobs (jobs.py): the gateway starts the runner, it never calls a job function itself
+          INFLIGHT_JOBS_GLOBAL: '2' # jobs at once on the whole platform: each holds a Lambda execution for minutes, and the account limit may be only 10
       Policies:
         - Statement:
             - Effect: Allow
@@ -563,7 +565,9 @@ Resources:
               Resource: !GetAtt TokensTable.Arn
             - Effect: Allow
               Action: lambda:InvokeFunction
-              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:sd-*'
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:sd-*'
+                - !GetAtt JobRunnerFunction.Arn
       Events:
         StudentRoute:
           Type: HttpApi
@@ -577,6 +581,35 @@ Resources:
             ApiId: !Ref BackendApi
             Path: /b/{slug}
             Method: ANY
+
+  # ---------- Background jobs (lambda/jobs.py) ----------
+  # The platform function that runs ONE student job: it calls the student's job function (sd-<slug>_job, created by the portal function when the teacher
+  # switches jobs on) and waits up to 15 minutes, then records the outcome in the tokens table. The student's role can only write logs, so the student's code
+  # cannot store its own result; the runner does. Asynchronous retries are OFF: a retry would run a student's job a second time.
+  JobRunnerFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseBackend
+    Properties:
+      CodeUri: lambda/
+      Handler: job_runner.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 128
+      Timeout: 900
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0
+      Environment:
+        Variables:
+          DISTRIBUTION_ID: ''
+          DISTRIBUTION_DOMAIN: ''
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
+              Resource: !GetAtt TokensTable.Arn
+            - Effect: Allow # only the job functions: sd-<slug>_job (an underscore cannot occur in a slug, so this is never a student's web function)
+              Action: lambda:InvokeFunction
+              Resource: !Sub 'arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:sd-*_job'
 
   # ---------- Class storage connector ----------
   # Its own API and function, so a student's busy loop cannot slow the portal. The student's function calls it over HTTPS with its own key.
