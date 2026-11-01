@@ -83,9 +83,11 @@ await step('class AI with Gemini: provider switch, private-key proxy, forced mod
   }
 });
 
-await step('knowledge engine: cleaning, page-aware chunking, keyword plus vector search with confidence, evaluation metrics, speed on a big book', () => {
-  const r = spawnSync(python, [join(here, 'test_knowledge_core.py')], { encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr || r.stdout);
+await step('knowledge engine and embeddings: cleaning, page-aware chunking, keyword plus vector search with confidence, evaluation metrics, speed on a big book; Google and OpenRouter embedding client, batching, cache, retries, cost, no key leaks', () => {
+  for (const test of ['test_knowledge_core.py', 'test_embeddings.py']) {
+    const r = spawnSync(python, [join(here, test)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
+  }
 });
 
 await step('teacher installer and updater (fake AWS CLI), kit signing: try and domain install, plan/apply bound to the shown plan, feature switches; terminal prompts; verify with a sample site; saved AWS access and editor entry updates; export, import and the transfer between accounts; custom domains; teacher MCP; the npm package', () => {
