@@ -121,6 +121,9 @@ for bad in (lambda: kc.pack_vectors([[1, 2], [1]]), lambda: kc.unpack_vectors(b"
 assert kc.normalize([0, 0, 0]) == [0.0, 0.0, 0.0]
 sims = kc.vector_scores(rows[0], back)
 assert sims[0] > 0.999 and all(abs(x) < 0.4 for x in sims[1:]), sims
+compact = kc.unpack_vectors(packed, DIMS, compact=True)
+assert all(type(r).__name__ == "array" and r.typecode == "f" for r in compact), "compact rows are 4-byte arrays, not tuples of Python floats"
+assert max(abs(a - b) for a, b in zip(kc.vector_scores(rows[0], compact), sims)) < 1e-6, "the same scores from compact rows"
 print("  ok  vectors: float16 round trip within 0.002, mismatches refused, cosine of a vector with itself is 1")
 
 # ---------------------------------------------------------------- fusion
@@ -218,7 +221,7 @@ print("  ok  evaluation: recall, mean reciprocal rank and refusal rate computed;
 # ---------------------------------------------------------------- speed: a big book must stay well under a Lambda timeout
 random.seed(1)
 count, dims = 3000, 768
-big_rows = kc.unpack_vectors(kc.pack_vectors([[random.gauss(0, 1) for _ in range(dims)] for _ in range(count)]), dims)
+big_rows = kc.unpack_vectors(kc.pack_vectors([[random.gauss(0, 1) for _ in range(dims)] for _ in range(count)]), dims, compact=True)  # the form the service keeps in memory
 big_passages = [{"text": f"passage number {i} about topic {i % 40}", "section": "", "page": i // 4 + 1, "page_end": i // 4 + 1} for i in range(count)]
 big_index = kc.build_bm25([kc.tokenize(p["text"]) for p in big_passages])
 started = time.time()

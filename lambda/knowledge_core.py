@@ -13,6 +13,7 @@ import math
 import operator
 import re
 import struct
+from array import array
 
 # ------------------------------------------------------------------ words
 
@@ -265,11 +266,14 @@ def pack_vectors(rows):
     return b"".join(out)
 
 
-def unpack_vectors(data, dims):
+def unpack_vectors(data, dims, compact=False):
+    """Rows of floats from pack_vectors() bytes. compact=True keeps each row as a 4-byte-per-number array (a Python tuple of floats costs about
+    32 bytes per number: 3000 passages of 768 numbers would be 75 MB instead of 9 MB); the search code accepts both."""
     row_bytes = 2 * dims
     if dims <= 0 or len(data) % row_bytes:
         raise ValueError("the vector file does not match the dimension")
-    return [struct.unpack_from(f"<{dims}e", data, offset) for offset in range(0, len(data), row_bytes)]
+    rows = (struct.unpack_from(f"<{dims}e", data, offset) for offset in range(0, len(data), row_bytes))
+    return [array("f", row) for row in rows] if compact else list(rows)
 
 
 def vector_scores(query, rows):

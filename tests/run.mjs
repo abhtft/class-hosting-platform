@@ -83,8 +83,8 @@ await step('class AI with Gemini: provider switch, private-key proxy, forced mod
   }
 });
 
-await step('knowledge engine and embeddings: cleaning, page-aware chunking, keyword plus vector search with confidence, evaluation metrics, speed on a big book; Google and OpenRouter embedding client, batching, cache, retries, cost, no key leaks', () => {
-  for (const test of ['test_knowledge_core.py', 'test_embeddings.py']) {
+await step('knowledge engine and embeddings: cleaning, page-aware chunking, keyword plus vector search with confidence, evaluation metrics, speed on a big book; Google and OpenRouter embedding client, batching, cache, retries, cost, no key leaks; knowledge storage: collections and documents in S3, the rebuilt index, overlapping uploads, the warm cache', () => {
+  for (const test of ['test_knowledge_core.py', 'test_embeddings.py', 'test_knowledge_store.py']) {
     const r = spawnSync(python, [join(here, test)], { encoding: 'utf8' });
     assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
   }
