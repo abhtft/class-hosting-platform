@@ -1024,6 +1024,7 @@ A student can call their own public `/api` from anywhere and can use their own c
 | `sweeper-errors` | the daily sweeper failed (period 24 h) |
 | `backend-5xx` | 20 or more 5xx answers from the Backend API in 5 minutes |
 | `storage-errors` (only with storage) | 1 or more unhandled errors of `StorageFunction` in 5 minutes |
+| `knowledge-errors` (only with class knowledge) | 1 or more unhandled errors of `KnowledgeFunction` in 5 minutes (a book that fails to read is reported on the book, not here) |
 
 All notify `AlertsTopic`; the subscription is confirmed (a test alarm email was received). The cost budget on the account is the owner's own AWS Budget (not managed here).
 
@@ -1150,7 +1151,7 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
   "mcpPackage": { "version": "2.1.2" },
   "testSteps": 39,
   "teacherTools": 11,
-  "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors"]
+  "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors"]
 }
 ```
 

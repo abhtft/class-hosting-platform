@@ -39,7 +39,10 @@ for name in ("DeployFunction", "SweeperFunction"):
     assert len(statement.findall(block(name))) == 1, f"{name} reads exactly the one named secret, and only when AI is on"
 for name in ("GatewayFunction", "StudentSandboxRole"):
     assert "secretsmanager" not in block(name), f"{name} must never be able to read secrets"
-assert template.count("Action: secretsmanager:") == 3, "only the two statements above and the Gemini proxy (test_template_gemini.py) mention Secrets Manager"
+named = r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:\$\{AiSecretName\}-\?\?\?\?\?\?'"
+for name in ("KnowledgeFunction", "KnowledgeWorkerFunction"):
+    assert len(re.findall(named, block(name))) == 1, f"{name} reads exactly the one named secret (the embedding keys)"
+assert template.count("Action: secretsmanager:") == 5, "only the two statements above, the Gemini proxy (test_template_gemini.py) and the two class knowledge functions mention Secrets Manager"
 assert not re.search(r"secretsmanager:\*|secretsmanager:GetSecretValue\n\s+Resource: '\*'", template)
 
 # ---- long AI answers must fit: student function 25 s, gateway 29 s, HTTP API limit 30 s ----

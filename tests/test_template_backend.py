@@ -33,12 +33,15 @@ assert "lambda.amazonaws.com" in role, "only Lambda can assume it"
 deploy = block("DeployFunction")
 start = deploy.index("student backends: manage ONLY functions named sd-*")
 statement = deploy[start - 40:deploy.index("logs:CreateLogGroup")]
-lambda_actions = [a for a in actions(statement) if a.startswith("lambda:")]
+sd_statement = deploy[start - 40:deploy.index("- !If # class AI connector", start)]  # the sd-* statement alone: the connectors' own statements follow it
+lambda_actions = [a for a in actions(sd_statement) if a.startswith("lambda:")]
 assert "lambda:CreateFunction" in lambda_actions and not any(a in ("lambda:*", "lambda:InvokeFunction", "lambda:AddPermission", "lambda:CreateFunctionUrlConfig") for a in lambda_actions), lambda_actions
-assert "function:sd-*" in statement and "Resource: '*'" not in statement
+assert "function:sd-*" in sd_statement and "Resource: '*'" not in sd_statement
 assert "Action: iam:PassRole" in statement and "Resource: !GetAtt StudentSandboxRole.Arn" in statement
 assert "'iam:PassedToService': lambda.amazonaws.com" in statement, "PassRole must be limited to Lambda"
 assert "iam:*" not in deploy and "iam:CreateRole" not in deploy and "iam:AttachRolePolicy" not in deploy, "the Deploy Lambda must never create or change roles"
+assert deploy.count("lambda:InvokeFunction") == 1 and re.search(r"- UseKnowledge\n\s+- Effect: Allow\n\s+Action: lambda:InvokeFunction\n\s+Resource: !GetAtt KnowledgeWorkerFunction\.Arn", deploy), \
+    "the portal may invoke exactly one function, the knowledge book reader, and only when class knowledge is on"
 log_statement = deploy[deploy.index("logs:CreateLogGroup") - 40:deploy.index("logs:CreateLogGroup") + 700]
 assert "log-group:/aws/lambda/sd-*" in log_statement and "log-group:*" not in log_statement.replace("log-group:/aws", "")
 

@@ -380,6 +380,29 @@ def _budget_check(owner, now):
         raise ApiError(429, "class_budget", "The class has reached its monthly limit for adding books. Ask your teacher.")
 
 
+WORKERS_KEY = "kwork#global"
+
+
+def _workers_cap():
+    return int(os.environ.get("KNOWLEDGE_WORKERS", "2"))
+
+
+def _acquire_slot(now):
+    """At most KNOWLEDGE_WORKERS books are read at once, so a class uploading together can never use up the account's few concurrent Lambda executions and
+    starve the portal. Held for minutes: a leaked slot heals after the worker's own time limit (the same rule background jobs use)."""
+    if db().counter_add(WORKERS_KEY, 1, limit=_workers_cap(), now=now) is not None:
+        return True
+    record = db().get(WORKERS_KEY) or {}
+    if record.get("count", 0) > 0 and now - record.get("updated_at", now) > STALE_WORK_SECONDS:
+        db().put({"pk": WORKERS_KEY, "count": 0, "updated_at": int(now)})
+        return db().counter_add(WORKERS_KEY, 1, limit=_workers_cap(), now=now) is not None
+    return False
+
+
+def _release_slot(now):
+    db().counter_sub(WORKERS_KEY, now=now)
+
+
 def start(owner, collection, doc_id, now):
     """The bytes are uploaded: queue the worker. Returns the document's status."""
     _check_name(collection)
@@ -397,12 +420,15 @@ def start(owner, collection, doc_id, now):
     name = worker_name()
     if not name:
         raise ApiError(503, "not_ready", "The book reader is not set up on this server.")
+    if not _acquire_slot(now):
+        raise ApiError(429, "busy", "Other books are being read right now. Try again in a few minutes.")
     status.update(state="queued", size=received, updated=int(now), message="")
     write_status(owner, collection, doc_id, status)
     try:
         backends.client("lambda").invoke(FunctionName=name, InvocationType="Event", Payload=json.dumps(
             {"scope": owner.scope, "owner": owner.name, "collection": collection, "doc_id": doc_id}).encode())
     except ClientError:
+        _release_slot(now)
         status.update(state="uploading", message="")
         write_status(owner, collection, doc_id, status)
         raise ApiError(503, "not_ready", "Could not start the book reader. Try again in a moment.")
@@ -480,6 +506,13 @@ def process_document(scope, owner_name, collection, doc_id, now, ocr=None):
     status = read_status(owner, collection, doc_id)
     if not status or status["state"] != "queued":
         return status
+    try:
+        return _read_book(owner, collection, doc_id, status, now, ocr)
+    finally:
+        _release_slot(now)  # whatever happened, the reader slot taken by start() is given back
+
+
+def _read_book(owner, collection, doc_id, status, now, ocr):
     status.update(state="processing", updated=int(now))
     write_status(owner, collection, doc_id, status)
     base = owner.base(collection)

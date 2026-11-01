@@ -366,6 +366,34 @@ api(a_key, "POST", f"/v1/collections/notes/documents/{unstarted['doc_id']}/start
 api(a_key, "DELETE", f"/v1/collections/notes/documents/{unstarted['doc_id']}", at=NOW + 1300)
 print("  ok  an abandoned upload and stuck work are failed after their time, free their slots, cannot be deleted while genuinely running, and a worker that cannot be started leaves the upload retryable")
 
+# ---------- 6b. only a few books are read at once, so a class uploading together cannot starve the portal ----------
+portal.db().put({"pk": "kwork#global", "count": 0, "updated_at": NOW})  # the stuck-work cases above started workers that never ran, and so held their slots
+worker_events.clear()
+os.environ["KNOWLEDGE_WORKERS"] = "1"
+slot = lambda: int((portal.db().get("kwork#global") or {}).get("count", 0))  # noqa: E731
+one_id, first_start = add_book(a_key, "notes", "slot one.pdf", pdf)
+two_id, second_start = add_book(a_key, "notes", "slot two.pdf", pdf)
+assert first_start[1]["state"] == "queued" and second_start[0] == 429 and second_start[1]["error"] == "busy", second_start
+assert [d["state"] for d in api(a_key, "GET", "/v1/collections/notes/documents")[1]["documents"] if d["id"] == two_id] == ["uploading"], "the refused one stays retryable"
+assert slot() == 1
+run_worker()
+assert slot() == 0, "a finished book gives its slot back"
+assert api(a_key, "POST", f"/v1/collections/notes/documents/{two_id}/start")[1]["state"] == "queued"
+run_worker()
+assert slot() == 0
+failed_id, _ = add_book(a_key, "notes", "bad slot.pdf", b"not a pdf at all")
+run_worker()
+assert slot() == 0, "a failed book gives its slot back too"
+portal.db().put({"pk": "kwork#global", "count": 1, "updated_at": NOW - 5000})  # a worker that died: its slot heals after the worker's own time limit
+healed_id, healed_start = add_book(a_key, "notes", "slot three.pdf", pdf)
+assert healed_start[1]["state"] == "queued" and slot() == 1
+run_worker()
+for doc_id_ in (one_id, two_id, failed_id, healed_id):
+    api(a_key, "DELETE", f"/v1/collections/notes/documents/{doc_id_}")
+os.environ["KNOWLEDGE_WORKERS"] = "2"
+assert slot() == 0 and count("doc", a_slug) == 1
+print("  ok  reader slots: one book at a time when set to one, a refused upload stays retryable, finished and failed books free their slot, a dead worker's slot heals")
+
 # ---------- 7. the class library: the teacher adds books, students search them read-only ----------
 assert call("GET", "/api/admin/knowledge")[0] == 401
 made = seen(*call("POST", "/api/admin/knowledge/library/collections", {"name": "science-9", "title": "Science, class 9"}, admin))

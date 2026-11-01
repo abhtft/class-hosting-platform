@@ -94,6 +94,30 @@ Parameters:
       Class storage connector: the teacher can give a student's backend a small database (DynamoDB) and file area (S3) with hard caps
       (needs BackendEnabled='true'). Creates the data table, the storage API and its function. Off by default; with it off nothing about
       student backends changes. See docs/STORAGE_CONNECTOR.md.
+  KnowledgeEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Class knowledge connector: the teacher can give a student's backend a book shelf it can search (retrieval), and the class one shared library
+      (needs BackendEnabled='true'). Creates its API and two functions: one answers searches, one reads uploaded books in the background. The books
+      live under knowledge/ in the sites bucket; embeddings use the Google key in the same secret as the class AI. Off by default; with it off nothing
+      about student backends changes. See docs/KNOWLEDGE_CONNECTOR.md.
+  KnowledgeMonthlyCapUsd:
+    Type: String
+    Default: '3'
+    AllowedPattern: '^[0-9]+(\.[0-9]+)?$'
+    Description: The most the class may spend a month on reading books (embedding). When it is reached no new book is read until next month. Searching continues.
+  KnowledgeEmbeddingModel:
+    Type: String
+    Default: gemini-embedding-001
+    Description: The embedding model new collections are created with (a plain name goes to Google, a name with a provider prefix such as google/gemini-embedding-001 to OpenRouter). Stored with each collection.
+  KnowledgeEmbeddingDims:
+    Type: Number
+    Default: 768
+    MinValue: 64
+    MaxValue: 3072
+    Description: The vector size new collections are created with. 768 keeps the search fast and the storage small.
   AlertEmailParameter:
     Type: String
     Default: ''
@@ -125,9 +149,11 @@ Conditions:
   UseAi: !Equals [!Ref AiEnabled, 'true']
   UseGemini: !And [!Condition UseAi, !Condition UseBackend, !Equals [!Ref AiGeminiEnabled, 'true']]
   UseStorage: !And [!Condition UseBackend, !Equals [!Ref StorageEnabled, 'true']]
+  UseKnowledge: !And [!Condition UseBackend, !Equals [!Ref KnowledgeEnabled, 'true']]
   UseAlerts: !Not [!Equals [!Ref AlertEmailParameter, '']]
   UseAlertsAndBackend: !And [!Condition UseAlerts, !Condition UseBackend]
   UseAlertsAndStorage: !And [!Condition UseAlerts, !Condition UseStorage]
+  UseAlertsAndKnowledge: !And [!Condition UseAlerts, !Condition UseKnowledge]
 
 Globals:
   Function:
@@ -154,6 +180,10 @@ Globals:
         AI_ENABLED: !Ref AiEnabled
         AI_GEMINI_ENABLED: !Ref AiGeminiEnabled
         STORAGE_ENABLED: !Ref StorageEnabled
+        KNOWLEDGE_ENABLED: !Ref KnowledgeEnabled
+        KNOWLEDGE_MONTHLY_CAP_USD: !Ref KnowledgeMonthlyCapUsd
+        KNOWLEDGE_EMBEDDING_MODEL: !Ref KnowledgeEmbeddingModel
+        KNOWLEDGE_EMBEDDING_DIMS: !Ref KnowledgeEmbeddingDims
         AI_SECRET_NAME: !Ref AiSecretName
         AI_DEFAULT_MODEL: !Ref AiDefaultModel
         AI_DEFAULT_LIMIT_USD: !Ref AiDefaultLimitUsd
@@ -665,6 +695,113 @@ Resources:
             Path: /{proxy+}
             Method: ANY
 
+  # ---------- Class knowledge connector (books a student's backend can search) ----------
+  # Its own API and two functions, so neither a busy student nor a big book can slow the portal. The API function answers searches and hands out upload
+  # forms; the worker reads one uploaded book in the background (PDF text, passages, embeddings). Neither can write anywhere but knowledge/ in the bucket,
+  # neither can scan a table, and the only thing they may overwrite in the tokens table is the embedding cache and the reader slot counter.
+  KnowledgeApi:
+    Type: AWS::Serverless::HttpApi
+    Condition: UseKnowledge
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 40
+        ThrottlingRateLimit: 20
+
+  KnowledgeFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseKnowledge
+    Properties:
+      CodeUri: lambda/
+      Handler: knowledge_api.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 1024
+      Timeout: 29 # the HTTP API waits at most 30; a search is milliseconds once the index is warm
+      Environment:
+        Variables:
+          KNOWLEDGE_WORKER_FUNCTION: !Ref KnowledgeWorkerFunction
+      Policies:
+        - Statement:
+            - Effect: Allow # the key lookup, the counters and the embedding cache are single items in the tokens table (never a scan or a query)
+              Action: dynamodb:GetItem
+              Resource: !GetAtt TokensTable.Arn
+            - Effect: Allow # counters only
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt TokensTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['kdoc#*', 'kpass#*', 'kbytes#*', 'ksearch#*', 'ktok#*', 'kspend#*', 'kwork#*']
+            - Effect: Allow # the embedding cache and the reader slot are the only items it may write whole
+              Action: dynamodb:PutItem
+              Resource: !GetAtt TokensTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['emb#*', 'kwork#*']
+            - Effect: Allow # books, passages and vectors: knowledge/ only (never sites/, portal/ or anything else)
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/knowledge/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt SitesBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: ['knowledge/*']
+            - Effect: Allow # start the book reader (this one function)
+              Action: lambda:InvokeFunction
+              Resource: !GetAtt KnowledgeWorkerFunction.Arn
+            - Effect: Allow # the provider keys for embedding a question (this one secret, nothing else)
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+      Events:
+        Any:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref KnowledgeApi
+            Path: /{proxy+}
+            Method: ANY
+
+  KnowledgeWorkerFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseKnowledge
+    Properties:
+      CodeUri: lambda/
+      Handler: knowledge_worker.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 2048 # reading a few hundred PDF pages in pure Python
+      Timeout: 900
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0 # a failed book is reported in its own status; an automatic second try would only spend twice
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt TokensTable.Arn
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt TokensTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['kdoc#*', 'kpass#*', 'kbytes#*', 'ksearch#*', 'ktok#*', 'kspend#*', 'kwork#*']
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt TokensTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['emb#*', 'kwork#*']
+            - Effect: Allow
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/knowledge/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt SitesBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: ['knowledge/*']
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+
   # ---------- Class AI proxy for Gemini ----------
   # Its own API and function (like storage), so a busy student cannot slow the portal. Students call it with their private ga_ key; the
   # Google key stays in Secrets Manager and is only readable by this function (and never given to a student function).
@@ -804,6 +941,8 @@ Resources:
       Environment:
         Variables:
           STORAGE_URL: !If [UseStorage, !Sub 'https://${StorageApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}', '']
+          KNOWLEDGE_URL: !If [UseKnowledge, !Sub 'https://${KnowledgeApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}', '']
+          KNOWLEDGE_WORKER_FUNCTION: !If [UseKnowledge, !Ref KnowledgeWorkerFunction, '']
           AI_PROXY_URL: !If [UseGemini, !Sub 'https://${AiProxyApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}', '']
           DATA_TABLE: !If [UseStorage, !Ref StudentDataTable, '']
       Policies:
@@ -869,6 +1008,18 @@ Resources:
               - Effect: Allow
                 Action: [dynamodb:Query, dynamodb:BatchWriteItem, dynamodb:DeleteItem]
                 Resource: !GetAtt StudentDataTable.Arn
+              - !Ref AWS::NoValue
+            - !If # class knowledge: the teacher's class library and "clear this student's books" work on knowledge/ only
+              - UseKnowledge
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub '${SitesBucket.Arn}/knowledge/*'
+              - !Ref AWS::NoValue
+            - !If # and may start the book reader for a library book (this one function)
+              - UseKnowledge
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt KnowledgeWorkerFunction.Arn
               - !Ref AWS::NoValue
             - Effect: Allow # hand the sandbox role (and only that role) to Lambda
               Action: iam:PassRole
@@ -1092,6 +1243,23 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: [!Ref AlertsTopic]
 
+  KnowledgeErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseAlertsAndKnowledge
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-knowledge-errors'
+      AlarmDescription: The class knowledge API crashed (an unhandled error in the platform code). Check its CloudWatch logs. A book that fails to read is not an error here, it is reported on the book itself.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref KnowledgeFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
   BackendServerErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: UseAlertsAndBackend
@@ -1154,6 +1322,10 @@ Outputs:
     Condition: UseStorage
     Description: Class storage API (given to student functions as CLASS_STORAGE_URL)
     Value: !Sub 'https://${StorageApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  KnowledgeApiUrl:
+    Condition: UseKnowledge
+    Description: Class knowledge API (given to student functions as CLASS_KNOWLEDGE_URL)
+    Value: !Sub 'https://${KnowledgeApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
   AiProxyUrl:
     Condition: UseGemini
     Description: Class AI proxy for Gemini (given to student functions as OPENAI_BASE_URL, plus /v1)

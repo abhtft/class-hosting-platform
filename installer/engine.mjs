@@ -13,10 +13,10 @@ import { runVerify } from './verify.mjs';
 export const REGION = 'us-east-1'; // CloudFront certificates must live here, so the whole stack does
 export const STATEFUL = new Set(['AWS::DynamoDB::Table', 'AWS::S3::Bucket', 'AWS::SSM::Parameter', 'AWS::SecretsManager::Secret', 'AWS::CloudFront::Distribution']);
 // every feature is installed by default; each stays OFF for every student until the teacher switches it on for that student
-export const FEATURES = { backend: 'BackendEnabled', ai: 'AiEnabled', gemini: 'AiGeminiEnabled', storage: 'StorageEnabled' };
-export const ALL_FEATURES = ['backend', 'ai', 'gemini', 'storage', 'customdomains'];
+export const FEATURES = { backend: 'BackendEnabled', ai: 'AiEnabled', gemini: 'AiGeminiEnabled', storage: 'StorageEnabled', knowledge: 'KnowledgeEnabled' };
+export const ALL_FEATURES = ['backend', 'ai', 'gemini', 'storage', 'knowledge', 'customdomains'];
 export const FEATURE_NAMES = [...Object.keys(FEATURES), 'customdomains']; // customdomains has three parameters (ids), not one true/false
-const NEEDS = { ai: ['backend'], gemini: ['backend', 'ai'], storage: ['backend'], customdomains: ['backend'] };
+const NEEDS = { ai: ['backend'], gemini: ['backend', 'ai'], storage: ['backend'], knowledge: ['backend'], customdomains: ['backend'] };
 const STACK_RE = /^[A-Za-z][A-Za-z0-9-]{0,40}$/;
 const DOMAIN_RE = /^(?=.{4,100}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
 const MUTATING = /^(create|put|delete|request|execute|update|remove|empty|import|tag)-|^batch-write|^(mb|rb|rm|sync|cp|package|deploy|wait)$/;

@@ -79,7 +79,12 @@ for statement in grants:
 for name in ("DeployFunction", "SweeperFunction"):
     assert not [l for l in block(name).split("\n") if "SitesBucket.Arn}/" in l and "portal" in l], f"{name} must not be granted portal/"
 assert re.search(r"Action: s3:DeleteObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/userdata/\*'", block("DeployFunction")), "the portal may only delete students' stored files (the teacher's clear), never read or write them"
-assert template.count("s3:PutObject") == 3, "every S3 write grant is reviewed (two lists above, class storage's userdata/): extend this check for a new one"
+# the single-line grants: class storage's userdata/ and class knowledge's knowledge/ (the portal's, the API's and the book reader's), nothing else
+single = re.findall(r"Action: \[s3:GetObject, s3:PutObject, s3:DeleteObject\]\n\s+Resource: !Sub '([^']+)'", template)
+assert sorted(single) == ["${SitesBucket.Arn}/knowledge/*"] * 3 + ["${SitesBucket.Arn}/userdata/*"], single
+for name in ("DeployFunction", "KnowledgeFunction", "KnowledgeWorkerFunction"):
+    assert "${SitesBucket.Arn}/knowledge/*" in block(name), f"{name} is one of the three that may write knowledge/"
+assert template.count("s3:PutObject") == 6, "every S3 write grant is reviewed (two lists above, class storage's userdata/, three for knowledge/): extend this check for a new one"
 
 # ---- the kit signing key: only the account's administrators (the teacher's own credentials) can use it ----
 signing = block("KitSigningKey")

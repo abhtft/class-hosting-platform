@@ -69,7 +69,7 @@ async function wizard(ctx, flags) {
   console.log('Class platform: guided install into your own AWS account');
   console.log('');
   console.log('Only what must be decided now is asked: the AWS account, your teacher login, and whether you want your own domain.');
-  console.log('Every feature (backends, class AI, Gemini, class storage) is installed; each stays off for every student until you switch it on for that student. AI needs your keys: run the secrets command after the install.');
+  console.log('Every feature (backends, class AI, Gemini, class storage, class knowledge) is installed; each stays off for every student until you switch it on for that student. AI needs your keys: run the secrets command after the install.');
   console.log('');
   const answers = {};
   // The AWS account. Nothing to ask in AWS CloudShell (already signed in as you), or when the choice is clear.
