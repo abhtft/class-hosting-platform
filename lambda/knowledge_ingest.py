@@ -10,6 +10,7 @@ Everything is bounded: file size, pages and passages, so one upload can never ru
 """
 import html
 import io
+import logging
 import os
 import re
 import sys
@@ -38,6 +39,9 @@ def _pypdf():
         sys.path.insert(0, vendor)
     import pypdf
     from pypdf import errors
+    # pypdf prints a long "fontTools is required ... encoding problems" notice for every font of many textbook PDFs (the text still comes out right);
+    # left on, it would fill the platform's logs with thousands of lines per book
+    logging.getLogger("pypdf").setLevel(logging.ERROR)
     return pypdf, errors
 
 

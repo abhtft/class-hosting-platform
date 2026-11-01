@@ -67,6 +67,8 @@ assert on_disk == manifest["files"], sorted(set(on_disk.items()) ^ set(manifest[
 assert "Redistribution and use in source and binary forms" in open(os.path.join(vendor, "PYPDF_LICENSE.txt"), encoding="utf8").read()
 pypdf, _ = ki._pypdf()
 assert pypdf.__version__ == manifest["version"] == "6.21.4"
+import logging  # noqa: E402
+assert logging.getLogger("pypdf").level == logging.ERROR, "pypdf's long fontTools notices (printed for many textbook fonts) are silenced"
 print(f"  ok  vendored pypdf {manifest['version']}: {len(on_disk)} files match the recorded hashes, licence present")
 
 # ---------------------------------------------------------------- a sample book as a real PDF

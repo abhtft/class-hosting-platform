@@ -45,6 +45,13 @@ assert all(not any(line.strip() in (str(n), f"Page {n}") for line in cleaned[n].
 assert all("photosynthesis in their" in cleaned[n] for n in cleaned), "a hyphenated line break is joined"
 assert all(f"This page discusses {parts[n - 1]} in detail." in cleaned[n] for n in cleaned), "real text at the bottom of a page survives"
 assert all("Solution:" in cleaned[n] for n in cleaned), "a label that repeats in the MIDDLE of pages is real text and stays"
+for number_line in ["12", "Page 12", "12 of 40", "(iv)", "[12]", "- 5 -", "– 7 –", "xiv", "(xii)", "IV"]:
+    assert kc._PAGE_NUMBER_LINE.match(number_line), number_line
+for word_line in ["Civil", "civil", "Mix", "Dill", "vivid", "Chapter 3", "2026-27", "The 12 apostles", "mild", ""]:
+    assert not kc._PAGE_NUMBER_LINE.match(word_line), word_line
+edge_pages = [(n, f"Civil {['law', 'war', 'rights', 'service'][n - 1]}\nBody text of page number {n} goes here with some words.\nMore words follow here to fill space on page {n}.\n({['iv', 'v', 'vi', 'vii'][n - 1]})") for n in range(1, 5)]
+edge_clean = dict(kc.clean_pages(edge_pages))
+assert all(not text.strip().endswith(")") for text in edge_clean.values()) and all(text.startswith("Civil ") for text in edge_clean.values()), "roman page numbers go, a first line starting with 'Civil' stays"
 one_off = kc.clean_pages([(1, "Unit test review\nBody."), (2, "Other text"), (3, "More text"), (4, "Even more"), (5, "Last")])
 assert "Unit test review" in dict(one_off)[1], "a short line seen on one page only is not a header"
 print("  ok  cleaning: running headers and page numbers at the page edges go; hyphenated breaks joined; middle-of-page labels and real text kept")
@@ -74,6 +81,18 @@ assert all(s.split()[0] in body for s in sentences), "no sentence is lost"
 assert len(first_section) >= 2 and any(word in first_section[1]["text"] for word in first_section[0]["text"].split()[-10:]), "overlap carries the end of one passage into the next"
 assert first_section[0]["page"] == 1 and first_section[-1]["page_end"] == 2 and any(c["page"] < c["page_end"] for c in first_section) or first_section[-1]["page_end"] == 2
 print("  ok  chunker: sentences kept whole, sections never mixed, no sentence lost, overlap within a section, pages tracked")
+
+# a page break ends a passage when the page finished a sentence and the passage is already long (found on a real textbook: an imprint page was joined to the foreword)
+page_a = " ".join(S(25, f"a{k}x") for k in range(6))   # 150 words, finished sentences
+page_b = " ".join(S(25, f"b{k}x") for k in range(6))
+broken = kc.chunk_pages([(1, page_a), (2, page_b)])
+assert [(c["page"], c["page_end"]) for c in broken] == [(1, 1), (2, 2)], [(c["page"], c["page_end"]) for c in broken]
+assert not broken[1]["text"].startswith(broken[0]["text"].split(". ")[-2]), "no overlap is carried across a page break"
+running = kc.chunk_pages([(1, page_a[:-1] + " and the sentence goes on"), (2, "to the next page and ends here. " + page_b)])
+assert running[0]["page"] == 1 and running[0]["page_end"] == 2, "a sentence still running at the end of a page is not cut at the page break"
+short = kc.chunk_pages([(1, " ".join(S(25, f"c{k}x") for k in range(2))), (2, page_b)])
+assert short[0]["page"] == 1 and short[0]["page_end"] == 2, "a short page (under 100 words) joins the next one, as before"
+assert [(c["page"], c["page_end"]) for c in kc.chunk_pages([(1, page_a), (2, page_b)], page_break_words=10 ** 6)] == [(1, 2)], "with the rule off the two pages fit one passage, as before"
 
 # an extractor that knows a line is a heading (markdown, HTML) says so; the line need not look like one
 marked = kc.chunk_pages([(1, f"{kc.HEADING_MARK}How plants breathe\nStomata open in the day. They close at night.\n\n{kc.HEADING_MARK}\nPlain text after an empty heading.")], target_words=50, overlap_words=0, min_words=3)

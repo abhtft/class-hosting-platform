@@ -54,7 +54,9 @@ def estimate_tokens(text):
 # ------------------------------------------------------------------ cleaning
 
 _SPACES = re.compile(r"[ \t  -​ 　]+")
-_PAGE_NUMBER_LINE = re.compile(r"^(?:page\s+)?(?:\d{1,4}|[ivxlc]{1,6})(?:\s+of\s+\d{1,4})?$", re.I)
+# "12", "Page 12", "12 of 40", "(iv)", "- 5 -", "[12]", "xiv": strict roman numerals only, so a heading such as "Civil" is never taken for one
+_ROMAN = r"(?=[ivxlc])c{0,2}(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})"
+_PAGE_NUMBER_LINE = re.compile(rf"^[(\[\-–—\s]*(?:page\s+)?(?:\d{{1,4}}|{_ROMAN})(?:\s+of\s+\d{{1,4}})?[)\]\-–—\s]*$", re.I)
 
 
 def _normal_line(line):
@@ -159,12 +161,14 @@ def _sentences(text, limit_words):
     return out
 
 
-def chunk_pages(pages, target_words=300, overlap_words=40, min_words=40):
+def chunk_pages(pages, target_words=300, overlap_words=40, min_words=40, page_break_words=100):
     """pages: [(page_number, text)] (already cleaned). Returns passages [{"n", "page", "page_end", "section", "text", "words"}] in reading order.
 
     Rules: whole sentences only; about `target_words` per passage; the last sentences (up to `overlap_words`) of a passage start the next one inside the
     same section; a new section (a heading) always starts a new passage and is never left at the end of one; a too-short tail joins the passage before
-    it when they share a section. The heading text is kept in `section` (and `embed_text` puts it in front of the passage for the embedding model)."""
+    it when they share a section. The heading text is kept in `section` (and `embed_text` puts it in front of the passage for the embedding model).
+    A page break also ends a passage when the page ended with a complete sentence and the passage already has `page_break_words` words: citations stay
+    precise (one page, not two) and unrelated pages stop merging (found on a real textbook: an imprint page was joined to the foreword)."""
     chunks = []
     section = ""
     current = []  # [(sentence, page)]
@@ -210,7 +214,10 @@ def chunk_pages(pages, target_words=300, overlap_words=40, min_words=40):
             continue
         for sentence in _sentences(text, target_words):
             size = len(sentence.split())
-            if current[carried:] and words_of(current) + size > target_words and words_of(current[carried:]) >= min_words:
+            fresh = current[carried:]
+            if fresh and page != fresh[-1][1] and fresh[-1][0].rstrip().endswith((".", "!", "?", ":", "”", '"')) and words_of(fresh) >= page_break_words:
+                emit(final=True)  # a new page after a finished sentence: start clean, with no overlap from the page before
+            elif fresh and words_of(current) + size > target_words and words_of(fresh) >= min_words:
                 emit()
             current.append((sentence, page))
     if words_of(current[carried:]) > 0:
