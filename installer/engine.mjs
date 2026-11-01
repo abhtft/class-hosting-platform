@@ -181,14 +181,19 @@ export function ensureArtifactBucket(ctx, account) {
   return bucket;
 }
 
+// The staging bucket each packaged template was uploaded with. `aws cloudformation deploy` refuses a template over 51,200 bytes unless it is told a bucket
+// to put it in (found the first time the knowledge feature pushed the template over that size), so deployArgs adds it for every deploy of a packaged file.
+const packagedWith = new Map();
+
 export function packageTemplate(ctx, bucket) {
   const out = join(ctx.work ?? tmpdir(), `${ctx.stack}-packaged.yaml`);
   call(ctx, ['cloudformation', 'package', '--template-file', join(ctx.repo, 'template.yaml'), '--s3-bucket', bucket, '--output-template-file', out]);
+  packagedWith.set(out, bucket);
   return out;
 }
 
 export const deployArgs = (ctx, packaged, params, extra = []) => ['cloudformation', 'deploy', '--template-file', packaged, '--stack-name', ctx.stack, '--capabilities', 'CAPABILITY_IAM', 'CAPABILITY_AUTO_EXPAND',
-  '--no-fail-on-empty-changeset', '--parameter-overrides', ...params, ...extra];
+  '--no-fail-on-empty-changeset', ...(packagedWith.has(packaged) ? ['--s3-bucket', packagedWith.get(packaged)] : []), '--parameter-overrides', ...params, ...extra];
 
 // ---------- why a stack failed ----------
 // `aws cloudformation deploy` only says "Failed to create/update the stack". The reason is in the stack events: the first resource that failed for

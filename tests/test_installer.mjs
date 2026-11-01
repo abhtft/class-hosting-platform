@@ -121,6 +121,8 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.ok(fake.w.buckets.has('student-hosting-artifacts-111122223333'), 'artifact bucket per account');
   const deploy = fake.calls.find((a) => a[1] === 'deploy');
   assert.ok(deploy.includes('CAPABILITY_IAM') && deploy.includes('CAPABILITY_AUTO_EXPAND') && deploy.includes('RootDomain=') && deploy.includes('PortalAlias=false'));
+  const staged = deploy.indexOf('--s3-bucket');
+  assert.ok(staged > -1 && deploy[staged + 1] === 'student-hosting-artifacts-111122223333', 'deploy is told the staging bucket: a template over 51,200 bytes (ours is, with every feature) is refused without it');
   assert.deepEqual(adminCalls.map((c) => c.args), [['portal-publish']], 'the portal is published');
   assert.equal(adminCalls[0].env.AWS_PROFILE, 'new', 'the same account is used for the admin script');
   assert.equal(adminCalls[0].env.STACK_NAME, 'student-hosting');
