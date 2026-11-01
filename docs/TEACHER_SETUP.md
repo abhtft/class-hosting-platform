@@ -233,7 +233,7 @@ Asks for your teacher login (used once, never saved), then acts like a student a
 - the teacher page and student pages refuse a visitor without a login;
 - your teacher login works; a student token can be created and used;
 - every feature the platform has is offered to students;
-- the student kit is **signed by your platform's key** (a kit that is unsigned, or signed by another key, is named);
+- the student kit is **signed by your platform's key** (a kit that is unsigned, or signed by another key, is named), and **every published file** (pages, downloads, kit, editor packages) is exactly the one the signed list names;
 - a **sample site is published and is live** on your own address, and a site that does not exist is refused.
 
 Each line is `ok` or `FAIL` with the reason. It leaves nothing behind. Run it after an install, an update, a feature change or a transfer. `verify --no-login` runs only the public checks.
@@ -244,7 +244,8 @@ Students' projects update their kit (the tools and rules they run) from your por
 
 - You do nothing day to day. An existing platform gets the key with the next **upgrade**; students pin it with their next deploy.
 - If a student's project ever refuses a kit ("not signed by the key this project trusts"), their deploy still works with the kit they have, and they tell you. The cause is almost always that the platform moved to a **new AWS account** (a new key). Tell them to run `npm run trust` in their project: it shows the old and the new key, and they type the first four characters of the new one to confirm.
-- Not covered: the editor package (`class-platform-mcp`) and the portal's web pages. The platform's functions cannot write either (see the security notes); only your own credentials can publish.
+- **The portal's other files are covered too, by audit.** The signed version file also lists the sha256 of every file published next to it: the pages, the student downloads, the kit and every editor package (`class-platform-mcp`). `verify` fetches each one from your live portal and compares, so a changed page or a swapped editor package is named even by someone who can write the portal's files but cannot sign. If it ever reports a difference you did not cause, run `publish` again from a trusted computer and check who can write to the bucket. A browser or `npx` cannot check a signature itself, so for these files the audit is yours to run (run `verify` after every publish and now and then).
+- Not covered: editor packages published before this check existed (old pinned versions) are not in the list until the editor is set up again with the newest one.
 - `destroy` removes the key (AWS keeps it for 7 days before deleting it).
 
 ## 10. Use your AI editor: the teacher tools

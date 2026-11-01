@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { verifyBytes } from '../starter/template/tools/signing.mjs';
 
 export const SAMPLE_MARKER = 'Your class platform works';
@@ -92,6 +93,19 @@ export async function runVerify({ portal, login = null, features = [], repo, fet
     const key = await get(`${base}/signing-key.pub`);
     const ok = manifest && signature.status === 200 && key.status === 200 && verifyBytes(manifest, await signature.text(), await key.text());
     add('The student kit is signed by the platform key', ok, 'the kit is unsigned or its signature does not match the published key (run the upgrade: it adds the key and publishes the kit again)');
+    // the signed file also lists the sha256 of every file published next to it (pages, kit, editor package, downloads): a changed one is found here,
+    // even if someone could write the portal's files (they cannot sign)
+    let listed = null;
+    try { listed = ok ? JSON.parse(manifest.toString('utf8')).portalFiles : null; } catch { listed = null; }
+    if (listed && typeof listed === 'object') {
+      const differs = (await Promise.all(Object.entries(listed).map(async ([name, expected]) => {
+        const response = await get(`${base}/${name}`);
+        if (response.status !== 200) return `${name} (HTTP ${response.status})`;
+        return createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex') === expected ? null : `${name} (changed)`;
+      }))).filter(Boolean);
+      add(`The portal's ${Object.keys(listed).length} published files are exactly the ones that were signed`, differs.length === 0,
+        `${differs.length} differ from the signed list: ${differs.slice(0, 6).join(', ')}${differs.length > 6 ? ', ...' : ''}. If you did not change them, someone with write access to the portal's files did: run the publish command again from a trusted computer, then check who can write to the bucket`);
+    }
   }
   add('The teacher list needs a login (401 without one)', (await call('/api/admin/tokens')).status === 401, 'it answered without a login');
   add('A student page needs a token (401 without one)', (await call('/api/student/me')).status === 401, 'it answered without a token');

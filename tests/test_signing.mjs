@@ -186,6 +186,33 @@ try {
   assert.match(r.text, /Run this yourself in a terminal/, 'an agent or a script cannot re-pin on the student\'s behalf');
   assert.equal(platformJson(first).signingKey, A.publicKeyPem);
   say('trust says so when nothing changed, and refuses to re-pin without a person at a terminal');
+
+  // ---------- the signed manifest lists the hash of every published file (pages, downloads, kit, editor package) ----------
+  {
+    const { portalPageFiles } = await load('starter/publish-files.mjs');
+    const signer = localSigner();
+    const dir = join(work, 'published-files');
+    const pages = portalPageFiles(repo);
+    const built = buildPublishFiles(dir, 'https://portal.example.test', { signer, pages, now: () => 5000 });
+    const manifestBytes = readFileSync(join(dir, 'kit-version.json'));
+    const manifest = JSON.parse(manifestBytes.toString('utf8'));
+    assert.ok(verifyBytes(manifestBytes, readFileSync(join(dir, 'kit-version.json.sig'), 'utf8'), signer.publicKeyPem), 'the list is covered by the signature');
+    assert.deepEqual(manifest.portalFiles, built.portalFiles);
+    const sha = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+    for (const [name, path] of pages) assert.equal(manifest.portalFiles[name], sha(path), `${name} is listed with the hash of the file that will be uploaded`);
+    for (const name of ['starter-kit.zip', 'class-platform-mcp.tgz', 'mcp-version.json', 'signing-key.pub']) assert.equal(manifest.portalFiles[name], sha(join(dir, name)), name);
+    assert.ok(Object.keys(manifest.portalFiles).some((n) => /^class-platform-mcp-[\d.]+\.tgz$/.test(n)), 'the pinned editor package is listed');
+    assert.ok(!('kit-version.json' in manifest.portalFiles) && !('kit-version.json.sig' in manifest.portalFiles), 'the manifest does not list itself or its signature');
+    assert.deepEqual(Object.keys(manifest.portalFiles), [...Object.keys(manifest.portalFiles)].sort(), 'sorted, so the same publish always gives the same file');
+    // one changed byte in a page is a different hash
+    const changedPage = join(work, 'student.html');
+    writeFileSync(changedPage, `${readFileSync(pages.find(([n]) => n === 'student.html')[1], 'utf8')} `);
+    assert.notEqual(sha(changedPage), manifest.portalFiles['student.html']);
+    // an unsigned publish (a stack without the key) still lists the files, and has no key file to list
+    const plain = buildPublishFiles(join(work, 'published-unsigned'), 'https://portal.example.test', { pages });
+    assert.ok(plain.portalFiles['student.html'] && !('signing-key.pub' in plain.portalFiles));
+    say('the signed manifest lists the sha256 of every published file, excluding itself; a changed byte is a different hash');
+  }
 } finally {
   for (const s of servers) s.close();
   rmSync(work, { recursive: true, force: true });

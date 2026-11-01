@@ -10,7 +10,7 @@
 // STACK_NAME (default "student-hosting") selects the deployed stack.
 import { execFileSync } from 'node:child_process';
 import { randomBytes, scryptSync } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { dirname, extname, join } from 'node:path';
@@ -73,23 +73,19 @@ if (command === 'add') {
   console.log(`\n${Object.keys(keys).length} students, parameter uses ${JSON.stringify(keys).length}/4096 bytes`);
 } else if (command === 'portal-publish') {
   const root = dirname(fileURLToPath(import.meta.url));
-  const web = join(root, 'web');
   const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.yml': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.zip': 'application/zip', '.tgz': 'application/gzip', '.sig': 'text/plain; charset=utf-8', '.pub': 'text/plain; charset=utf-8' };
   // Pages from web/, plus the student downloads (portal-downloads.json maps published name -> source file, so each has one source of truth).
-  const downloads = JSON.parse(readFileSync(join(root, 'portal-downloads.json'), 'utf8'));
-  const uploads = [
-    ...readdirSync(web).filter((f) => statSync(join(web, f)).isFile()).map((f) => [f, join(web, f)]),
-    ...Object.entries(downloads).map(([name, source]) => [name, join(root, source)]),
-  ];
+  const { buildPublishFiles, kmsSigner, portalPageFiles } = await import('./starter/publish-files.mjs');
+  const pages = portalPageFiles(root);
+  const uploads = [...pages];
   // The student kit (zip + version file) and the MCP package (one tarball per version, the newest alias, mcp-version.json), all built fresh from
-  // starter/ by the same code the local dev portal uses.
-  const { buildPublishFiles, kmsSigner } = await import('./starter/publish-files.mjs');
+  // starter/ by the same code the local dev portal uses. The signed version file lists the sha256 of every file published (pages included).
   const kitTemp = mkdtempSync(join(tmpdir(), 'kit-publish-'));
   // The kit is signed with the platform's KMS key (created by the stack; the platform's functions cannot use it). A stack without the key (installed
   // before 2.1) publishes unsigned until `upgrade` adds it.
   const signer = outputs.KitSigningKeyId ? kmsSigner(aws, outputs.KitSigningKeyId) : null;
   if (!signer) console.log('Note: this stack has no kit signing key yet, so the kit is published unsigned. Run the upgrade to add it.');
-  const built = buildPublishFiles(kitTemp, outputs.PortalUrl, { signer });
+  const built = buildPublishFiles(kitTemp, outputs.PortalUrl, { signer, pages });
   for (const name of built.files) uploads.push([name, join(kitTemp, name)]);
   const kit = { version: built.kitVersion };
   const files = uploads.map(([name]) => name);

@@ -1,6 +1,7 @@
 // `verify` (installer/verify.mjs) against a fake portal in the same process: every check passes on a healthy install, each failure is named,
 // the throwaway student is always revoked and cleaned up, a wrong password creates nothing, and a portal that is down does not crash it.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { localSigner } from '../starter/publish-files.mjs';
 import { checkTeacherLogin, runVerify, SAMPLE_MARKER, sampleHtml, unknownSite } from '../installer/verify.mjs';
 
@@ -84,6 +85,43 @@ const failedNames = (r) => r.checks.filter((c) => !c.ok).map((c) => c.name);
     assert.ok(!failedNames(r).includes('The student kit is published'));
   }
   console.log('  ok  a missing site, feature or kit is named exactly; cleanup runs after a failure');
+}
+
+// ---------- the signed manifest lists every published file: a changed or missing one is named ----------
+{
+  const key = localSigner();
+  const sha = (text) => createHash('sha256').update(text).digest('hex');
+  const pages = { 'student.html': '<html>student</html>', 'class-platform-mcp-1.0.0.tgz': 'TARBALL-BYTES' };
+  const manifest = Buffer.from(JSON.stringify({ kitVersion: '1.6.0', serial: 1, portalFiles: Object.fromEntries(Object.entries(pages).map(([name, text]) => [name, sha(text)])) }));
+  const signature = key.sign(manifest);
+  const reply = (status, text) => ({ status, text: async () => text, json: async () => JSON.parse(text), arrayBuffer: async () => Buffer.from(text) });
+  const audit = async (served, { forged = false } = {}) => {
+    const rest = fakePortal();
+    const fetchImpl = async (url, init) => {
+      const path = url.replace(PORTAL, '');
+      if (path === '/kit-version.json') return reply(200, manifest.toString());
+      if (path === '/kit-version.json.sig') return reply(200, forged ? localSigner().sign(manifest) : signature);
+      if (path === '/signing-key.pub') return reply(200, key.publicKeyPem);
+      if (path.slice(1) in served) return served[path.slice(1)] === null ? reply(404, '') : reply(200, served[path.slice(1)]);
+      return rest.fetchImpl(url, init);
+    };
+    const r = await runVerify({ portal: PORTAL, login: null, repo: '.', fetchImpl });
+    return { r, check: r.checks.find((c) => /^The portal's \d+ published files/.test(c.name)) };
+  };
+  const good = await audit(pages);
+  assert.ok(good.check?.ok, 'every listed file matches');
+  assert.match(good.check.name, /^The portal's 2 published files are exactly the ones that were signed$/);
+  const changed = await audit({ ...pages, 'student.html': '<html>EVIL</html>' });
+  assert.equal(changed.check.ok, false);
+  assert.match(changed.check.detail, /1 differ from the signed list: student\.html \(changed\)/);
+  const missing = await audit({ ...pages, 'class-platform-mcp-1.0.0.tgz': null });
+  assert.match(missing.check.detail, /class-platform-mcp-1\.0\.0\.tgz \(HTTP 404\)/);
+  const swapped = await audit({ ...pages, 'class-platform-mcp-1.0.0.tgz': 'TARBALL-BYTES-WITH-A-BACKDOOR' });
+  assert.match(swapped.check.detail, /class-platform-mcp-1\.0\.0\.tgz \(changed\)/);
+  const forged = await audit(pages, { forged: true });
+  assert.equal(forged.check, undefined, 'a forged signature is reported by the signature check and the list is not trusted at all');
+  assert.ok(!(await runVerify({ portal: PORTAL, login: null, repo: '.', fetchImpl: fakePortal().fetchImpl })).checks.some((c) => /^The portal's \d+ published files/.test(c.name)), 'a portal published before the list existed has no such check');
+  console.log('  ok  the signed file list: every published file is compared, a changed, swapped or missing one is named, a forged signature is not trusted, an older publish is not failed');
 }
 
 // ---------- the real portal answers 201 for a new token; a failure after creation still removes the student ----------

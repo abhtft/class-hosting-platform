@@ -2,6 +2,10 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## Unreleased
+
+- **`verify` now audits every file your portal publishes, not only the kit.** The signed version file lists the sha256 of each published file (the portal pages, the student downloads, the kit zip and every editor package), and `verify` fetches each one from the live portal and compares, naming any that differ ("`student.html` (changed)", "`class-platform-mcp-2.1.1.tgz` (HTTP 404)"). Until now only the kit was covered, so a page or an editor package changed by someone who could write the portal's files (but cannot sign) would not have been noticed. A browser or `npx` cannot check a signature, so for these files the audit is the teacher's: `verify` after a publish, and now and then. No AWS change and no kit change: **To apply:** run `publish` (or `upgrade`), then `verify`. A platform published before this has no list and `verify` simply skips the check.
+
 ## 2.1.1
 
 Found by running 2.1.0 on a real account with a real student.
