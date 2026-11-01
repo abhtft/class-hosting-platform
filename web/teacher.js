@@ -234,6 +234,17 @@ function feature({ title, hint, on, disabled, onToggle, body }) {
     body && on ? h('div', { class: 'feature-body' }, body) : null);
 }
 
+/** Background jobs: work that takes longer than a web request (a chain of AI calls, a report). Off by default; the limits keep the cost bounded. */
+function jobsFeature(t, live, btn) {
+  const j = t.backend.jobs;
+  const hint = !t.backend.enabled ? 'Switch the backend on first'
+    : j.enabled ? `Up to ${j.minutes} minute${j.minutes === 1 ? '' : 's'} each · ${j.ready ? 'ready' : 'the student publishes the backend again to set it up'}`
+      : 'Lets the student run work that takes longer than a request (a chain of AI calls, a report)';
+  return feature({ title: 'Background jobs', hint, on: j.enabled, disabled: !live || !t.backend.enabled, onToggle: () => toggleJobs(t),
+    body: [meter('Jobs today', j.used_today, j.per_day, `${j.used_today.toLocaleString()} / ${j.per_day.toLocaleString()} today · ${j.concurrent} at a time`),
+      h('div', { class: 'btns' }, btn('Edit limits…', () => editJobs(t)))] });
+}
+
 function drawerContent(t) {
   const live = t.status !== 'revoked';
   const btn = (label, fn, cls = '') => h('button', { class: `small ${cls}`, onclick: fn }, label);
@@ -248,6 +259,7 @@ function drawerContent(t) {
     features.push(feature({ title: 'Backend', hint: b.enabled ? `One function per student · ${b.state === 'none' ? 'no function yet' : b.state}` : 'A small server-side function for the student’s site', on: b.enabled, disabled: !live, onToggle: () => toggleBackend(t),
       body: [u ? meter('Runs', u.used, u.limit, `${u.used.toLocaleString()} / ${u.limit.toLocaleString()} ${PER[u.period]}`) : null,
         h('div', { class: 'btns' }, btn('Edit allowance…', () => editRuns(t)), btn('+1,000 runs', () => addRuns(t)))] }));
+    if (b.jobs) features.push(jobsFeature(t, live, btn));
     if (t.ai.available) {
       const a = t.ai;
       features.push(feature({ title: 'Class AI', hint: a.enabled ? `${a.model}${a.key_active ? '' : ' · paused while the token is not active'}` : 'A capped AI key, no key of their own needed', on: a.enabled, disabled: !live, onToggle: () => toggleAi(t),
@@ -379,6 +391,20 @@ async function editAi(t) {
 async function toggleBackend(t) {
   const enabled = !t.backend.enabled;
   act(`/api/admin/tokens/${t.id}/backend`, { enabled }, enabled ? `Backend turned on for ${t.slug}` : `Backend turned off for ${t.slug}: it stops answering requests`);
+}
+
+async function toggleJobs(t) {
+  const jobs_enabled = !t.backend.jobs.enabled;
+  act(`/api/admin/tokens/${t.id}/backend`, { jobs_enabled }, jobs_enabled ? `Background jobs turned on for ${t.slug}: they start working after the student publishes the backend` : `Background jobs turned off for ${t.slug}`);
+}
+
+async function editJobs(t) {
+  const j = t.backend.jobs;
+  const r = await ask({ title: `Background jobs for ${t.slug}`, text: `Used today: ${j.used_today}. Each job runs the student's own code, so the limits are what keep the cost small: a 5-minute job costs a fraction of a cent.`,
+    fields: [{ name: 'jobs_per_day', label: 'Jobs a day', type: 'number', value: j.per_day, min: 0, max: j.max.per_day, required: true },
+      { name: 'jobs_concurrent', label: 'At the same time', type: 'number', value: j.concurrent, min: 1, max: j.max.concurrent, required: true },
+      { name: 'jobs_minutes', label: `Minutes per job (up to ${j.max.minutes})`, type: 'number', value: j.minutes, min: 1, max: j.max.minutes, required: true }], confirm: 'Save' });
+  if (r) act(`/api/admin/tokens/${t.id}/backend`, { jobs_per_day: Number(r.jobs_per_day), jobs_concurrent: Number(r.jobs_concurrent), jobs_minutes: Number(r.jobs_minutes) }, 'Job limits saved');
 }
 
 async function editRuns(t) {

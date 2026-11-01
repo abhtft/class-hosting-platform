@@ -10,6 +10,7 @@ import mimetypes
 import os
 import re
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -20,10 +21,11 @@ os.environ.update(AWS_REGION="us-east-1", AWS_DEFAULT_REGION="us-east-1", AWS_AC
                   KEYS_PARAM="/k", TENANT_DISTRIBUTION_ID="EMT", ROUTING_ENDPOINT="route.cloudfront.net",
                   BACKEND_ENABLED="true", SANDBOX_ROLE_ARN="arn:aws:iam::1:role/sandbox", ORIGIN_SECRET="dev-origin-secret", GATEWAY_CACHE_SECONDS="0",
                   AI_ENABLED="true", AI_SECRET_NAME="openrouter", AI_DEFAULT_MODEL="anthropic/claude-haiku-5.5", AI_DEFAULT_LIMIT_USD="0.25",
-                  STORAGE_ENABLED="true", STORAGE_URL=f"http://127.0.0.1:{port}/storage")
+                  STORAGE_ENABLED="true", STORAGE_URL=f"http://127.0.0.1:{port}/storage", JOB_RUNNER_FUNCTION="job-runner")
 sys.path[:0] = [os.path.join(here, "..", "lambda"), here]
 import app  # noqa: E402
 import backends  # noqa: E402
+import jobs  # noqa: E402
 import domains  # noqa: E402
 import gateway  # noqa: E402
 import openrouter  # noqa: E402
@@ -86,7 +88,9 @@ app.s3, app.ssm = FakeS3(port), FakeSSM()
 dev_logs = FakeLogs()
 dev_lambda = FakeLambda(dev_logs)
 dev_lambda.polls_until_active = 2
-backends._clients.update({"lambda": dev_lambda, "logs": dev_logs, "s3": app.s3})
+backends._clients.update({"lambda": dev_lambda, "lambda-long": dev_lambda, "logs": dev_logs, "s3": app.s3})
+# background jobs: the real job code; the runner is started "asynchronously" in a thread, like AWS does
+dev_lambda.platform["job-runner"] = lambda event: threading.Thread(target=jobs.run, args=(event["slug"], event["id"]), daemon=True).start()
 dev_router = FakeOpenRouter()  # the class AI connector, with a pretend OpenRouter; spend some with /__dev/ai-spend?slug=alice&usd=0.1
 openrouter.transport = dev_router
 openrouter._secret.update(value="mgmt-secret", at=10**12)
