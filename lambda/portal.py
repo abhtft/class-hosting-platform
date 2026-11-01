@@ -17,6 +17,10 @@ Teacher (password -> signed session, 8 h):
   POST /api/admin/tokens/{id}/storage    {enabled?, data_mb?, files_mb?, ops_limit?, ops_period?}   class storage connector (storage.py)
   POST /api/admin/tokens/{id}/storage/clear   {scope: data | files | all}   delete a student's stored data and/or files
   GET  /api/admin/storage                storage across the class: per student sizes and counts, totals (never the content)
+  POST /api/admin/tokens/{id}/knowledge  {enabled?, collections?, documents?, passages?, stored_mb?, upload_mb?, searches_limit?, searches_period?, embed_tokens?}
+                                         class knowledge connector (knowledge.py); POST .../knowledge/clear removes all of the student's books
+  GET  /api/admin/knowledge              the class library and this month's spending against the ceiling
+  POST|DELETE /api/admin/knowledge/library/collections[/{name}[/documents[/{id}[/start]]]]   the teacher's class library (knowledge.py admin_route)
 
 Student (the token itself is the login -> signed session, 12 h):
   POST /api/student/login                {token}
@@ -319,6 +323,7 @@ def view(item, now, site_url):
         "backend": backend_view(item, now),
         "ai": ai_view(item, now),
         "storage": storage_view(item, now),
+        "knowledge": knowledge_view(item, now),
     }
 
 
@@ -335,6 +340,11 @@ def ai_view(item, now):
 def storage_view(item, now):
     import storage
     return storage.view(item, now)
+
+
+def knowledge_view(item, now):
+    import knowledge
+    return knowledge.view(item, now)
 
 
 DOMAIN_MESSAGES = {
@@ -497,6 +507,21 @@ def dispatch(method, path, body, event, now, site_url):
             import storage
             item = storage.set_storage(get_token(storage_route.group(1)), body, now)
             return reply(200, token=view(item, now, site_url))
+        know_clear = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/knowledge/clear", path)
+        if method == "POST" and know_clear:
+            import knowledge
+            item = get_token(know_clear.group(1))
+            return reply(200, cleared=knowledge.portal_call(knowledge.clear, item, now), token=view(item, now, site_url))
+        know_route = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/knowledge", path)
+        if method == "POST" and know_route:
+            import knowledge
+            item = knowledge.set_knowledge(get_token(know_route.group(1)), body, now)
+            return reply(200, token=view(item, now, site_url))
+        if path == "/api/admin/knowledge" or path.startswith("/api/admin/knowledge/"):
+            import knowledge
+            routed = knowledge.admin_route(method, path, body, now)
+            if routed:
+                return reply(routed[0], **routed[1])
         access = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/domain-access", path)
         if method == "POST" and access:
             import domains

@@ -186,8 +186,8 @@ def title_from_filename(filename):
 
 # ------------------------------------------------------------------ the whole pipeline
 
-def process(data, filename, embedding, cache=None, ocr=None, sleep=None):
-    """Extract, clean, chunk and embed one file. `embedding` is the collection's {"model", "dims", "task_types"}; `cache` an embedding cache.
+def prepare(data, filename, ocr=None):
+    """Extract, clean and chunk one file, without spending anything: the worker checks the owner's limits on the result BEFORE it embeds.
     `ocr(data, page_numbers) -> {page_number: text}` reads scanned pages (optional). Raises IngestError (a message fit to show the teacher)."""
     if not isinstance(data, (bytes, bytearray)) or not data:
         raise IngestError(400, "empty", "The file is empty.")
@@ -214,12 +214,22 @@ def process(data, filename, embedding, cache=None, ocr=None, sleep=None):
         raise IngestError(422, "no_text", "No text could be read from that file.")
     if len(passages) > MAX_PASSAGES:
         raise IngestError(413, "too_many_passages", f"That file makes {len(passages)} passages; the limit is {MAX_PASSAGES}. Split it into parts.")
+    doc = {"title": title or title_from_filename(filename), "type": kind, "pages": len(pages), "paged": paged, "source": os.path.basename(str(filename))[:120],
+           "tokens": sum(kc.estimate_tokens(p["text"]) for p in passages), "needs_ocr": needs_ocr}
+    return {"doc": doc, "passages": passages, "ocr_pages": ocr_done, "skipped_pages": needs_ocr}
+
+
+def embed_prepared(prepared, embedding, cache=None, sleep=None):
+    """Embed what prepare() returned with the collection's settings; returns the result process() has always returned."""
+    passages = prepared["passages"]
     try:
         done = em.embed([kc.embed_text(p) for p in passages], model=embedding["model"], dims=embedding["dims"], task="document",
                         task_types=embedding["task_types"], cache=cache, **({"sleep": sleep} if sleep else {}))
     except em.EmbeddingError as e:
         raise IngestError(e.status if e.status in (400, 429, 503) else 502, "embedding_failed", str(e))
-    doc = {"title": title or title_from_filename(filename), "type": kind, "pages": len(pages), "paged": paged, "source": os.path.basename(str(filename))[:120],
-           "tokens": sum(kc.estimate_tokens(p["text"]) for p in passages), "needs_ocr": needs_ocr}
-    return {"doc": doc, "passages": passages, "vectors": kc.pack_vectors(done["vectors"]), "tokens": done["tokens"], "cost_micro": done["cost_micro"],
-            "cached": done["cached"], "ocr_pages": ocr_done, "skipped_pages": needs_ocr}
+    return {**prepared, "vectors": kc.pack_vectors(done["vectors"]), "tokens": done["tokens"], "cost_micro": done["cost_micro"], "cached": done["cached"]}
+
+
+def process(data, filename, embedding, cache=None, ocr=None, sleep=None):
+    """Extract, clean, chunk and embed one file. `embedding` is the collection's {"model", "dims", "task_types"}; `cache` an embedding cache."""
+    return embed_prepared(prepare(data, filename, ocr=ocr), embedding, cache=cache, sleep=sleep)

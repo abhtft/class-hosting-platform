@@ -248,12 +248,25 @@ class FakeS3:
         data = self.objects[Key]
         return {"Body": type("Body", (), {"read": lambda self_: data})()}
 
-    def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None):
+    def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None, Delimiter=None):
         keys = sorted(k for k in self.objects if k.startswith(Prefix))
+        if Delimiter:  # folders directly under the prefix, as S3 reports them (one page is plenty for a test)
+            folders = sorted({Prefix + k[len(Prefix):].split(Delimiter)[0] + Delimiter for k in keys if Delimiter in k[len(Prefix):]})
+            return {"CommonPrefixes": [{"Prefix": f} for f in folders]}
         start = int(ContinuationToken or 0)
         chunk = keys[start:start + self.page]
         more = start + self.page < len(keys)
         return {"Contents": [{"Key": k} for k in chunk], **({"NextContinuationToken": str(start + self.page)} if more else {})}
+
+    def head_object(self, Bucket, Key):
+        from botocore.exceptions import ClientError
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        return {"ContentLength": len(self.objects[Key])}
+
+    def generate_presigned_post(self, Bucket, Key, Fields, Conditions, ExpiresIn):
+        self.posts = getattr(self, "posts", []) + [{"Key": Key, "Conditions": Conditions, "ExpiresIn": ExpiresIn}]
+        return {"url": "https://s3.example/upload", "fields": {**Fields, "key": Key, "policy": "p"}}
 
     def delete_objects(self, Bucket, Delete):
         for item in Delete["Objects"]:
@@ -276,5 +289,20 @@ sstore.create_collection(sbase, "S3", dims=DIMS)
 ingest(sstore, sbase, "science", "Science", SCIENCE)
 assert sstore.search(sbase, "stomata")["hits"][0]["doc"] == "science", "the whole flow works through the S3 bucket class"
 print("  ok  S3Bucket: put, get (missing is None), listing over pages, prefix delete, and a full collection through it")
+
+# ---------------------------------------------------------------- listing collections from folders, sizes and upload forms (no database scan)
+for label, kind in (("memory", ks.MemoryBucket()), ("s3", ks.S3Bucket(client=FakeS3()))):
+    folder_store = ks.Store(kind)
+    for name in ("notes", "books", "ncert-9"):
+        folder_store.create_collection(ks.base_of("student", "erin", name), name, dims=DIMS)
+    folder_store.create_collection(ks.base_of("student", "frank", "other"), "x", dims=DIMS)
+    kind.put("knowledge/student/erin/stray-folder/readme.txt", b"no meta here")  # a folder that is not a collection is not listed
+    assert folder_store.collections("student", "erin") == ["books", "ncert-9", "notes"], (label, folder_store.collections("student", "erin"))
+    assert folder_store.collections("student", "nobody") == [] and folder_store.collections("student", "frank") == ["other"]
+    kind.put("knowledge/student/erin/books/docs/a/source.pdf", b"x" * 123)
+    assert kind.size("knowledge/student/erin/books/docs/a/source.pdf") == 123 and kind.size("knowledge/student/erin/books/nothing") is None
+    form = kind.presigned_post("knowledge/student/erin/books/docs/a/source.pdf", 5 * 1024 * 1024)
+    assert form["max_bytes"] == 5 * 1024 * 1024 and form["fields"]["key"].endswith("source.pdf") and form["url"], label
+print("  ok  collections are listed from folders (a folder without meta.json is not one), sizes are read with a head request, upload forms carry the size cap")
 
 print("test_knowledge_store.py: all passed")

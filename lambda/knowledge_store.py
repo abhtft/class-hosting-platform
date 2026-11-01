@@ -71,6 +71,16 @@ class MemoryBucket:
     def list(self, prefix):
         return sorted(k for k in self.objects if k.startswith(prefix))
 
+    def list_dirs(self, prefix):
+        """The names of the folders directly under prefix (prefix ends with "/")."""
+        return sorted({k[len(prefix):].split("/")[0] for k in self.objects if k.startswith(prefix) and "/" in k[len(prefix):]})
+
+    def size(self, key):
+        return len(self.objects[key]) if key in self.objects else None
+
+    def presigned_post(self, key, max_bytes, expires=300):
+        return {"url": "memory://upload", "fields": {"key": key}, "max_bytes": max_bytes, "expires_in": expires}
+
     def delete_prefix(self, prefix):
         for key in [k for k in self.objects if k.startswith(prefix)]:
             del self.objects[key]
@@ -103,6 +113,28 @@ class S3Bucket:
             token = page.get("NextContinuationToken")
             if not token:
                 return sorted(keys)
+
+    def list_dirs(self, prefix):
+        names, token = [], None
+        while True:
+            page = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix, Delimiter="/", **({"ContinuationToken": token} if token else {}))
+            names += [p["Prefix"][len(prefix):].rstrip("/") for p in page.get("CommonPrefixes", [])]
+            token = page.get("NextContinuationToken")
+            if not token:
+                return sorted(names)
+
+    def size(self, key):
+        try:
+            return int(self.s3.head_object(Bucket=self.bucket, Key=key)["ContentLength"])
+        except Exception as e:  # a missing key is 404 / NoSuchKey / NotFound depending on the client
+            code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+            if code in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
+
+    def presigned_post(self, key, max_bytes, expires=300):
+        post = self.s3.generate_presigned_post(Bucket=self.bucket, Key=key, Fields={}, Conditions=[["content-length-range", 1, max_bytes]], ExpiresIn=expires)
+        return {"url": post["url"], "fields": post["fields"], "max_bytes": max_bytes, "expires_in": expires}
 
     def delete_prefix(self, prefix):
         keys = self.list(prefix)
@@ -159,6 +191,11 @@ class Store:
     def delete_collection(self, base):
         self.bucket.delete_prefix(base + "/")
         _cache.pop(base, None)
+
+    def collections(self, scope, owner):
+        """The names of one owner's collections (a student's, or the class library's), read from the folders: no database scan."""
+        base_prefix = f"{ROOT}/{scope}/{owner}/"
+        return [name for name in self.bucket.list_dirs(base_prefix) if NAME_RE.match(name) and self.bucket.size(f"{base_prefix}{name}/meta.json")]
 
     # -- documents
     def put_document(self, base, doc, passages, vector_bytes):

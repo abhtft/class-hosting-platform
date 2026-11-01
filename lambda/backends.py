@@ -227,9 +227,10 @@ def publish(item, now):
 
     b, name, lam = settings(item), function_name(slug), client("lambda")
     import ai
+    import knowledge
     import storage
-    # the connectors (class AI, class storage), when the teacher has switched them on for this student
-    ai_vars = {**ai.env_for(item), **storage.env_for(item)}
+    # the connectors (class AI, class storage, class knowledge), when the teacher has switched them on for this student
+    ai_vars = {**ai.env_for(item), **storage.env_for(item), **knowledge.env_for(item)}
     try:
         if b.get("function_name"):
             if b.get("runtime") and b["runtime"] != runtime:
@@ -313,9 +314,10 @@ def set_env(item, var, value, now):
     name = _require_ready(item)
     var, value = str(var or ""), str(value if value is not None else "")
     import ai
+    import knowledge
     import storage
-    if ai.reserved_name(item, var) or storage.reserved_name(item, var):
-        raise PortalError(400, f"{var} is set by a class connector (AI or storage) while it is on for you. Ask your teacher to switch it off to use your own.")
+    if ai.reserved_name(item, var) or storage.reserved_name(item, var) or knowledge.reserved_name(item, var):
+        raise PortalError(400, f"{var} is set by a class connector (AI, storage or knowledge) while it is on for you. Ask your teacher to switch it off to use your own.")
     if not ENV_NAME_RE.match(var) or var.startswith(ENV_RESERVED) or var in ENV_RESERVED_NAMES:
         raise PortalError(400, "Use a name with letters, digits and underscores, starting with a letter (not AWS_*, LAMBDA_* or TZ).")
     if len(value) > 1024:
@@ -331,9 +333,10 @@ def delete_env(item, var, now):
     _require_can_deploy(item, now)
     name = _require_ready(item)
     import ai
+    import knowledge
     import storage
-    if ai.reserved_name(item, var) or storage.reserved_name(item, var):
-        raise PortalError(400, f"{var} is set by a class connector (AI or storage) and cannot be removed while it is on for you.")
+    if ai.reserved_name(item, var) or storage.reserved_name(item, var) or knowledge.reserved_name(item, var):
+        raise PortalError(400, f"{var} is set by a class connector (AI, storage or knowledge) and cannot be removed while it is on for you.")
     variables = _current_env(name)
     variables.pop(var, None)
     return _write_env(item, name, variables)
