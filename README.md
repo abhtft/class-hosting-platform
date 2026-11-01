@@ -68,7 +68,7 @@ Not sure where to start? The **[documentation map](docs/README.md)** has a one-p
 | [Technical specification](docs/TECHNICAL_SPECIFICATION.md) | The source of truth: architecture, data model, limits, security |
 | [Teacher architecture](docs/TEACHER_ARCHITECTURE.md) | How the installer, updater and teacher tools are built |
 | [MCP](docs/MCP.md) | The editor tools and how tokens and updates are handled |
-| [AI connector](docs/AI_CONNECTOR.md), [Storage connector](docs/STORAGE_CONNECTOR.md) | The optional per-student features |
+| [AI connector](docs/AI_CONNECTOR.md), [Storage connector](docs/STORAGE_CONNECTOR.md), [Background jobs](docs/BACKGROUND_JOBS.md) | The optional per-student features |
 | [API reference](docs/API_REFERENCE.md), [End to end](docs/END_TO_END.md) | Every route; the whole workflow |
 | [AWS learnings](docs/AWS_LEARNINGS.md), [New account and transfer](docs/NEW_ACCOUNT_AND_TRANSFER.md) | Background and a worked account move |
 | [Legacy manual setup](docs/LEGACY_MANUAL_SETUP.md) | The original SAM and deploy-key route, kept for reference |
