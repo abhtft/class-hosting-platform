@@ -4,6 +4,8 @@ For teachers who run their own copy. Each release lists what is new, what (if an
 
 ## Unreleased
 
+- **A new student's `npm install` no longer prints security warnings.** The starter's frontend used `vite` 5, which pulls an `esbuild` with a known weakness in its development server (1 high and 1 moderate in `npm audit`, printed to every student on their first install). The template now uses `vite` 7 and the matching React plugin: 0 vulnerabilities, the same site builds the same way (the sample site's size is unchanged), and the kit already requires Node 22, which these versions need. Only **new** projects get it: `frontend/` is the student's own folder, so existing projects are never touched. A student who wants it runs `npm install -D vite@7 @vitejs/plugin-react@5` in `frontend/`.
+
 - **`verify` now audits every file your portal publishes, not only the kit.** The signed version file lists the sha256 of each published file (the portal pages, the student downloads, the kit zip and every editor package), and `verify` fetches each one from the live portal and compares, naming any that differ ("`student.html` (changed)", "`class-platform-mcp-2.1.1.tgz` (HTTP 404)"). Until now only the kit was covered, so a page or an editor package changed by someone who could write the portal's files (but cannot sign) would not have been noticed. A browser or `npx` cannot check a signature, so for these files the audit is the teacher's: `verify` after a publish, and now and then. No AWS change and no kit change: **To apply:** run `publish` (or `upgrade`), then `verify`. A platform published before this has no list and `verify` simply skips the check.
 
 ## 2.1.1
