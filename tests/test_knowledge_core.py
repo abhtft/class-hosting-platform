@@ -75,6 +75,10 @@ assert len(first_section) >= 2 and any(word in first_section[1]["text"] for word
 assert first_section[0]["page"] == 1 and first_section[-1]["page_end"] == 2 and any(c["page"] < c["page_end"] for c in first_section) or first_section[-1]["page_end"] == 2
 print("  ok  chunker: sentences kept whole, sections never mixed, no sentence lost, overlap within a section, pages tracked")
 
+# an extractor that knows a line is a heading (markdown, HTML) says so; the line need not look like one
+marked = kc.chunk_pages([(1, f"{kc.HEADING_MARK}How plants breathe\nStomata open in the day. They close at night.\n\n{kc.HEADING_MARK}\nPlain text after an empty heading.")], target_words=50, overlap_words=0, min_words=3)
+assert marked[0]["section"] == "How plants breathe" and "How plants breathe" not in marked[0]["text"] and "Plain text after an empty heading." in " ".join(c["text"] for c in marked)
+
 # a too-short tail is folded into the passage before it
 tail_book = [(1, "Chapter 1: Only\n" + " ".join(S(10, f"w{k}x") for k in range(6)))]
 folded = kc.chunk_pages(tail_book, target_words=50, overlap_words=15, min_words=15)

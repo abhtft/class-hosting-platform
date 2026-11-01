@@ -114,6 +114,9 @@ def is_heading(line):
     return len(letters) >= 4 and len(words) <= 10 and all(c.isupper() for c in letters) and not line.endswith((".", ","))
 
 
+HEADING_MARK = "\u0001"  # a line that starts with this IS a heading (markdown and HTML know; a PDF has to be guessed at by is_heading)
+
+
 def _blocks(pages):
     """[(page, text, is_heading)]: paragraphs (lines joined; a blank line or a heading ends one) in reading order, with the page each started on."""
     blocks = []
@@ -121,7 +124,14 @@ def _blocks(pages):
         buffer = []
         for raw in str(text).split("\n"):
             line = raw.strip()
-            if not line:
+            if line.startswith(HEADING_MARK):
+                line = line[1:].strip()
+                if buffer:
+                    blocks.append((number, " ".join(buffer), False))
+                    buffer = []
+                if line:
+                    blocks.append((number, line, True))
+            elif not line:
                 if buffer:
                     blocks.append((number, " ".join(buffer), False))
                     buffer = []
