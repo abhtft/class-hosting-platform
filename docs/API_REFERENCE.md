@@ -65,6 +65,10 @@ Body, any of:
 | `enabled` | boolean | ON serves requests and allows deploys; OFF answers `503 backend_off` within about 10 s and pauses deploys. The first time it is switched on, the allowance defaults to 5,000 per month |
 | `runs_limit` | integer 0 to 1,000,000 | runs allowed per period; 0 means none |
 | `runs_period` | `"day"` \| `"month"` \| `"total"` | UTC periods; `total` never resets |
+| `jobs_enabled` | boolean | switches background jobs on or off for this student (off by default). On creates (or updates) the second function `sd-<slug>_job`; off makes AWS refuse it |
+| `jobs_per_day` | integer 0 to 1,000 | jobs that may be started per UTC day (default 20) |
+| `jobs_concurrent` | integer 1 to 5 | jobs of this student running at the same time (default 1; the platform as a whole runs at most 2) |
+| `jobs_minutes` | integer 1 to 15 | the time limit of one job (default 5) |
 
 → `200 { "token": <view> }`. `400` invalid value; `503` backends are not set up on this server.
 
@@ -263,6 +267,19 @@ An API Gateway HTTP API **payload v2** event:
 | 502 | `backend_unavailable` | AWS could not invoke the function | |
 
 Anything else (status codes, bodies, headers) comes from the student's own function, for example `400` validation messages.
+
+### Background jobs (`/api/_jobs`, answered by the gateway)
+Work that takes longer than a request. The path is reserved: it never reaches the student's web function. It needs the backend ON and **Background jobs** switched on by the teacher (otherwise `403 jobs_off`; `409 jobs_not_ready` until the student has published the backend once after the switch). It is checked after the per-visitor limit; it does not count as a run, it counts against the jobs limits.
+
+| Request | Answer |
+|---|---|
+| `POST /api/_jobs/<name>` body: the job's input (JSON, at most 64 KB, optional) | `202 {"id", "name", "status": "queued"}`; the name is `[a-z0-9][a-z0-9_-]{0,39}` (`400 bad_job_name`, `400 bad_payload`, `413 payload_too_large`) |
+| `GET /api/_jobs/<id>` | `{"id", "name", "status": "queued" \| "running" \| "done" \| "failed", "created", "started", "finished", "result" (when done), "error" (when failed)}`; `400 bad_job_id`, `404 no_such_job` |
+| `GET /api/_jobs` | `{"jobs": [...]}` the latest 20, newest first, without results |
+
+Refusals: `429 jobs_busy` (this student, or the platform as a whole, already runs the most it may; `retry-after` 5), `429 jobs_allowance_exhausted` (`resets_at`, `retry-after`). The job id is 128 random bits and is the only key to the job: it is readable only under the site that started it. A finished job is kept for one day.
+
+What the student's function receives: the event `{"job": {"id", "name", "payload"}}` instead of a web request (the same code, deployed as `sd-<slug>_job` with the longer time limit and the same environment variables); **what it returns (JSON, at most 100 KB) is the result**. A job that raises an error, runs past its limit, returns something that is not JSON or returns more than 100 KB becomes `failed` with a plain `error`; **the student's own error text is never shown** (it may hold a secret). A platform function, the **job runner**, calls the job function and records the outcome; its asynchronous retries are off (a retry would run the job twice).
 
 ### Order of checks (a run is counted only at step 9)
 1 origin secret → 2 path and slug → 3 body size → 4 backend exists and is ready → 5 token lifecycle → 6 teacher toggle → 7 per-visitor limit → 8 in-flight slot → 9 **run allowance (atomic, exact)** → invoke → release the slot.

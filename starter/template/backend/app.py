@@ -8,7 +8,7 @@ The contract: define handler(event, context). `event` is an API Gateway HTTP API
 Return {"statusCode": ..., "headers": {...}, "body": "<string>"}.
 
 Rules (see AGENTS.md): standard library only (nothing is pip-installed on the platform), at most 10 s per request (25 s while the
-class AI is on), secrets only in the portal's "Environment variables" (never in code or a .env file inside backend/).
+class AI is on; longer work is a background job, see run_job below), secrets only in the portal's "Environment variables" (never in code or a .env file inside backend/).
 
 Run it on your computer with `npm run dev` (or `npm run dev -- --backend-only`).
 """
@@ -37,7 +37,18 @@ def read_json(event):
     return data if isinstance(data, dict) else {}
 
 
+def run_job(job):
+    """A BACKGROUND JOB: work that takes longer than a web request (a chain of AI calls, a report). `job` is {"id", "name", "payload"}; whatever
+    you return (JSON, at most 100 KB) is the result the page reads. Needs the teacher to switch jobs on; see AGENTS.md ("Work that takes longer")."""
+    payload = job["payload"] if isinstance(job["payload"], dict) else {}
+    if job["name"] == "count":  # the page starts it with runJob("count", { n: 1000000 }) from src/api.ts
+        return {"total": sum(range(int(payload.get("n", 10)) + 1))}
+    raise ValueError(f"No job called {job['name']}.")
+
+
 def handler(event, context):
+    if "job" in event:  # a background job, not a web request
+        return run_job(event["job"])
     method = event["requestContext"]["http"]["method"]
     path = event["rawPath"]
 

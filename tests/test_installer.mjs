@@ -357,21 +357,22 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
     lambdas: [
       { name: 'sd-alice', role: roleArn(SANDBOX) },
       { name: 'sd-bob', role: roleArn(SANDBOX) },
+      { name: 'sd-alice_job', role: roleArn(SANDBOX) },                             // background jobs: a second function per student, same role and prefix
       { name: 'sd-carol', role: roleArn('another-platform-StudentSandboxRole-Zz') }, // another platform's student in the same account: never ours
       { name: 'my-own-function', role: roleArn(SANDBOX) },                          // not an sd- name: never ours
     ],
-    logGroups: ['/aws/lambda/sd-alice', '/aws/lambda/sd-bob', '/aws/lambda/student-hosting-DeployFunction-X1'], ...extra });
+    logGroups: ['/aws/lambda/sd-alice', '/aws/lambda/sd-bob', '/aws/lambda/sd-alice_job', '/aws/lambda/student-hosting-DeployFunction-X1'], ...extra });
   const names = (fake) => fake.w.lambdas.map((f) => f.name).sort();
   // the preview counts them
-  assert.equal(engine.inventory(context(make()).ctx).studentFunctions, 2, 'only this platform\'s student functions are counted');
+  assert.equal(engine.inventory(context(make()).ctx).studentFunctions, 3, 'only this platform\'s student functions are counted');
   // a plain destroy removes this platform's student functions and their log groups, and nothing else
   reset();
   let fake = make();
   let out = await engine.destroy(context(fake, { progress: () => {} }).ctx);
   assert.deepEqual(names(fake), ['my-own-function', 'sd-carol'], 'a function of another platform or without the sd- name is left alone');
-  assert.deepEqual(fake.w.deletedLogGroups.sort(), ['/aws/lambda/sd-alice', '/aws/lambda/sd-bob'], 'their log groups go with them; the platform\'s own are kept by default');
-  assert.deepEqual(out.removedFunctions.sort(), ['sd-alice', 'sd-bob']);
-  assert.match(out.message, /Also deleted 2 student backend functions and their logs/);
+  assert.deepEqual(fake.w.deletedLogGroups.sort(), ['/aws/lambda/sd-alice', '/aws/lambda/sd-alice_job', '/aws/lambda/sd-bob'], 'their log groups go with them (a background-job function and its group too); the platform\'s own are kept by default');
+  assert.deepEqual(out.removedFunctions.sort(), ['sd-alice', 'sd-alice_job', 'sd-bob']);
+  assert.match(out.message, /Also deleted 3 student backend functions and their logs/);
   assert.equal(out.ok, true);
   // --everything also removes the platform's own function log groups (Lambda created them, so the stack never owned them)
   reset();
@@ -390,7 +391,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   reset();
   fake = make();
   await engine.destroy(context(fake, { dryRun: true, progress: () => {} }).ctx, { everything: true });
-  assert.equal(fake.w.lambdas.length, 4, 'a dry run deletes no function');
+  assert.equal(fake.w.lambdas.length, 5, 'a dry run deletes no function');
   assert.equal(fake.w.deletedLogGroups, undefined, 'and no log group');
   // with class AI used (the secret exists), the teacher is told the OpenRouter keys are theirs to revoke
   reset();

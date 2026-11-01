@@ -13,6 +13,7 @@ rules. Follow them exactly: the app is checked by `npm run check` before every d
 | Address | The site is served at the address `deploy` prints after each deploy. The backend is reached at **`/api/...` on the same address** (the `/api` prefix is removed before your function sees the path). No CORS needed. |
 | Class AI | The teacher can switch on an AI key for the student's backend. The helper `class_ai` makes the call in one line. |
 | Class storage | The teacher can switch on a small database and file area for the student's backend. The helper `class_storage` saves and reads data in one line. |
+| Background jobs | The teacher can switch on jobs: work that takes longer than a request (a chain of AI calls, a report), up to the minutes the teacher sets (at most 15). The page starts a job and asks for the result later. See "Work that takes longer than a request". |
 | Deploy | Two ways, same result. **From the computer:** `npm run login` once, then `npm run deploy` (no GitHub needed). **From GitHub:** push to `main` and a GitHub Action runs `npm run check`, then deploys. |
 
 **Does not work here** (tutorials often assume these, so say so plainly if the student asks): Express, Flask, Django, FastAPI or any server
@@ -33,7 +34,7 @@ route, `localStorage`, class storage (`class_storage`) or an external HTTP servi
    - For **structured answers (JSON)** see "Structured AI answers" below.
    - **Do not edit `class_ai.py` / `class_ai.mjs`** (they are refreshed with the kit), do not write your own AI client, do not read the AI key yourself.
 5. **Backend uses only the standard library** (Python) or Node 22 built-ins (Node). The platform installs nothing. If a package is truly needed, bundle it into the backend folder. Use `urllib.request` / `fetch` for HTTP.
-6. **Backend limits:** 10 seconds per request (25 s while the class AI is on), 256 MB, request and response at most 1 MB, the backend folder at most 500 files and 5 MB zipped. Keep text answers short (`max_tokens` 200-400); lists or JSON may need up to 800.
+6. **Backend limits:** 10 seconds per request (25 s while the class AI is on; anything longer is a **background job**, see below), 256 MB, request and response at most 1 MB, the backend folder at most 500 files and 5 MB zipped. Keep text answers short (`max_tokens` 200-400); lists or JSON may need up to 800.
 7. **Secrets:** a backend secret (a database URL, another service's key) is set by the student in the portal (Backend card > Environment variables) and read with `os.environ["NAME"]` / `process.env.NAME`. Never write a secret into any file, never create `.env` inside `backend/`. For local runs only, `.env.local` at the project root is allowed (it is git-ignored).
 8. **The portal token lives in exactly two places:** the GitHub repository secret `PORTAL_TOKEN`, and `.env.local` (git-ignored), which only `npm run login` writes. Never write it into any other file, never print it, **never open or read `.env.local`**, and never ask the student to paste it to you. **If the student pastes a real key or token into the chat, do not use it and do not store it anywhere**; tell them to revoke or regenerate it (an AI key at its provider, the portal token via the teacher) and explain where such a value belongs.
 9. **One backend language.** `app.py` **or** `index.mjs`, not both. To switch to Node: delete `backend/app.py`, `backend/class_ai.py` and `backend/class_storage.py`, then move the files from `variants/node-backend/` into `backend/` (and delete the `variants/` folder).
@@ -45,7 +46,7 @@ Before writing code for a **new** app or a large change, read `INTERVIEW.md` and
 
 ## Check which features are on before you plan
 
-The teacher switches class AI, class storage, the backend and a custom domain on **per student**, and can switch them off again. This file cannot say what is on for this student, and you must not guess. **Before planning or writing anything that uses class AI, class storage, a backend or a custom domain, find out:** call the `status` tool (or run `node portal-deploy.mjs status`) and read the "Features for you" block. It is read live from the portal, and it also brings the kit (including this file) up to date, so **call it first in every session**. If it reports that the kit was updated, re-read this file before you continue.
+The teacher switches class AI, class storage, background jobs, the backend and a custom domain on **per student**, and can switch them off again. This file cannot say what is on for this student, and you must not guess. **Before planning or writing anything that uses class AI, class storage, a backend or a custom domain, find out:** call the `status` tool (or run `node portal-deploy.mjs status`) and read the "Features for you" block. It is read live from the portal, and it also brings the kit (including this file) up to date, so **call it first in every session**. If it reports that the kit was updated, re-read this file before you continue.
 
 - **Feature on (✔):** build with it as described in this file.
 - **Feature off (✖):** tell the student plainly which feature is off and that only their teacher can switch it on. Then build a version that works without it, and say what the app cannot do yet. For example: `localStorage` instead of class storage (and say the data stays in that browser), or a clearly marked placeholder where the AI answer would go. Never build something that will deploy and then fail with "not enabled".
@@ -90,6 +91,22 @@ Models wrap JSON in words or code fences and sometimes get it wrong, and the off
 3. If nothing valid remains, return a friendly error (for example HTTP 502 `{"error": "bad_answer", "message": "Please try again."}`): never crash.
 4. Give the offline mock a sample reply of the right shape so the whole flow can be tried locally: Python `ask(prompt, mock='[{"question": "...", ...}]')`, Node `await ask(prompt, { mock: '[{"question": "..."}]' })`. The real AI ignores `mock`. The mock returns the **same** reply for every input, so locally the content looks repetitive; tell the student that the real AI will differ.
 5. Allow enough `max_tokens` (up to 800) so the JSON is not cut off.
+
+## Work that takes longer than a request (background jobs)
+
+A web request stops after 10 seconds (25 with the class AI). For work that takes longer (several AI calls in a row, summarising many notes, building a report) use a **background job**, **only if `status` shows Background jobs on (✔)**; otherwise say the teacher must switch it on and build the part that fits in one request.
+
+How it works (the same locally and on the platform):
+1. The page starts it and waits: `const result = await runJob('report', { notes })` (from `frontend/src/api.ts`; the 3rd argument has `onStatus` for a progress message). It POSTs `/api/_jobs/<name>` (a lowercase name, the input is JSON, at most 64 KB) and polls `GET /api/_jobs/<id>` until `status` is `done` (with `result`) or `failed` (with a plain `error`).
+2. The backend handles it in the same file as the web routes. Python: `run_job(job)` in `backend/app.py`; Node: `runJob(job)` in `backend/index.mjs`. `job` is `{ id, name, payload }`; **what the function returns (JSON, at most 100 KB) is the result.** Branch on `job["name"]`.
+3. Anything bigger than 100 KB (a long text, a table) goes to class storage and the job returns a reference. Never return a secret.
+
+Rules for jobs:
+- The teacher sets the limits per student: jobs per day, jobs at the same time (default 1) and minutes per job (default 5, at most 15). Show the user a friendly message when `runJob` throws (`error.message` is safe to show: it explains a refusal or a failure in plain words).
+- A job that crashes shows the page only "the job raised an error": the details are in the backend logs (`npm run logs`, job lines are marked `[job]`; locally they print in the terminal of `npm run dev`). Print what you need to debug.
+- The job function has the same environment variables, class AI and class storage as the web function. Do **not** call the page's own `/api/...` from a job; call the helpers directly.
+- A job is not a server: it cannot keep running after it returns, and the next job starts from scratch. Keep long work in loops with a stop and save progress to class storage when it matters.
+- Locally `npm run dev` runs one job at a time and does not stop a job at the minutes limit (it prints a warning); the platform stops it.
 
 ## Frontend pattern
 

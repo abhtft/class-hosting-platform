@@ -203,6 +203,26 @@ const exercise = async (call, hotReloadFile, marker) => {
   assert.equal((await call('/api/ask', { method: 'POST', body: JSON.stringify({ prompt: '' }) })).status, 400);
   assert.equal((await call('/api/nothing')).status, 404);
   assert.equal((await call('/elsewhere')).status, 404, 'only /api is served');
+  // background jobs, locally, with the platform's answers: start (202), poll until done, a crash is a plain message, bad input is refused
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const finished = async (id) => { let job = null; for (let i = 0; i < 60 && !['done', 'failed'].includes(job?.status); i++) { await pause(100); job = JSON.parse((await call(`/api/_jobs/${id}`)).text); } return job; };
+  const startedJob = await call('/api/_jobs/count', { method: 'POST', body: JSON.stringify({ n: 100 }) });
+  assert.equal(startedJob.status, 202);
+  const counted = await finished(JSON.parse(startedJob.text).id);
+  assert.match(JSON.parse(startedJob.text).id, /^[0-9a-f]{32}$/);
+  assert.equal(counted.status, 'done');
+  assert.deepEqual(counted.result, { total: 5050 }, 'the starter job returns its result');
+  const crashed = await finished(JSON.parse((await call('/api/_jobs/nope', { method: 'POST' })).text).id);
+  assert.equal(crashed.status, 'failed');
+  assert.match(crashed.error, /printed in this terminal/);
+  assert.ok(!/No job called/.test(JSON.stringify(crashed)), 'the page never sees the exception text, only a plain message');
+  assert.equal((await call('/api/_jobs/Bad Name', { method: 'POST' })).status, 400, 'a bad job name');
+  assert.equal((await call('/api/_jobs/count', { method: 'POST', body: '{not json' })).status, 400, 'malformed input');
+  assert.equal((await call('/api/_jobs/count', { method: 'POST', body: JSON.stringify({ x: 'y'.repeat(70000) }) })).status, 413, 'input over 64 KB');
+  assert.equal((await call('/api/_jobs/not-an-id')).status, 400);
+  assert.equal((await call(`/api/_jobs/${'0'.repeat(32)}`)).status, 404);
+  assert.equal((await call('/api/_jobs/count', { method: 'DELETE' })).status, 405);
+  assert.ok(JSON.parse((await call('/api/_jobs')).text).jobs.length >= 2, 'the list shows the latest jobs');
   writeFileSync(hotReloadFile, read(hotReloadFile).replace(marker[0], marker[1]));
   await new Promise((r) => setTimeout(r, 1200));
   assert.match((await call('/api/hello?name=Sam')).text, /HOT RELOAD/, 'a changed backend file is picked up without a restart');

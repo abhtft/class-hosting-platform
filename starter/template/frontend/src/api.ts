@@ -30,6 +30,13 @@ const FRIENDLY: Record<string, string> = {
   no_backend: 'There is no backend deployed yet.',
   function_timeout: 'The backend took too long to answer.',
   function_error: 'The backend had a problem.',
+  jobs_off: 'Background jobs are not switched on for you yet. Ask your teacher.',
+  jobs_not_ready: 'Background jobs are being set up. Publish your backend again, then retry.',
+  jobs_busy: 'A job is already running. Wait until it finishes.',
+  jobs_allowance_exhausted: 'You have used your background jobs for today.',
+  bad_job_name: 'A job name uses lowercase letters, digits, - and _.',
+  payload_too_large: 'The input is too big for a job. Save big inputs with class storage.',
+  no_such_job: 'That job was not found (finished jobs are kept for one day).',
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -54,4 +61,30 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(response.status, code, FRIENDLY[code] ?? String(body?.message ?? `Something went wrong (${response.status}).`))
   }
   return body as T
+}
+
+/** A background job as the platform reports it. */
+export type Job<R = unknown> = { id: string; name: string; status: 'queued' | 'running' | 'done' | 'failed'; result?: R; error?: string }
+
+/**
+ * Start a BACKGROUND JOB and wait for it: work that takes longer than a request (a chain of AI calls, a report). The job's code is the `run_job`
+ * function in backend/app.py (or `runJob` in backend/index.mjs); what it returns is the result here. The teacher must switch jobs on for you.
+ * Resolves with the result; throws an ApiError (with a message safe to show) when the job is refused, fails, or takes longer than `timeoutMs`.
+ * `onStatus` is called on every poll, for a progress message ("queued", "running").
+ */
+export async function runJob<R = unknown>(
+  name: string,
+  input?: unknown,
+  options: { everyMs?: number; timeoutMs?: number; onStatus?: (job: Job<R>) => void } = {},
+): Promise<R> {
+  const { id } = await api<{ id: string }>(`/_jobs/${name}`, { method: 'POST', body: JSON.stringify(input ?? {}) })
+  const started = Date.now()
+  for (;;) {
+    const job = await api<Job<R>>(`/_jobs/${id}`)
+    options.onStatus?.(job)
+    if (job.status === 'done') return job.result as R
+    if (job.status === 'failed') throw new ApiError(0, 'job_failed', job.error ?? 'The job failed.')
+    if (Date.now() - started > (options.timeoutMs ?? 15 * 60 * 1000)) throw new ApiError(0, 'job_timeout', 'The job is taking very long. Try again later.')
+    await new Promise((resolve) => setTimeout(resolve, options.everyMs ?? 2000))
+  }
 }

@@ -120,10 +120,12 @@ export function featureList(token) {
     return { id, label, on, detail: on ? detail : part?.available === false ? 'not installed on this platform' : 'switched off for you' };
   };
   const domain = token.custom_domain;
+  const jobs = token.backend?.jobs ? { available: Boolean(token.backend.available), enabled: Boolean(token.backend.enabled && token.backend.jobs.enabled), ...token.backend.jobs } : null;
   return [
     offer(token.backend, 'Backend', 'backend', 'on'),
     offer(token.ai, 'Class AI', 'ai', token.ai?.model ? `on (${token.ai.provider || 'ai'}: ${token.ai.model})` : 'on'),
     offer(token.storage, 'Class storage', 'storage', 'on'),
+    offer(jobs, 'Background jobs', 'jobs', jobs?.minutes ? `on (up to ${jobs.minutes} minute${jobs.minutes === 1 ? '' : 's'} each, ${jobs.per_day} a day, ${jobs.concurrent} at a time)` : 'on'),
     offer(domain, 'Custom domain', 'custom_domain', domain?.domain ? `on (${domain.domain}, ${domain.state})` : 'on, no domain set yet'),
   ];
 }

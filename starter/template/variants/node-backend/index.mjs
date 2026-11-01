@@ -8,7 +8,7 @@
 // Return { statusCode, headers, body } where body is a string.
 //
 // Rules (see AGENTS.md): Node 22 built-ins only (nothing is npm-installed on the platform; bundle a package into one file if you
-// really need it), at most 10 s per request (25 s while the class AI is on), secrets only in the portal's "Environment variables"
+// really need it), at most 10 s per request (25 s while the class AI is on; longer work is a background job, see runJob below), secrets only in the portal's "Environment variables"
 // (never in code or a .env file inside backend/).
 //
 // Run it on your computer with `npm run dev` (or `npm run dev -- --backend-only`).
@@ -28,7 +28,20 @@ function readJson(event) {
   }
 }
 
+/** A BACKGROUND JOB: work that takes longer than a web request (a chain of AI calls, a report). `job` is { id, name, payload }; whatever you return
+ *  (JSON, at most 100 KB) is the result the page reads. Needs the teacher to switch jobs on; see AGENTS.md ("Work that takes longer"). */
+async function runJob(job) {
+  const payload = job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload) ? job.payload : {};
+  if (job.name === 'count') { // the page starts it with runJob('count', { n: 1000000 }) from src/api.ts
+    let total = 0;
+    for (let i = 0; i <= Number(payload.n ?? 10); i++) total += i;
+    return { total };
+  }
+  throw new Error(`No job called ${job.name}.`);
+}
+
 export const handler = async (event) => {
+  if (event.job) return runJob(event.job); // a background job, not a web request
   const { method } = event.requestContext.http;
   const path = event.rawPath;
 

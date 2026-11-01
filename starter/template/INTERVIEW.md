@@ -9,7 +9,7 @@ before any code. A few good questions now save the student many rounds of "no, n
 2. **At most two rounds**, one message each, **3 to 6 questions** per round, in plain words a school student understands. Number them. After the first round, ask a second only if something important is still unclear.
 3. For every question give **choices or an example and a default**: "Who is it for? (a) me and friends (b) my class (c) anyone online. If unsure I'll assume (b)." Never ask an open "what do you want?" alone.
 4. **Never ask about technology** (React, Python, hosting, databases). The platform decides that. Ask what the visitor sees and does.
-5. **Check which features are on** (the `status` tool or `npm run deploy -- status`) before you promise anything that needs the backend, class AI or class storage. Ask only about features that are on; for an off feature say plainly that your teacher must switch it on and what you will build without it.
+5. **Check which features are on** (the `status` tool or `npm run deploy -- status`) before you promise anything that needs the backend, class AI or class storage. Ask only about features that are on (the backend, class AI, class storage, background jobs); for an off feature say plainly that your teacher must switch it on and what you will build without it.
 6. **Say early what the platform cannot do**, so the student does not plan around it: taking payments, sending emails, login with passwords for other people, a live chat between visitors, anything that needs a server running all the time (see "Does not work here" in `AGENTS.md`). Offer the closest thing that works (for example "contact me to order" instead of a checkout).
 7. Then write **`SPEC.md`** in the project (the format is below), show the student a short summary, and ask **"Is this right? Anything to change?"** Build only after a yes. Keep `SPEC.md` up to date when the plan changes; it is the student's own file, not a platform file.
 
@@ -19,6 +19,7 @@ before any code. A few good questions now save the student many rounds of "no, n
 - **What is the one thing a visitor should be able to do in the first 10 seconds?**
 - **Which pages or screens?** (suggest 2 to 4 based on the idea; let the student cross out or add)
 - **Does it need to remember things between visits?** (nothing / only on this device / for everyone who visits). "Only on this device" is `localStorage`; "for everyone" needs class storage, if it is on.
+- **Does anything take more than a few seconds?** (a report, many AI steps in a row, summarising lots of notes). If background jobs are on it can run as a job while the page shows "working..."; if they are off, keep it to one short step and say so.
 - **Does it need the AI?** If it is on: what should the AI do, in one sentence, and what must it refuse or avoid?
 - **What does it look like?** Three words ("calm, dark, playful"), or a site they like, plus a main colour. Do they have their own text, photos or logo?
 - **Is there anything it must not do or show?** (Nobody's private data; no real names or photos of other people without asking them.)

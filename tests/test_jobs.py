@@ -302,6 +302,17 @@ assert lam.functions["sd-dana_job"]["config"]["Environment"]["Variables"]["GREET
 jid = start("dana", "env", at=g + 1100)[1]["id"]
 run_pending(at=g + 1101)
 assert read("dana", jid, at=g + 1102)[1]["result"]["greeting"] == "hello"
+# the student's logs show what a job printed next to the web function's lines, each job line marked
+logs.add("/aws/lambda/sd-dana", "web request line", at=g + 1990)
+logs.add("/aws/lambda/sd-dana_job", "job printed this", at=g + 1995)
+logs.add("/aws/lambda/sd-dana_job", "[ERROR] job broke", at=g + 1996)
+lines = [x["message"] for x in call("GET", "/api/student/backend/logs", session=dana, query={"minutes": "180", "limit": "100"})[1]["lines"]]
+assert "web request line" in lines and "[job] job printed this" in lines and lines.index("web request line") < lines.index("[job] job printed this"), lines
+assert "[job] working on env" in lines, "what the job code printed while it ran"
+errors = [x["message"] for x in call("GET", "/api/student/backend/logs", session=dana, query={"minutes": "180", "errors": "1"})[1]["lines"]]
+assert "[job] [ERROR] job broke" in errors and "web request line" not in errors and "[job] job printed this" not in errors, errors
+print("  ok  the logs merge the web function and the job function in time order, job lines marked [job], errors-only covers both")
+
 teacher(dana_id, enabled=False)
 assert gw("/b/dana/_jobs/x", "POST", "{}", at=g + 1200)[1]["error"] == "backend_off", "the backend switch also stops new jobs"
 teacher(dana_id, enabled=True)

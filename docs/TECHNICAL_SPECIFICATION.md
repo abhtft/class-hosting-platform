@@ -545,6 +545,16 @@ flowchart TD
 - **Function failures:** a timeout is `504 function_timeout`; a crash is `502 function_error` (the details stay in the student's own logs, never in the response or platform logs); an unreadable reply is `502 bad_response`; AWS throttling is `429 busy`; any other invoke failure is `502 backend_unavailable`.
 - **Same-origin `/api`:** CloudFront routes `<slug>.<RootDomain>/api/*` (and custom domains through a tenant function) to the gateway, so the browser sees one origin: no CORS.
 
+### 4.6b Background jobs (F6b)
+
+For work that takes longer than a request (a web request stops at 10 s, 25 s with the class AI). **Off by default per student**; the teacher switches it on in the student's panel and sets three limits: jobs per day (default 20, at most 1,000), jobs at the same time (default 1, at most 5) and minutes per job (default 5, at most 15, which is Lambda's own ceiling). Input at most 64 KB, result at most 100 KB, a finished job is kept one day (a database expiry).
+
+- **Second function.** The same zip is also deployed as `sd-<slug>_job` (the underscore cannot occur in a slug, so it never collides with another student's web function) with the longer time limit and a copy of the web function's environment variables (the class AI and class storage settings, the student's own variables). The web function keeps its 10 s (25 s) limit. Created or updated when the teacher switches jobs on and on every publish; AWS is told to refuse it when jobs are switched off; deleted with the backend.
+- **Routes.** The gateway answers the reserved path `/b/<slug>/_jobs...` itself (never the student's function): `POST .../_jobs/<name>` starts a job (202), `GET .../_jobs/<id>` reads it, `GET .../_jobs` lists the latest 20. The job id is 128 random bits and is the only key to it.
+- **Runner.** A platform function (`JobRunnerFunction`, 15 minutes, 128 MB, asynchronous retries OFF so a job never runs twice) calls the job function and waits for it, then records `done` with the result or `failed` with a plain message. The student's role is logs-only, so the student's code cannot store its own result. The student's error text is **never** passed on (it may hold a secret): the page sees "the job raised an error", the details are in the logs (`npm run logs` merges the job function's group, lines marked `[job]`).
+- **Limits and protection.** A daily counter, a per-student and a platform-wide slot count (default 2 jobs at once in total, because a new AWS account may allow only 10 concurrent Lambda executions); a slot a crashed runner leaked heals after the job's own time limit plus two minutes; a job nobody finished is shown as failed. The gateway and runner roles read, write and update single items only (no table scan or query: a scan would read every token), and the runner may invoke only functions named `sd-*_job`.
+- **Local.** `npm run dev` emulates the same routes in the Python and Node dev servers (one job at a time, no daily limit, a crash's details in the terminal).
+
 ### 4.7 Run allowance and in-flight limiter (F8)
 
 - **Allowance:** `runs_limit` (0 to 1,000,000) per `runs_period` (`day`, `month`, `total`; UTC), counted in `runs#<slug>#<period id>` with a TTL a week after the period ends. Exact under parallel load (tested with 60 callers). The student page shows a meter; the teacher edits the number or adds 1,000.

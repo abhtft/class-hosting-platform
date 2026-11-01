@@ -325,6 +325,9 @@ Functions and code are **never deleted automatically**, matching the existing "n
 
 ---
 
+### 5.9 Background jobs (added in 2.1.2)
+The same gateway also answers the reserved path `/b/<slug>/_jobs...` (`/api/_jobs...` on the site): it starts and reads **background jobs** for work longer than a request, run by a platform job runner in a second function `sd-<slug>_job` (same code, same environment, longer time limit, set by the teacher up to 15 minutes). The web function keeps its hard 10 s (25 s) limit. See `docs/API_REFERENCE.md` ("Background jobs") for the contract and `lambda/jobs.py`.
+
 ## 6. Security and abuse model
 
 **Threats and mitigations**

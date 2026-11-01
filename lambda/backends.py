@@ -374,25 +374,26 @@ def logs(item, now, minutes=LOG_MINUTES_DEFAULT, limit=LOG_LIMIT_DEFAULT, errors
     limit = _clamp(limit, LOG_LIMIT_DEFAULT, 1, LOG_LIMIT_MAX)
     name = settings(item).get("function_name")
     result = {"lines": [], "minutes": minutes, "truncated": False}
-    if not name:  # the group comes from the student's own record, never from the request
+    if not name:  # the groups come from the student's own record, never from the request
         return result
-    arguments = {"logGroupName": f"/aws/lambda/{name}", "limit": LOG_PAGE, "startTime": (now - minutes * 60) * 1000}
-    if errors:
-        arguments["filterPattern"] = LOG_ERRORS_PATTERN
+    job = settings(item).get("job_function_name")  # background jobs write to their own group: shown together, each line marked [job]
     kept = []
-    try:
-        for _ in range(LOG_PAGES):
-            page = client("logs").filter_log_events(**arguments)
-            kept = [e for e in kept + page["events"] if not _log_noise(e["message"])][-limit:]
-            if not page.get("nextToken"):
-                break
-            arguments["nextToken"] = page["nextToken"]
-        else:
-            result["truncated"] = True  # more than LOG_PAGES pages: only the newest of what was read is shown
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ResourceNotFoundException":
-            return result
-        raise
+    for group, is_job in ((f"/aws/lambda/{name}", False), *(((f"/aws/lambda/{job}", True),) if job else ())):
+        arguments = {"logGroupName": group, "limit": LOG_PAGE, "startTime": (now - minutes * 60) * 1000}
+        if errors:
+            arguments["filterPattern"] = LOG_ERRORS_PATTERN
+        try:
+            for _ in range(LOG_PAGES):
+                page = client("logs").filter_log_events(**arguments)
+                kept = sorted(kept + [{**e, "job": is_job} for e in page["events"] if not _log_noise(e["message"])], key=lambda e: e["timestamp"])[-limit:]
+                if not page.get("nextToken"):
+                    break
+                arguments["nextToken"] = page["nextToken"]
+            else:
+                result["truncated"] = True  # more than LOG_PAGES pages: only the newest of what was read is shown
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "ResourceNotFoundException":  # a group that does not exist (yet) simply has no lines
+                raise
     try:
         secrets = sorted({v for v in _current_env(name).values() if len(v) >= LOG_MIN_SECRET}, key=len, reverse=True)
     except ClientError:
@@ -401,7 +402,7 @@ def logs(item, now, minutes=LOG_MINUTES_DEFAULT, limit=LOG_LIMIT_DEFAULT, errors
         message = _mask(e["message"].rstrip(), secrets)
         if len(message) > LOG_CUT:
             message = "[...cut] " + message[-LOG_CUT:]
-        result["lines"].append({"t": e["timestamp"] // 1000, "message": message})
+        result["lines"].append({"t": e["timestamp"] // 1000, "message": ("[job] " + message) if e["job"] else message})
     return result
 
 
