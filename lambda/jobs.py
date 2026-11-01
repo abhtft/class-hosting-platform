@@ -227,6 +227,7 @@ def start(item, name, event, now):
     job_id = secrets.token_hex(16)
     pk = f"job#{slug}#{job_id}"
     db().put({"pk": pk, "slug": slug, "id": job_id, "name": name, "status": "queued", "created": now, "payload": json.dumps(payload), "ttl": now + 2 * DAY})
+    _remember(slug, job_id, now)
     try:
         backends.client("lambda").invoke(FunctionName=os.environ["JOB_RUNNER_FUNCTION"], InvocationType="Event",
                                          Payload=json.dumps({"slug": slug, "id": job_id}).encode())
@@ -263,10 +264,19 @@ def status(item, job_id, now):
     return reply(200, **_public(_fresh(item, job, now)))
 
 
+def _remember(slug, job_id, now):
+    """Keep the ids of a student's latest jobs in ONE item. The gateway's role can read single items but deliberately cannot scan the table (a scan would
+    read every token), so the list is never found by scanning."""
+    key = f"joblist#{slug}"
+    ids = (db().get(key) or {}).get("ids", [])
+    db().put({"pk": key, "ids": ([job_id] + [i for i in ids if i != job_id])[:LIST_LIMIT], "ttl": now + 2 * DAY})
+
+
 def recent(item, now):
-    rows = [_fresh(item, j, now) for j in db().list_prefix(f"job#{item['slug']}#")]
+    ids = (db().get(f"joblist#{item['slug']}") or {}).get("ids", [])
+    rows = [_fresh(item, j, now) for j in (db().get(f"job#{item['slug']}#{i}") for i in ids) if j]  # a job whose item has expired is simply left out
     rows.sort(key=lambda j: j.get("created", 0), reverse=True)
-    return reply(200, jobs=[_public(j, with_result=False) for j in rows[:LIST_LIMIT]])
+    return reply(200, jobs=[_public(j, with_result=False) for j in rows])
 
 
 # ---------- the job runner (platform function, see jobs_runner.py) ----------

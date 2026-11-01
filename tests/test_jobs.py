@@ -130,6 +130,12 @@ def counter(key):
     return (db().get(key) or {}).get("count", 0)
 
 
+# The gateway and runner roles can read, write and update single items but have NO dynamodb:Scan or Query (a scan would read every token). The fake
+# store would happily scan, which is how a first version of the job list passed these tests and then failed on real AWS. This keeps it from coming back.
+source = open(os.path.join(here, "..", "lambda", "jobs.py"), encoding="utf8").read()
+assert "list_prefix" not in source and ".scan(" not in source and ".query(" not in source, "jobs.py must only use single-item reads and writes"
+print("  ok  jobs.py uses only single-item reads and writes (the gateway role cannot scan the table)")
+
 # ===================== off by default; the teacher's switch and limits =====================
 dana_id, dana, _ = new_student("dana")
 view = backend_of(dana)["jobs"]
