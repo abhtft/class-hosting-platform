@@ -427,6 +427,7 @@ Resources:
           CachedMethods: [GET, HEAD]
           Compress: true
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          ResponseHeadersPolicyId: !Ref StudentSitesHeadersPolicy
           FunctionAssociations:
             - EventType: viewer-request
               FunctionARN: !GetAtt RouterFunction.FunctionMetadata.FunctionARN
@@ -437,11 +438,32 @@ Resources:
               ViewerProtocolPolicy: https-only
               AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
               CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+              ResponseHeadersPolicyId: !Ref StudentSitesHeadersPolicy
               OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader (forwards Authorization)
               FunctionAssociations:
                 - EventType: viewer-request
                   FunctionARN: !GetAtt BackendRouteFunction.FunctionMetadata.FunctionARN
           - !Ref AWS::NoValue
+
+  # Security headers for every student site. Not the managed policy the portal uses: that one sends X-Frame-Options SAMEORIGIN, which would stop a
+  # student's site being embedded in a school page, and a student's own header (Override: false) must be able to win for HSTS and the referrer policy.
+  StudentSitesHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${AWS::StackName}-student-sites'
+        Comment: nosniff, HSTS and a referrer policy for student sites; no frame restriction
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: false # the root domain may host other things; each student host asks for HTTPS only for itself
+            Preload: false
+            Override: false
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: false
 
   # ---------- Student backends (docs/backend_wire.md) ----------
   # <slug>.<RootDomain>/api/x  ->  CloudFront  ->  Backend API  ANY /b/{slug}/{proxy+}  ->  gateway Lambda  ->  student function sd-<slug>

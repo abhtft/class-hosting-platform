@@ -67,4 +67,12 @@ assert "ORIGIN_SECRET: !Select [2, !Split ['/', !Ref 'AWS::StackId']]" in templa
 for name in ("StudentSandboxRole", "StudentSandboxBoundary", "GatewayFunction", "BackendApi"):
     assert "Action: '*'" not in block(name) and "lambda:*" not in block(name) and "logs:*" not in block(name), name
 
+# ---- student sites carry security headers, and can still be embedded in a school page ----
+policy = block("StudentSitesHeadersPolicy")
+assert "AWS::CloudFront::ResponseHeadersPolicy" in policy
+assert "ContentTypeOptions:\n            Override: true" in policy and "AccessControlMaxAgeSec: 31536000" in policy and "strict-origin-when-cross-origin" in policy
+assert "IncludeSubdomains: false" in policy, "the root domain may host other things"
+assert "FrameOptions" not in policy and "ContentSecurityPolicy" not in policy, "no frame restriction and no CSP: a student's site may be embedded and may load what it needs"
+assert distribution.count("ResponseHeadersPolicyId: !Ref StudentSitesHeadersPolicy") == 2, "the pages and the /api/* behaviour both carry the policy"
+
 print("test_template_backend.py: all passed")
