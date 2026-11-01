@@ -192,7 +192,7 @@ const TOOLS = [
   },
   {
     name: 'update_kit',
-    description: 'Bring the class kit\'s own files (the rules for AI editors, tools/, the deploy script, the helpers class_ai and class_storage, the check) up to date from the portal. It never touches the student\'s own code, .env files or files the student edited. IMPORTANT: ask the student first and call this with confirm=true only after they say yes. Afterwards tell them to restart this tool server (or reload the editor).',
+    description: 'Bring the class kit\'s own files (the rules for AI editors, tools/, the deploy script, the helpers class_ai, class_storage and class_knowledge, the check) up to date from the portal. It never touches the student\'s own code, .env files or files the student edited. IMPORTANT: ask the student first and call this with confirm=true only after they say yes. Afterwards tell them to restart this tool server (or reload the editor).',
     inputSchema: { type: 'object', properties: { confirm: { type: 'boolean', description: 'true only after the student agreed to update' }, path: PATH_PROPERTY }, required: ['confirm'], additionalProperties: false },
     async run({ confirm, path }) {
       if (confirm !== true) return { ok: false, text: 'Not updated. Ask the student whether to update the kit now; if they say yes, call update_kit again with confirm=true.' };

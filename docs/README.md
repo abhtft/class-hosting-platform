@@ -64,6 +64,7 @@ Start here if you want to understand the whole project. The first half is a one-
 | [MCP.md](MCP.md) | The student tool server and the `class-platform-mcp` package: tools, setup, tokens, updates, security |
 | [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
 | [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
+| [KNOWLEDGE_CONNECTOR.md](KNOWLEDGE_CONNECTOR.md) | Class knowledge: books and a class library a student's app answers from (PDF reading, search, the "books do not say" rule, limits, cost, permissions, helpers) |
 | [BACKGROUND_JOBS.md](BACKGROUND_JOBS.md) | Background jobs: work longer than a request. The parts, a job's life and states, the data model, limits, security model, failures, cost, local development, tests, design decisions |
 | [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP route, request, response and error code |
 | [END_TO_END.md](END_TO_END.md) | The whole workflow and day-to-day operation; section 4 describes the manual (SAM) route |

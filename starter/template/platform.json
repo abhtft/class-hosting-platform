@@ -1,6 +1,6 @@
 {
   "kit": "class-platform-starter",
-  "kitVersion": "2.1.2",
+  "kitVersion": "2.2.0",
   "minKit": "1.0.0",
   "portal": "https://deploy.example.edu",
   "frontend": "frontend",
@@ -35,6 +35,9 @@
     "backend/class_storage.py",
     "variants/node-backend/class_storage.mjs",
     "backend/class_storage.mjs",
+    "backend/class_knowledge.py",
+    "variants/node-backend/class_knowledge.mjs",
+    "backend/class_knowledge.mjs",
     "PROMPTS.md",
     "INTERVIEW.md"
   ]

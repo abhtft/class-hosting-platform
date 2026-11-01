@@ -243,8 +243,14 @@ try {
   mkdirSync(helperDir, { recursive: true });
   writeFileSync(join(helperDir, 'app.py'), 'from class_ai import ask\n');
   writeFileSync(join(helperDir, 'class_storage.py'), '# the kit copy itself must not count\n');
+  writeFileSync(join(helperDir, 'class_knowledge.py'), 'import class_knowledge\n'); // the kit copy itself must not count either
   check('helpersUsed: finds class_ai in the student code and ignores the kit helper files', () => {
     assert.deepEqual([...helpersUsed(helperDir)], ['ai']);
+    writeFileSync(join(helperDir, 'more.py'), 'import class_knowledge as kb\n');
+    assert.deepEqual([...helpersUsed(helperDir)].sort(), ['ai', 'knowledge']);
+    assert.equal(featureWarnings(sample, new Set(['knowledge'])).length, 1);
+    assert.match(featureWarnings(sample, new Set(['knowledge']))[0], /class_knowledge/);
+    rmSync(join(helperDir, 'more.py'));
     assert.deepEqual([...helpersUsed(join(work, 'nope'))], []);
   });
   check('featureWarnings: only a used helper whose feature is off', () => {

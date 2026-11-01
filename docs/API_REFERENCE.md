@@ -306,6 +306,24 @@ Base address: `CLASS_STORAGE_URL` (an API Gateway address of its own). Every req
 
 Names: collection `[a-z0-9_-]{1,40}`; id `[A-Za-z0-9._-]{1,128}`; file name `[A-Za-z0-9._-]{1,100}` (no folders).
 
+### Knowledge API (needs `KnowledgeEnabled`; see [KNOWLEDGE_CONNECTOR.md](KNOWLEDGE_CONNECTOR.md))
+
+Base address `CLASS_KNOWLEDGE_URL`, key `CLASS_KNOWLEDGE_KEY` (`ks_<slug>.<secret>`) as a bearer token. The helpers `class_knowledge.py` and `.mjs` make these calls.
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /v1/collections` | | `200 {"collections": [...], "library": [...]}` (the class library's, read-only) |
+| `POST /v1/collections` | `{"name", "title"?}` | `201` the collection; `409 exists`; `413 quota_exceeded` |
+| `DELETE /v1/collections/{name}` | | `200 {"deleted"}` |
+| `GET /v1/collections/{name}/documents` | | `200 {"documents": [{"id", "state", "filename", "title", "pages", "passages", "message"}]}`; state is `uploading`, `queued`, `processing`, `ready` or `failed` |
+| `POST /v1/collections/{name}/documents` | `{"filename", "size"}` | `200 {"doc_id", "url", "fields"}`: a presigned S3 POST (every field, then the file as the **last** field) |
+| `POST /v1/collections/{name}/documents/{id}/start` | | `200` the document (`queued`); `400 no_file`; `409 bad_state`; `429 busy`, `allowance_used` or `class_budget` |
+| `DELETE /v1/collections/{name}/documents/{id}` | | `200 {"deleted"}`; `409 busy` while it is being read |
+| `POST /v1/search` | `{"query", "collections"?: ["mine", "library/name"], "k"?: 1..10}` | `200 {"hits": [{"text", "title", "page", "page_end", "section", "collection", "score", "vector", "bm25", "coverage"}], "confident", "collections", "tokens"}` |
+| `GET /v1/usage` | | `200` limits and usage |
+
+Errors are the same JSON `{"error", "message"}`: `bad_key` 401, `token_inactive` and `not_enabled` 403, `allowance_used`, `class_budget` and `busy` 429, `quota_exceeded` and `too_large` 413, `unsupported` 415, `not_found` 404, `bad_state` 409, `not_ready` and `embedding_failed` 502 or 503, `bad_request` 400.
+
 Errors are JSON `{"error": "<code>", "message": "..."}`:
 
 | HTTP | `error` | Meaning |

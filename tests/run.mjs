@@ -146,6 +146,13 @@ await step('class storage helpers (Python and Node) against the real storage API
   }
 });
 
+await step('class knowledge helpers (Python and Node) against the real knowledge API: a real PDF, search, the answer pattern, every error kind, the local folder', () => {
+  for (const test of ['test_class_knowledge.py', 'test_class_knowledge.mjs']) {
+    const r = test.endsWith('.py') ? spawnSync(python, [join(here, test)], { encoding: 'utf8' }) : spawnSync('node', [join(here, test)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
+  }
+});
+
 await step('class-platform-mcp package: npx from a URL, editor roots, init_project, bundled check and deploy, computer-wide token, setup for VS Code and Antigravity', () => {
   const r = spawnSync('node', [join(here, 'test_mcp_package.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

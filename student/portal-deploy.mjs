@@ -125,6 +125,7 @@ export function featureList(token) {
     offer(token.backend, 'Backend', 'backend', 'on'),
     offer(token.ai, 'Class AI', 'ai', token.ai?.model ? `on (${token.ai.provider || 'ai'}: ${token.ai.model})` : 'on'),
     offer(token.storage, 'Class storage', 'storage', 'on'),
+    offer(token.knowledge, 'Class knowledge', 'knowledge', 'on'),
     offer(jobs, 'Background jobs', 'jobs', jobs?.minutes ? `on (up to ${jobs.minutes} minute${jobs.minutes === 1 ? '' : 's'} each, ${jobs.per_day} a day, ${jobs.concurrent} at a time)` : 'on'),
     offer(domain, 'Custom domain', 'custom_domain', domain?.domain ? `on (${domain.domain}, ${domain.state})` : 'on, no domain set yet'),
   ];
@@ -140,15 +141,16 @@ export function featureLines(token) {
   ];
 }
 
-/** Which class helpers does the backend folder use? Looks for the import of class_ai / class_storage in the backend's own code. */
+/** Which class helpers does the backend folder use? Looks for the import of class_ai / class_storage / class_knowledge in the backend's own code. */
 export function helpersUsed(dir) {
   const used = new Set();
   if (!existsSync(dir)) return used;
   for (const file of listFiles(dir)) {
-    if (!/\.(py|mjs|js)$/.test(file) || /(^|[\\/])(class_ai|class_storage)\.(py|mjs)$/.test(file) || /node_modules/.test(file)) continue;
+    if (!/\.(py|mjs|js)$/.test(file) || /(^|[\\/])(class_ai|class_storage|class_knowledge)\.(py|mjs)$/.test(file) || /node_modules/.test(file)) continue;
     const text = readFileSync(file, 'utf8');
     if (/\bclass_ai\b/.test(text)) used.add('ai');
     if (/\bclass_storage\b/.test(text)) used.add('storage');
+    if (/\bclass_knowledge\b/.test(text)) used.add('knowledge');
   }
   return used;
 }
@@ -156,7 +158,7 @@ export function helpersUsed(dir) {
 /** Warnings for a deploy: the backend uses a helper whose feature is off now (the teacher may have switched it off after the student started). */
 export function featureWarnings(token, used) {
   const byId = Object.fromEntries(featureList(token).map((f) => [f.id, f]));
-  const names = { ai: 'class_ai (class AI)', storage: 'class_storage (class storage)' };
+  const names = { ai: 'class_ai (class AI)', storage: 'class_storage (class storage)', knowledge: 'class_knowledge (class knowledge)' };
   return [...used].filter((id) => byId[id] && !byId[id].on).map((id) => `Your backend uses ${names[id]}, but it is ${byId[id].detail}. It will answer "not enabled" until your teacher switches it on. Ask your teacher, or build a version without it.`);
 }
 

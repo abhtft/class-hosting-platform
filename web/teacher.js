@@ -87,7 +87,7 @@ function render() {
   const pending = requests.length;
   $('badge').textContent = pending;
   $('badge').classList.toggle('hidden', pending === 0);
-  for (const name of ['students', 'requests', 'storage', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
+  for (const name of ['students', 'requests', 'storage', 'library', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
   $('toolbar').classList.toggle('hidden', tab !== 'students');
   $('stats').replaceChildren(...stats());
   let rows;
@@ -99,6 +99,8 @@ function render() {
     rows = requests.length ? requests.map(requestRow) : [h('div', { class: 'empty' }, 'No pending requests.')];
   } else if (tab === 'usage') {
     rows = usageTab();
+  } else if (tab === 'library') {
+    rows = libraryTab();
   } else {
     rows = storageTab();
   }
@@ -124,6 +126,7 @@ function studentRow(t) {
     t.backend.available && t.backend.enabled ? chip('Backend', 'Backend is on') : null,
     t.ai.available && t.ai.enabled ? chip('AI', 'Class AI is on') : null,
     t.storage?.available && t.storage.enabled ? chip('Storage', 'Class storage is on') : null,
+    t.knowledge?.available && t.knowledge.enabled ? chip('Books', 'Class knowledge is on') : null,
     t.custom_domain.available && t.custom_domain.enabled ? chip('Domain', 'Custom domain allowed') : null,
   ];
   return h('button', { class: 'student', onclick: () => openDrawer(t.id), 'aria-label': `Open details for ${t.student_name || t.slug}` },
@@ -197,6 +200,143 @@ function storageTab() {
   return [head, note, h('div', { class: 'stable' }, ...rows)];
 }
 
+// ---------- the library tab: the class library every student with class knowledge can search (read-only for them) ----------
+const LIB = '/api/admin/knowledge/library/collections';
+const BOOK_STATES = { uploading: ['Uploading', 'warn'], queued: ['Waiting', 'warn'], processing: ['Reading…', 'warn'], ready: ['Ready', 'active'], failed: ['Failed', 'expired'] };
+let library = null; // { available, spent_micro, ceiling_micro, library: { collections, limits, usage } } or { unavailable: true }
+let libraryBooks = {}; // collection name -> its documents
+let libraryTimer = null;
+let libraryBusy = ''; // a short line while a file is being sent
+
+async function loadLibrary() {
+  try {
+    library = await call('/api/admin/knowledge');
+    if (!library.available) library = { unavailable: true };
+    else {
+      const names = library.library.collections.map((c) => c.name);
+      const lists = await Promise.all(names.map((name) => call(`${LIB}/${name}/documents`).then((r) => r.documents)));
+      libraryBooks = Object.fromEntries(names.map((name, i) => [name, lists[i]]));
+    }
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 503) library = { unavailable: true };
+    else $('error').textContent = e.message;
+  }
+  clearTimeout(libraryTimer);
+  const reading = Object.values(libraryBooks).some((docs) => docs.some((d) => ['uploading', 'queued', 'processing'].includes(d.state)));
+  if (tab === 'library' && reading) libraryTimer = setTimeout(async () => { if (tab === 'library') { await loadLibrary(); render(); } }, 4000);
+}
+
+const spent = (micro) => usd(micro / 1e6);
+const passages = (n) => `${n.toLocaleString()} passage${n === 1 ? '' : 's'}`;
+const shelves = (n) => `${n} ${n === 1 ? 'shelf' : 'shelves'}`;
+
+function libraryTab() {
+  if (!library) return [h('div', { class: 'empty' }, 'Loading the library…')];
+  if (library.unavailable) return [h('div', { class: 'empty' }, 'Class knowledge is not set up on this server. Install it from your terminal with:  plan --enable knowledge  and then  apply <id>.')];
+  const { collections, limits, usage } = library.library;
+  const head = h('div', { class: 'tiles inner' },
+    tile('Books', usage.documents.toLocaleString(), `of ${limits.documents} · ${shelves(collections.length)}`),
+    tile('Passages', usage.passages.toLocaleString(), `of ${limits.passages.toLocaleString()}`),
+    tile('Space', mb(usage.stored_bytes), `of ${limits.stored_mb} MB`),
+    tile('Adding books this month', spent(library.spent_micro), `ceiling ${spent(library.ceiling_micro)} for the whole class`));
+  const note = h('p', { class: 'privacy small muted' },
+    'Students with class knowledge switched on can search these books (as “library/<shelf>”) but cannot change them. Only add books you may share with the class. PDFs with text work; scanned pages are skipped. When the class reaches the monthly ceiling no new book is read until next month; searching keeps working.');
+  const bar = h('div', { class: 'btns', style: 'padding:0 16px 12px' }, h('button', { class: 'primary small', onclick: addShelf }, 'New shelf…'),
+    libraryBusy ? h('span', { class: 'small muted' }, libraryBusy) : null);
+  if (!collections.length) return [head, note, bar, h('div', { class: 'empty' }, 'The library is empty. Create a shelf (for example “science-9”) and add the school’s books to it.')];
+  return [head, note, bar, ...collections.map(shelfSection)];
+}
+
+function shelfSection(c) {
+  const books = libraryBooks[c.name] || [];
+  const picker = h('input', { type: 'file', accept: '.pdf,.txt,.md,.markdown,.html,.htm', multiple: true, class: 'hidden', 'aria-label': `Add books to ${c.name}`,
+    onchange: (e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) uploadBooks(c.name, files); } });
+  const rows = books.length ? books.map((d) => bookRow(c.name, d)) : [h('div', { class: 'small muted', style: 'padding:8px 16px' }, 'No books on this shelf yet.')];
+  return h('section', { class: 'feature on', style: 'margin:0 16px 12px' },
+    h('div', { class: 'feature-head' }, h('div', {}, h('h3', {}, c.title && c.title !== c.name ? `${c.title} (${c.name})` : c.name),
+      h('div', { class: 'small muted' }, `${c.documents} book${c.documents === 1 ? '' : 's'} · ${passages(c.passages)}`)),
+    h('div', { class: 'btns' }, picker, h('button', { class: 'small', onclick: () => picker.click() }, 'Add books…'),
+      h('button', { class: 'small danger', onclick: () => removeShelf(c) }, 'Remove shelf…'))),
+    h('div', { class: 'feature-body' }, rows));
+}
+
+function bookRow(shelf, d) {
+  const [label, cls] = BOOK_STATES[d.state] || [d.state, 'offline'];
+  const detail = d.state === 'ready' ? `${d.pages ? `${d.pages} page${d.pages === 1 ? '' : 's'} · ` : ''}${passages(d.passages || 0)}${d.message ? ` · ${d.message}` : ''}` : d.message || '';
+  return h('div', { class: 'srow', style: 'grid-template-columns: minmax(140px, 1.4fr) 100px 1fr 80px' },
+    h('span', { title: d.filename }, d.title || d.filename),
+    h('span', {}, h('span', { class: `pill ${cls}` }, label)),
+    h('span', { class: 'small muted' }, detail),
+    h('button', { class: 'small danger', onclick: () => removeBook(shelf, d) }, 'Remove…'));
+}
+
+async function addShelf() {
+  const r = await ask({ title: 'New library shelf', text: 'A shelf groups books students search together, for example one subject or class. Students refer to it as library/<name>.',
+    fields: [{ name: 'name', label: 'Name (lowercase letters, digits, - and _)', required: true, placeholder: 'science-9', maxlength: 40 },
+      { name: 'title', label: 'Title shown to you (optional)', placeholder: 'Science, class 9', maxlength: 100 }], confirm: 'Create' });
+  if (!r) return;
+  try {
+    await call(LIB, { method: 'POST', body: { name: r.name.trim(), title: r.title.trim() } });
+    toast('Shelf created');
+    await loadLibrary();
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function removeShelf(c) {
+  const r = await ask({ title: `Remove the shelf “${c.name}”`, text: `This deletes ${c.documents} book${c.documents === 1 ? '' : 's'} and their search data for every student. Students whose apps search library/${c.name} will get “no such collection”.`,
+    fields: [{ name: 'confirm', label: `Type “${c.name}” to confirm`, required: true, placeholder: c.name, maxlength: 40 }], confirm: 'Remove', danger: true });
+  if (!r) return;
+  if (r.confirm.trim() !== c.name) { toast('The name did not match, so nothing was removed'); return; }
+  try {
+    await call(`${LIB}/${c.name}`, { method: 'DELETE' });
+    toast('Shelf removed');
+    await loadLibrary();
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function removeBook(shelf, d) {
+  const r = await ask({ title: `Remove “${d.title || d.filename}”`, text: 'The book and its search data are deleted. Adding the same file again costs almost nothing, because its embeddings are remembered for 90 days.', confirm: 'Remove', danger: true });
+  if (!r) return;
+  try {
+    await call(`${LIB}/${shelf}/documents/${d.id}`, { method: 'DELETE' });
+    toast('Book removed');
+    await loadLibrary();
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+/** The browser sends the file straight to S3 with the one-time form the platform gives, then tells the platform to read it. Files go one after another. */
+async function uploadBooks(shelf, files) {
+  for (const file of files) {
+    libraryBusy = `Sending ${file.name}…`;
+    render();
+    try {
+      const target = await call(`${LIB}/${shelf}/documents`, { method: 'POST', body: { filename: file.name, size: file.size } });
+      const form = new FormData();
+      for (const [field, value] of Object.entries(target.fields)) form.append(field, value);
+      form.append('file', file); // S3 needs the file as the LAST field
+      const sent = await fetch(target.url, { method: 'POST', body: form });
+      if (!sent.ok) throw new Error(`The upload was refused (${sent.status}). The file may be larger than allowed.`);
+      await call(`${LIB}/${shelf}/documents/${target.doc_id}/start`, { method: 'POST', body: {} });
+      toast(`${file.name} is being read`);
+    } catch (e) {
+      toast(`${file.name}: ${e.message}`);
+      $('error').textContent = `${file.name}: ${e.message}`;
+    }
+  }
+  libraryBusy = '';
+  await loadLibrary();
+  render();
+}
+
 // ---------- the detail panel (opens when you click a student) ----------
 const drawer = h('dialog', { class: 'drawer', 'aria-label': 'Student details' });
 document.body.append(drawer);
@@ -267,6 +407,7 @@ function drawerContent(t) {
           h('div', { class: 'btns' }, btn('Edit cap…', () => editAi(t)))] }));
     }
     if (t.storage?.available) features.push(storageFeature(t, live, btn));
+    if (t.knowledge?.available) features.push(knowledgeFeature(t, live, btn));
   }
 
   return h('div', { class: 'drawer-body' },
@@ -304,7 +445,62 @@ function storageFeature(t, live, btn) {
       h('p', { class: 'privacy small muted' }, 'You see sizes and counts only. What a student stores is private to them.')] });
 }
 
+const tokenText = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 ? 1 : 0)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+/** Class knowledge: a book shelf the student's app answers from. The teacher sees counts and sizes, never the books. */
+function knowledgeFeature(t, live, btn) {
+  const k = t.knowledge;
+  const u = k.usage || { documents: 0, passages: 0, stored_bytes: 0, searches_used: 0, embed_tokens_month: 0 };
+  const l = k.limits;
+  return feature({ title: 'Class knowledge', hint: k.enabled ? 'A book shelf the student’s app answers from, plus the class library' : 'Lets the student’s app answer from books (PDF and text), with sources', on: k.enabled, disabled: !live, onToggle: () => toggleKnowledge(t),
+    body: [meter('Books', u.documents, l.documents, `${u.documents.toLocaleString()} / ${l.documents.toLocaleString()} books · up to ${l.collections} shelves`),
+      meter('Passages', u.passages, l.passages, `${u.passages.toLocaleString()} / ${l.passages.toLocaleString()}`),
+      meter('Space', u.stored_bytes, l.stored_mb * MB, `${mb(u.stored_bytes)} / ${l.stored_mb} MB`),
+      meter('Searches', u.searches_used, l.searches_limit, `${u.searches_used.toLocaleString()} / ${l.searches_limit.toLocaleString()} ${PER[l.searches_period]}`),
+      meter('Adding books this month', u.embed_tokens_month, l.embed_tokens, `${tokenText(u.embed_tokens_month)} / ${tokenText(l.embed_tokens)} tokens`),
+      h('div', { class: 'btns' }, btn('Edit limits…', () => editKnowledge(t)), btn('Remove all books…', () => clearKnowledge(t), 'danger')),
+      h('p', { class: 'privacy small muted' }, 'You see counts and sizes only. What a student adds to their shelf is private to them. The class library is under the Library tab.')] });
+}
+
 // ---------- actions ----------
+async function toggleKnowledge(t) {
+  const enabled = !t.knowledge.enabled;
+  act(`/api/admin/tokens/${t.id}/knowledge`, { enabled },
+    enabled ? `Class knowledge switched on for ${t.slug}: up to ${t.knowledge.limits.documents} books. They publish their backend again to receive the key` : `Class knowledge switched off for ${t.slug}: their books are kept but not served`);
+}
+
+async function editKnowledge(t) {
+  const l = t.knowledge.limits, b = l.bounds;
+  const num = (name, label, extra = {}) => ({ name, label, type: 'number', value: l[name], min: b[name][0], max: b[name][1], required: true, ...extra });
+  const r = await ask({ title: `Class knowledge limits for ${t.slug}`,
+    text: 'Hard limits, checked by the platform before any money is spent. Reading a book costs a few US cents once; searching costs almost nothing.',
+    fields: [num('collections', 'Shelves (collections)'), num('documents', 'Books in all'), num('passages', 'Passages in all (a 300-page book is about 500 to 900)'),
+      num('stored_mb', 'Space for books and their search data (MB)'), num('upload_mb', 'Largest file (MB)'), num('searches_limit', 'Searches allowed'),
+      { name: 'searches_period', label: 'Per', options: [['day', 'day'], ['month', 'month'], ['total', 'total (whole token life)']], value: l.searches_period },
+      num('embed_tokens', 'Adding books: embedding tokens per month (1 page is about 500)')], confirm: 'Save' });
+  if (!r) return;
+  const body = { searches_period: r.searches_period };
+  for (const name of ['collections', 'documents', 'passages', 'stored_mb', 'upload_mb', 'searches_limit', 'embed_tokens']) body[name] = Number(r[name]);
+  act(`/api/admin/tokens/${t.id}/knowledge`, body, 'Class knowledge limits saved');
+}
+
+/** Removes every book the student added. The teacher never sees them; the key, switch and limits stay. Typing the name guards against a slip. */
+async function clearKnowledge(t) {
+  const r = await ask({ title: `Remove all books of ${t.slug}`,
+    text: 'This deletes every shelf and book the student added, with its search data. You will not see them, and it cannot be undone. Their access and limits stay as they are. The class library is not touched.',
+    fields: [{ name: 'confirm', label: `Type “${t.slug}” to confirm`, required: true, placeholder: t.slug, maxlength: 40 }], confirm: 'Remove', danger: true });
+  if (!r) return;
+  if (r.confirm.trim() !== t.slug) { toast('The name did not match, so nothing was removed'); return; }
+  try {
+    const { cleared } = await call(`/api/admin/tokens/${t.id}/knowledge/clear`, { method: 'POST', body: {} });
+    toast(`Removed ${shelves(cleared.removed.length)}`);
+    await load();
+  } catch (e) {
+    toast(e.message);
+    $('error').textContent = e.message;
+  }
+}
+
 async function act(path, body, message) {
   try {
     await call(path, { method: 'POST', body });
@@ -505,7 +701,7 @@ $('login-form').addEventListener('submit', async (e) => {
     $('login-error').textContent = err.message;
   }
 });
-$('logout').onclick = () => { session('teacher', null); tokens = requests = []; overview = null; closeDrawer(); $('created').classList.add('hidden'); show(false); };
+$('logout').onclick = () => { session('teacher', null); tokens = requests = []; overview = null; library = null; libraryBooks = {}; closeDrawer(); $('created').classList.add('hidden'); show(false); };
 $('refresh').onclick = load;
 $('new-token').onclick = newToken;
 $('search').addEventListener('input', (e) => { query = e.target.value; render(); });
@@ -513,6 +709,7 @@ $('tab-students').onclick = () => { tab = 'students'; render(); };
 $('tab-requests').onclick = () => { tab = 'requests'; render(); };
 $('tab-usage').onclick = () => { tab = 'usage'; render(); };
 $('tab-storage').onclick = async () => { tab = 'storage'; render(); await loadOverview(); render(); };
+$('tab-library').onclick = async () => { tab = 'library'; render(); await loadLibrary(); render(); };
 
 setInterval(() => { if (session('teacher') && !document.hidden && !document.querySelector('dialog[open]:not(.drawer)')) load(); }, 60000);
 if (session('teacher')) { show(true); load(); } else show(false);

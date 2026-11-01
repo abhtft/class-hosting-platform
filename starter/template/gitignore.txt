@@ -13,8 +13,9 @@ __pycache__/
 !.env.example
 *.local
 
-# the local stand-in for class storage (npm run dev), the once-a-day kit version check, and copies of kit files replaced by a sync
+# the local stand-ins for class storage and class knowledge (npm run dev), the once-a-day kit version check, and copies of kit files replaced by a sync
 .class-storage/
+.class-knowledge/
 .platform-notice.json
 .kit-backup/
 
