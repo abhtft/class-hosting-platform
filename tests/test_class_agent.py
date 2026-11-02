@@ -50,7 +50,9 @@ result = agent.run("What is life?", tools, model=model)
 assert result["status"] == "done" and result["answer"] == "The answer is 42." and result["steps"] == 2, result
 assert [t["kind"] for t in result["trace"]] == ["tool", "final"] and result["trace"][0]["result"] == '{"fact": "life is 42"}' and calls == [("lookup", {"topic": "life"})]
 system = model.seen[0][0]["content"]
-assert "lookup(topic: text, limit: number?)" in system and "DATA" in system and "save(text: text): Save something [needs a human's approval first]" in system
+assert '- lookup: Find a fact. Send: {"tool": "lookup", "args": {"topic": "<text>", "limit": <number> (optional)}}' in system and "DATA" in system
+assert "[needs a human's approval first]" in system and '- save: Save something. Send: {"tool": "save", "args": {"text": "<text>"}}' in system
+assert "lookup(" not in system and "NOT a native function call" in system, "no function-call look: Gemini refuses such prompts as malformed and answers nothing"
 assert model.seen[1][-1]["content"].startswith('<tool_result name="lookup">')
 print("  ok  tool then final answer (also from a reply wrapped in a code fence); the model is told the tools and that results are data")
 
@@ -120,6 +122,17 @@ class FakeAiError(Exception):
 
 result = agent.run("goal", tools, model=scripted(FakeAiError()))
 assert result["status"] == "error" and result["answer"] == "Your AI allowance is used up." and result["trace"][0]["kind_of_error"] == "cap_reached"
+class Busy(Exception):
+    kind, message = "provider_error", "The AI service had a problem. Please try again."
+
+
+model = scripted(Busy(), {"final": "second try worked"})
+result = agent.run("goal", tools, model=model)
+assert result["status"] == "done" and result["answer"] == "second try worked" and [t["kind"] for t in result["trace"]] == ["retry", "final"] and len(model.seen) == 2
+result = agent.run("goal", tools, model=scripted(Busy(), Busy()))
+assert result["status"] == "error" and result["answer"] == Busy.message, "only one retry"
+result = agent.run("goal", tools, model=scripted(FakeAiError()))
+assert [t["kind"] for t in result["trace"]] == ["error"], "an allowance problem is not retried"
 result = agent.run("goal", tools, model=scripted(RuntimeError("secret detail")))
 assert result["status"] == "error" and "secret detail" not in json.dumps(result)
 print("  ok  an AI error stops the run with its friendly message; an unknown error never leaks its text")
