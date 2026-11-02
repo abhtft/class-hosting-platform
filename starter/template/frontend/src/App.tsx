@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { api, ApiError } from './api'
+import AgentPanel from './AgentPanel'
+import StudyPanel from './StudyPanel'
 
 /**
  * Starter page: replace this with your own app. It shows the two things every project needs:
@@ -57,6 +59,9 @@ export default function App() {
       </section>
 
       {error && <p className="error" role="alert">{error}</p>}
+
+      <StudyPanel />
+      <AgentPanel />
     </main>
   )
 }

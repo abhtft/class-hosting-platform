@@ -81,7 +81,7 @@ A tool made with `needs_approval=True` never runs by itself. The run stops; you 
 the agent wants to do, and call `agent.resume(state, approve=True|False, tools=tools)` when they answer. Do this for anything that saves, sends, deletes or
 spends. The model cannot approve its own request; only a click from the student can.
 
-**Show the person exactly what will happen, and what it is based on.** Show `result["pending"]["args"]` word for word (the exact note text, the exact recipient) and the `trace` of what the agent read. A model can pick the wrong line of a page: in a real test an agent searched the class books, read "CHAIRMAN ... J.V. Narlikar" and "CHIEF ADVISOR Rupamanjari Ghosh" on the same page, and asked to save a note naming the wrong person. Approval is where that is caught, so the page needs an Approve button, a Decline button and the text next to them. Each `resume` gets a fresh budget of steps, seconds and tokens, and a run can be approved only once.
+**Show the person exactly what will happen, and what it is based on.** Show `result["pending"]["args"]` word for word (the exact note text, the exact recipient) and the `trace` of what the agent read. A model can pick the wrong line of a page: in a real test an agent searched the class books, read "CHAIRMAN ... J.V. Narlikar" and "CHIEF ADVISOR Rupamanjari Ghosh" on the same page, and asked to save a note naming the wrong person. Approval is where that is caught, so the page needs an Approve button, a Decline button and the text next to them. The starter has this card ready in `frontend/src/AgentPanel.tsx`. Each `resume` gets a fresh budget of steps, seconds and tokens, and a run can be approved only once.
 
 ## 7. The quality loop
 

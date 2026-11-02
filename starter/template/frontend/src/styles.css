@@ -11,3 +11,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ok { color: #1d8a4e; margin: 0; }
 .answer { background: #8882; padding: 10px; border-radius: 8px; margin: 0; white-space: pre-wrap; }
 .error { color: #c0362c; }
+.small { font-size: 0.85rem; }
+.stack { display: grid; gap: 10px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.unsure { border-left: 4px solid #c98a1b; }
+button.ghost { background: transparent; border: 1px solid #8886; border-radius: 6px; }
+.sources { margin: 0; padding-left: 20px; font-size: 0.9rem; }
+.trace { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.trace .bad strong { color: #c0362c; }
+pre { white-space: pre-wrap; word-break: break-word; background: #8882; padding: 8px; border-radius: 6px; margin: 4px 0; max-height: 220px; overflow: auto; }
+.approval { border: 2px solid #3b82c4; border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
+.approval h3 { margin: 0; font-size: 1rem; }
+.approval dl { margin: 0; display: grid; gap: 6px; }
+.approval dt { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; opacity: 0.7; }
+.approval dd { margin: 0; }
+.approval blockquote { margin: 4px 0 0; padding: 8px 10px; background: #8882; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
