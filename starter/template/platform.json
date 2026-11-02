@@ -15,6 +15,7 @@
     "login",
     "mcp-config",
     "logs",
+    "eval",
     "deploy"
   ],
   "managed": [

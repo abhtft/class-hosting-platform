@@ -18,6 +18,7 @@ import time
 from urllib.parse import parse_qs
 
 import class_storage as storage  # the platform's helper for saving data (needs the teacher to switch class storage on)
+import study  # EXAMPLE routes for the AI patterns (answer from books, feedback, an agent): read them, copy what you need, delete what you do not (see PATTERNS.md)
 from class_ai import AiError, ask  # the platform's helper for the class AI: two lines are all you need
 
 
@@ -85,5 +86,9 @@ def handler(event, context):
             return respond(201, note)
         except storage.StorageError as error:  # not switched on, full, allowance used... a friendly message and a kind
             return respond(503, {"error": error.kind, "message": str(error)})
+
+    routed = study.route(method, path, read_json(event))  # the example AI-pattern routes: /study, /feedback, /agent, /agent/approve
+    if routed:
+        return respond(*routed)
 
     return respond(404, {"error": "not_found", "message": "No such route."})

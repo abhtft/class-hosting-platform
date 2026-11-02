@@ -53,7 +53,7 @@ tools = [
     agent.tool("search_books", "Find passages in the class books", {"query": "text"}, lambda a: kb.search(a["query"])["hits"][:3]),
     agent.tool("add_numbers", "Add two numbers", {"a": "number", "b": "number"}, lambda a: a["a"] + a["b"]),
 ]
-result = agent.run(goal, tools, max_steps=5, max_seconds=20)
+result = agent.run(goal, tools, max_steps=5, max_seconds=16)   # a web request stops at 25 s: a real model needs 2 to 5 s per step, so keep this under 18
 return respond(200, {"answer": result["answer"], "status": result["status"], "trace": result["trace"]})
 ```
 
@@ -80,6 +80,8 @@ def run_job(job):
 A tool made with `needs_approval=True` never runs by itself. The run stops; you store `result["state"]` (plain JSON) with class storage, show the student what
 the agent wants to do, and call `agent.resume(state, approve=True|False, tools=tools)` when they answer. Do this for anything that saves, sends, deletes or
 spends. The model cannot approve its own request; only a click from the student can.
+
+**Show the person exactly what will happen, and what it is based on.** Show `result["pending"]["args"]` word for word (the exact note text, the exact recipient) and the `trace` of what the agent read. A model can pick the wrong line of a page: in a real test an agent searched the class books, read "CHAIRMAN ... J.V. Narlikar" and "CHIEF ADVISOR Rupamanjari Ghosh" on the same page, and asked to save a note naming the wrong person. Approval is where that is caught, so the page needs an Approve button, a Decline button and the text next to them. Each `resume` gets a fresh budget of steps, seconds and tokens, and a run can be approved only once.
 
 ## 7. The quality loop
 

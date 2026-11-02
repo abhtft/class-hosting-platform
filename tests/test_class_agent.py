@@ -51,10 +51,20 @@ assert result["status"] == "done" and result["answer"] == "The answer is 42." an
 assert [t["kind"] for t in result["trace"]] == ["tool", "final"] and result["trace"][0]["result"] == '{"fact": "life is 42"}' and calls == [("lookup", {"topic": "life"})]
 system = model.seen[0][0]["content"]
 assert '- lookup: Find a fact. Send: {"tool": "lookup", "args": {"topic": "<text>", "limit": <number> (optional)}}' in system and "DATA" in system
-assert "[needs a human's approval first]" in system and '- save: Save something. Send: {"tool": "save", "args": {"text": "<text>"}}' in system
+assert "[the program asks the person first, so request it normally]" in system and "do every part" in system and '- save: Save something. Send: {"tool": "save", "args": {"text": "<text>"}}' in system
 assert "lookup(" not in system and "NOT a native function call" in system, "no function-call look: Gemini refuses such prompts as malformed and answers nothing"
 assert model.seen[1][-1]["content"].startswith('<tool_result name="lookup">')
 print("  ok  tool then final answer (also from a reply wrapped in a code fence); the model is told the tools and that results are data")
+
+# ---- a tool may be used only so many times, even with different arguments (real models search again and again with new words) ----
+calls.clear()
+model = scripted(*[{"tool": "lookup", "args": {"topic": f"t{i}"}} for i in range(3)], {"tool": "lookup", "args": {"topic": "t3"}}, {"final": "enough"})
+result = agent.run("goal", tools, model=model, max_steps=8)
+assert len(calls) == 3 and result["trace"][3]["kind"] == "refused" and "already used lookup 3 times" in result["trace"][3]["reason"] and result["answer"] == "enough"
+calls.clear()
+result = agent.run("goal", tools, model=scripted(*[{"tool": "lookup", "args": {"topic": f"u{i}"}} for i in range(3)], {"final": "ok"}), max_steps=8, max_calls_per_tool=2)
+assert len(calls) == 2 and [t["kind"] for t in result["trace"]].count("refused") == 1
+print("  ok  a tool can be used at most 3 times in a run (configurable), even with different arguments")
 
 # ---- guardrails ----
 model = scripted({"tool": "delete_everything", "args": {}}, {"tool": "lookup", "args": {"topic": "a", "extra": 1}}, {"tool": "lookup", "args": {"limit": 3}},
@@ -164,4 +174,25 @@ os.environ["AI_MOCK"] = "1"
 result = agent.run("goal", tools)
 assert result["status"] == "error" and "could not understand" in result["answer"]
 print("  ok  without a model it uses class_ai; the offline mock's plain text is reported, not crashed on")
+
+# ---- mock=[...]: a scripted offline agent, used ONLY while the class AI is the offline mock ----
+calls.clear()
+script = [{"tool": "lookup", "args": {"topic": "ohm"}}, {"final": "scripted answer"}]
+result = agent.run("goal", tools, mock=script)
+assert result["status"] == "done" and result["answer"] == "scripted answer" and calls == [("lookup", {"topic": "ohm"})]
+result = agent.run("goal", tools, mock=[{"final": "one"}])
+assert result["answer"] == "one"
+os.environ["AI_MOCK"] = "0"  # as on the platform: the class AI is real (here: not switched on), so the script must be ignored
+os.environ.pop("OPENAI_API_KEY", None)
+result = agent.run("goal", tools, mock=[{"final": "must not be used"}])
+assert result["status"] == "error" and "must not be used" not in json.dumps(result)
+os.environ["AI_MOCK"] = "1"
+first = agent.run("goal", tools, mock=[{"tool": "save", "args": {"text": "n"}}, {"final": "saved"}])
+assert first["status"] == "needs_approval" and agent.resume(first["state"], True, tools, mock=[{"final": "saved"}])["answer"] == "saved"
+# ---- the budgets start again after an approval ----
+first = agent.run("goal", tools, model=scripted({"tool": "lookup", "args": {"topic": "a"}}, {"tool": "lookup", "args": {"topic": "b"}}, {"tool": "save", "args": {"text": "n"}}), max_steps=3)
+assert first["status"] == "needs_approval" and first["steps"] == 3
+after = agent.resume(first["state"], True, tools, model=scripted({"tool": "lookup", "args": {"topic": "c"}}, {"final": "all done"}), max_steps=3)
+assert after["status"] == "done" and after["answer"] == "all done" and after["steps"] == 5, after
+print("  ok  mock=[...] scripts an offline agent (also through approval and resume) and is ignored when the class AI is real")
 print("test_class_agent.py: all passed")

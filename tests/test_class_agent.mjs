@@ -42,10 +42,25 @@ assert.equal(result.trace[0].result, '{"fact":"life is 42"}');
 assert.deepEqual(calls, [['lookup', { topic: 'life' }]]);
 const system = model.seen[0][0].content;
 assert.ok(system.includes('- lookup: Find a fact. Send: {"tool": "lookup", "args": {"topic": "<text>", "limit": <number> (optional)}}') && system.includes('DATA'));
-assert.ok(system.includes("[needs a human's approval first]") && system.includes('- save: Save something. Send: {"tool": "save", "args": {"text": "<text>"}}'));
+assert.ok(system.includes('[the program asks the person first, so request it normally]') && system.includes('do every part') && system.includes('- save: Save something. Send: {"tool": "save", "args": {"text": "<text>"}}'));
 assert.ok(!system.includes('lookup(') && system.includes('NOT a native function call'), 'no function-call look: Gemini refuses such prompts as malformed and answers nothing');
 assert.ok(model.seen[1].at(-1).content.startsWith('<tool_result name="lookup">'));
 say('tool then final answer (also from a reply wrapped in a code fence); the model is told the tools and that results are data');
+
+calls.length = 0;
+// a tool may be used only so many times, even with different arguments (real models search again and again with new words)
+calls.length = 0;
+model = scripted(...[0, 1, 2].map((i) => ({ tool: 'lookup', args: { topic: `t${i}` } })), { tool: 'lookup', args: { topic: 't3' } }, { final: 'enough' });
+result = await agent.run('goal', tools, { model, maxSteps: 8 });
+assert.equal(calls.length, 3);
+assert.equal(result.trace[3].kind, 'refused');
+assert.match(result.trace[3].reason, /already used lookup 3 times/);
+assert.equal(result.answer, 'enough');
+calls.length = 0;
+result = await agent.run('goal', tools, { model: scripted(...[0, 1, 2].map((i) => ({ tool: 'lookup', args: { topic: `u${i}` } })), { final: 'ok' }), maxSteps: 8, maxCallsPerTool: 2 });
+assert.equal(calls.length, 2);
+assert.equal(result.trace.filter((t) => t.kind === 'refused').length, 1);
+say('a tool can be used at most 3 times in a run (configurable), even with different arguments');
 
 calls.length = 0;
 model = scripted({ tool: 'delete_everything', args: {} }, { tool: 'lookup', args: { topic: 'a', extra: 1 } }, { tool: 'lookup', args: { limit: 3 } },
@@ -168,4 +183,28 @@ result = await agent.run('goal', tools);
 assert.equal(result.status, 'error');
 assert.match(result.answer, /could not understand/);
 say("without a model it uses class_ai; the offline mock's plain text is reported, not crashed on");
+
+// ---- mock: [...] a scripted offline agent, used ONLY while the class AI is the offline mock ----
+calls.length = 0;
+result = await agent.run('goal', tools, { mock: [{ tool: 'lookup', args: { topic: 'ohm' } }, { final: 'scripted answer' }] });
+assert.equal(result.status, 'done');
+assert.equal(result.answer, 'scripted answer');
+assert.deepEqual(calls, [['lookup', { topic: 'ohm' }]]);
+process.env.AI_MOCK = '0'; // as on the platform: the class AI is real (here: not switched on), so the script must be ignored
+delete process.env.OPENAI_API_KEY;
+result = await agent.run('goal', tools, { mock: [{ final: 'must not be used' }] });
+assert.ok(result.status === 'error' && !JSON.stringify(result).includes('must not be used'));
+process.env.AI_MOCK = '1';
+first = await agent.run('goal', tools, { mock: [{ tool: 'save', args: { text: 'n' } }, { final: 'saved' }] });
+assert.equal(first.status, 'needs_approval');
+assert.equal((await agent.resume(first.state, true, tools, { mock: [{ final: 'saved' }] })).answer, 'saved');
+// the budgets start again after an approval
+first = await agent.run('goal', tools, { model: scripted({ tool: 'lookup', args: { topic: 'a' } }, { tool: 'lookup', args: { topic: 'b' } }, { tool: 'save', args: { text: 'n' } }), maxSteps: 3 });
+assert.equal(first.status, 'needs_approval');
+assert.equal(first.steps, 3);
+const after = await agent.resume(first.state, true, tools, { model: scripted({ tool: 'lookup', args: { topic: 'c' } }, { final: 'all done' }), maxSteps: 3 });
+assert.equal(after.status, 'done');
+assert.equal(after.answer, 'all done');
+assert.equal(after.steps, 5);
+say('mock: [...] scripts an offline agent (also through approval and resume) and is ignored when the class AI is real');
 console.log('test_class_agent.mjs: all passed');

@@ -63,6 +63,11 @@ def _mock_mode():
     return not os.environ.get("OPENAI_API_KEY") and not os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
 
 
+def mocking():
+    """True when answers come from the offline mock (on your computer without a key, or AI_MOCK=1). class_agent uses it to run a scripted offline agent."""
+    return _mock_mode()
+
+
 def available():
     return _mock_mode() or bool(os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_BASE_URL"))
 

@@ -54,6 +54,11 @@ function mockMode() {
   return !process.env.OPENAI_API_KEY && !process.env.AWS_LAMBDA_FUNCTION_NAME;
 }
 
+/** True when answers come from the offline mock (on your computer without a key, or AI_MOCK=1). class_agent uses it to run a scripted offline agent. */
+export function mocking() {
+  return mockMode();
+}
+
 export function available() {
   return mockMode() || Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_BASE_URL);
 }

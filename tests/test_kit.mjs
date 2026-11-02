@@ -25,7 +25,7 @@ const rules = read(join(repo, 'starter', 'rules', 'AGENTS.md')).replace(/\r\n/g,
 for (const path of ['AGENTS.md', 'GEMINI.md', 'CLAUDE.md', '.claude/skills/class-platform/SKILL.md', '.cursor/rules/class-platform.mdc', '.github/copilot-instructions.md', '.windsurfrules',
   'README.md', 'PROMPTS.md', 'package.json', 'platform.json', '.gitignore', '.env.example', 'portal-deploy.mjs', 'kit-manifest.json', '.github/workflows/deploy.yml',
   'tools/check.mjs', 'tools/mcp.mjs', '.vscode/mcp.json', 'tools/dev.mjs', 'tools/dev_server.py', 'tools/dev_server.mjs', 'tools/doctor.mjs', 'frontend/package.json', 'frontend/package-lock.json',
-  'frontend/src/App.tsx', 'frontend/src/api.ts', 'backend/app.py', 'backend/class_ai.py', 'backend/class_storage.py', 'backend/class_knowledge.py', 'backend/class_agent.py', 'backend/class_quality.py', 'PATTERNS.md', 'variants/node-backend/index.mjs', 'variants/node-backend/class_ai.mjs', 'variants/node-backend/class_storage.mjs', 'variants/node-backend/class_knowledge.mjs', 'variants/node-backend/class_agent.mjs', 'variants/node-backend/class_quality.mjs']) {
+  'frontend/src/App.tsx', 'frontend/src/api.ts', 'backend/app.py', 'backend/class_ai.py', 'backend/class_storage.py', 'backend/class_knowledge.py', 'backend/class_agent.py', 'backend/class_quality.py', 'backend/study.py', 'variants/node-backend/study.mjs', 'tools/eval.mjs', 'evals/study.json', 'PATTERNS.md', 'variants/node-backend/index.mjs', 'variants/node-backend/class_ai.mjs', 'variants/node-backend/class_storage.mjs', 'variants/node-backend/class_knowledge.mjs', 'variants/node-backend/class_agent.mjs', 'variants/node-backend/class_quality.mjs']) {
   assert.ok(existsSync(join(kit, path)), `the kit is missing ${path}`);
 }
 // npm never packs a file named .gitignore or .npmignore (found on a real account: kits published from the released package had no .gitignore), so the source template
@@ -99,7 +99,7 @@ const fixture = (id, level, mutate, { exit } = {}) => {
   assert.equal(status, exit ?? (level === 'error' ? 1 : 0), `${id}: exit code`);
   return json;
 };
-const toNode = (d) => { rmSync(join(d, 'backend', 'app.py')); rmSync(join(d, 'backend', 'class_ai.py')); rmSync(join(d, 'backend', 'class_storage.py')); rmSync(join(d, 'backend', 'class_knowledge.py')); rmSync(join(d, 'backend', 'class_agent.py')); rmSync(join(d, 'backend', 'class_quality.py')); cpSync(join(d, 'variants', 'node-backend'), join(d, 'backend'), { recursive: true }); rmSync(join(d, 'variants'), { recursive: true }); };
+const toNode = (d) => { rmSync(join(d, 'backend', 'app.py')); rmSync(join(d, 'backend', 'class_ai.py')); rmSync(join(d, 'backend', 'class_storage.py')); rmSync(join(d, 'backend', 'class_knowledge.py')); rmSync(join(d, 'backend', 'class_agent.py')); rmSync(join(d, 'backend', 'class_quality.py')); rmSync(join(d, 'backend', 'study.py')); cpSync(join(d, 'variants', 'node-backend'), join(d, 'backend'), { recursive: true }); rmSync(join(d, 'variants'), { recursive: true }); };
 const append = (file, text) => (d) => writeFileSync(join(d, file), read(join(d, file)) + text);
 const fakeToken = 'mds_' + 'a1B2'.repeat(6);
 const fakeOrKey = 'sk-or-v1-' + 'a1B2c3D4'.repeat(4);

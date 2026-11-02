@@ -14,6 +14,7 @@
 // Run it on your computer with `npm run dev` (or `npm run dev -- --backend-only`).
 import { AiError, ask } from './class_ai.mjs'; // the platform's helper for the class AI: two lines are all you need
 import * as storage from './class_storage.mjs'; // the platform's helper for saving data (needs the teacher to switch class storage on)
+import * as study from './study.mjs'; // EXAMPLE routes for the AI patterns (answer from books, feedback, an agent): read them, copy what you need, delete what you do not (see PATTERNS.md)
 
 const json = (statusCode, data) => ({ statusCode, headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
 
@@ -80,6 +81,9 @@ export const handler = async (event) => {
       throw error;
     }
   }
+
+  const routed = await study.route(method, path, readJson(event)); // the example AI-pattern routes: /study, /feedback, /agent, /agent/approve
+  if (routed) return json(...routed);
 
   return json(404, { error: 'not_found', message: 'No such route.' });
 };

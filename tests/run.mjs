@@ -160,6 +160,11 @@ await step('AI pattern helpers (agent and quality, Python and Node): budgets, gu
   }
 });
 
+await step('AI patterns together in a fresh kit (Python and Node dev servers): books with cache, feedback, agent with approval, npm run eval', () => {
+  const r = spawnSync('node', [join(here, 'test_ai_patterns_e2e.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('class-platform-mcp package: npx from a URL, editor roots, init_project, bundled check and deploy, computer-wide token, setup for VS Code and Antigravity', () => {
   const r = spawnSync('node', [join(here, 'test_mcp_package.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);
