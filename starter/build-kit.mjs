@@ -6,6 +6,7 @@
 //         + student/class_ai.py / class_ai.mjs       -> backend/class_ai.py, variants/node-backend/class_ai.mjs
 //         + student/class_storage.py / .mjs          -> backend/class_storage.py, variants/node-backend/class_storage.mjs
 //         + student/class_knowledge.py / .mjs        -> backend/class_knowledge.py, variants/node-backend/class_knowledge.mjs
+//         + student/class_agent.py / .mjs, class_quality.py / .mjs  -> backend/ and variants/node-backend/ (the AI patterns, see PATTERNS.md)
 //         + starter/mcp/server.mjs                   -> tools/mcp.mjs
 //         + starter/rules/AGENTS.md                  -> the rules, under the file names each AI editor reads (identical content)
 //         + kit-manifest.json                        -> sha256 of every file, for `update` and integrity checks
@@ -65,6 +66,10 @@ export function buildKit(out, { force = false, portalUrl = '', signingKey = '' }
   copy('student/class_storage.mjs', 'variants/node-backend/class_storage.mjs');
   copy('student/class_knowledge.py', 'backend/class_knowledge.py');
   copy('student/class_knowledge.mjs', 'variants/node-backend/class_knowledge.mjs');
+  copy('student/class_agent.py', 'backend/class_agent.py');
+  copy('student/class_agent.mjs', 'variants/node-backend/class_agent.mjs');
+  copy('student/class_quality.py', 'backend/class_quality.py');
+  copy('student/class_quality.mjs', 'variants/node-backend/class_quality.mjs');
   copy('starter/mcp/server.mjs', 'tools/mcp.mjs'); // the MCP server: one source, also the entry of the class-platform-mcp package
   mkdirSync(join(out, 'tools'), { recursive: true });
   cpSync(join(here, 'zip.mjs'), join(out, 'tools', 'zip.mjs')); // `platform update` reads the kit zip with it

@@ -153,6 +153,13 @@ await step('class knowledge helpers (Python and Node) against the real knowledge
   }
 });
 
+await step('AI pattern helpers (agent and quality, Python and Node): budgets, guardrails, approval, cache, feedback, evaluation', () => {
+  for (const test of ['test_class_agent.py', 'test_class_agent.mjs', 'test_class_quality.py', 'test_class_quality.mjs']) {
+    const r = test.endsWith('.py') ? spawnSync(python, [join(here, test)], { encoding: 'utf8' }) : spawnSync('node', [join(here, test)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
+  }
+});
+
 await step('class-platform-mcp package: npx from a URL, editor roots, init_project, bundled check and deploy, computer-wide token, setup for VS Code and Antigravity', () => {
   const r = spawnSync('node', [join(here, 'test_mcp_package.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);
