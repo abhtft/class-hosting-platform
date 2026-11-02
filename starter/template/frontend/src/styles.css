@@ -16,7 +16,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .unsure { border-left: 4px solid #c98a1b; }
 button.ghost { background: transparent; border: 1px solid #8886; border-radius: 6px; }
-.sources { margin: 0; padding-left: 20px; font-size: 0.9rem; }
+.sources { margin: 0; padding-left: 0; list-style: none; font-size: 0.9rem; }
 .trace { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .trace .bad strong { color: #c0362c; }
 pre { white-space: pre-wrap; word-break: break-word; background: #8882; padding: 8px; border-radius: 6px; margin: 4px 0; max-height: 220px; overflow: auto; }

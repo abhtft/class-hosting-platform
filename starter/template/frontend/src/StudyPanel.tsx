@@ -46,8 +46,8 @@ export default function StudyPanel() {
           <p className={`answer ${result.confident ? '' : 'unsure'}`}>{result.answer}</p>
           {result.sources.length > 0 && (
             <ul className="sources" aria-label="Where this came from">
-              {result.sources.map((s, i) => (
-                <li key={i}>{s.title}{s.page ? `, page ${s.page}` : ''}{s.section ? ` (${s.section})` : ''}</li>
+              {result.sources.map((s) => (
+                <li key={s.n}><strong>[{s.n}]</strong> {s.title}{s.page ? `, page ${s.page}` : ''}{s.section ? ` (${s.section})` : ''}</li>
               ))}
             </ul>
           )}

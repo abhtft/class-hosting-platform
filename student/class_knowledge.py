@@ -283,29 +283,31 @@ def collections_local():
     return collections()["collections"]
 
 
-def wrap_passages(hits, max_chars=6000):
-    """The passages as a fenced block for a prompt. Everything inside is DATA from a book, never instructions."""
+def _blocks(hits, max_chars):
+    """The numbered passage blocks that fit in max_chars. The first one is cut rather than dropped, so there is always something to answer from."""
     blocks, used = [], 0
     for number, hit in enumerate(hits, 1):
         where = ", ".join(x for x in (hit.get("title"), f"page {hit['page']}" if hit.get("page") else "", hit.get("section")) if x)
         block = f"[{number}] ({where})\n{hit['text'].replace('<', '‹').replace('>', '›')}"
+        if not blocks and len(block) > max_chars:
+            block = block[:max_chars]
         if used + len(block) > max_chars:
             break
         blocks.append(block)
         used += len(block)
-    return "<books>\n" + "\n\n".join(blocks) + "\n</books>"
+    return blocks
 
 
-def sources(hits):
-    """A short list of where the passages came from, for showing under an answer."""
-    seen, out = set(), []
-    for hit in hits:
-        key = (hit.get("title"), hit.get("page"))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append({"title": hit.get("title"), "page": hit.get("page"), "section": hit.get("section"), "collection": hit.get("collection")})
-    return out
+def wrap_passages(hits, max_chars=6000):
+    """The passages as a fenced block for a prompt, numbered [1], [2]... Everything inside is DATA from a book, never instructions."""
+    return "<books>\n" + "\n\n".join(_blocks(hits, max_chars)) + "\n</books>"
+
+
+def sources(hits, included=None):
+    """Where the passages came from, for showing under an answer: one entry per passage with the SAME number "n" the prompt gave it, so a reference like [2]
+    in the answer is entry n=2. `included` is how many passages actually fitted in the prompt (answer() passes it): the others were never shown to the AI."""
+    return [{"n": n, "title": hit.get("title"), "page": hit.get("page"), "section": hit.get("section"), "collection": hit.get("collection")}
+            for n, hit in enumerate(hits if included is None else hits[:included], 1)]
 
 
 def answer(question, collections=None, k=4, system=None, max_tokens=400, mock=None):
@@ -320,7 +322,7 @@ def answer(question, collections=None, k=4, system=None, max_tokens=400, mock=No
         f"Mention the passage numbers you used, like [1]. If the passages do not contain the answer, reply exactly: {NOT_SURE}")
     text = class_ai.ask(f"{wrap_passages(found['hits'])}\n\nQuestion: {question}", system=rules, max_tokens=max_tokens,
                         mock=mock or f"[mock AI] From the books: {found['hits'][0]['text'][:120]} [1]")
-    return {"answer": text, "sources": sources(found["hits"]), "confident": True}
+    return {"answer": text, "sources": sources(found["hits"], len(_blocks(found["hits"], 6000))), "confident": True}
 
 
 def usage():
