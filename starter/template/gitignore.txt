@@ -13,6 +13,9 @@ __pycache__/
 !.env.example
 *.local
 
+# your books for class knowledge: uploaded from this computer by `npm run knowledge`, never pushed to GitHub (many are copyrighted, and a repository may be public)
+/knowledge/
+
 # the local stand-ins for class storage and class knowledge (npm run dev), the once-a-day kit version check, and copies of kit files replaced by a sync
 .class-storage/
 .class-knowledge/

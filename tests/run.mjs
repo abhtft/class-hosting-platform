@@ -165,6 +165,11 @@ await step('AI patterns together in a fresh kit (Python and Node dev servers): b
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('knowledge folder sync (scan, plan, and the tool and npm run knowledge against the real portal and knowledge code)', () => {
+  const r = spawnSync('node', [join(here, 'test_knowledge_sync.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('class-platform-mcp package: npx from a URL, editor roots, init_project, bundled check and deploy, computer-wide token, setup for VS Code and Antigravity', () => {
   const r = spawnSync('node', [join(here, 'test_mcp_package.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

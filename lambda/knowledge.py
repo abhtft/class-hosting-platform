@@ -15,6 +15,7 @@ items, the embedding cache is single-item reads and writes.
 Cost control, in layers: per student a monthly embedding-token budget, per-student caps on documents, passages and stored bytes, a searches allowance, a
 size cap per upload, and ONE class-wide monthly spending ceiling (KNOWLEDGE_MONTHLY_CAP_USD) that stops all new book processing when reached.
 """
+import hashlib
 import json
 import os
 import re
@@ -344,9 +345,16 @@ def _new_doc_id(filename):
     return f"{stem}-{secrets.token_hex(3)}"
 
 
-def upload_url(owner, collection, filename, size, now):
-    """Reserve a document slot and give back a short-lived upload form (a size-limited S3 POST). The caller then sends the bytes there and calls start()."""
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def upload_url(owner, collection, filename, size, now, sha256=None):
+    """Reserve a document slot and give back a short-lived upload form (a size-limited S3 POST). The caller then sends the bytes there and calls start().
+    `sha256` (optional, hex) is the caller's hash of the file: it is kept with the book so a later sync can tell an unchanged file without reading anything,
+    and the reader checks it against what arrived."""
     _check_name(collection)
+    if sha256 is not None and not (isinstance(sha256, str) and SHA_RE.match(sha256.lower())):
+        raise ApiError(400, "bad_request", "sha256 must be 64 hexadecimal characters.")
     if not store(now).meta(owner.base(collection)):
         raise ApiError(404, "not_found", "No such collection.")
     if not isinstance(filename, str) or not FILE_RE.match(filename) or "." not in filename:
@@ -365,7 +373,7 @@ def upload_url(owner, collection, filename, size, now):
         raise ApiError(413, "quota_exceeded", f"You can keep up to {owner.caps['documents']} documents. Remove one first.")
     doc_id = _new_doc_id(filename)
     write_status(owner, collection, doc_id, {"state": "uploading", "filename": filename, "ext": ext, "size": size, "created": int(now), "updated": int(now),
-                                              "message": "", "reserved": {"docs": 1, "passages": 0, "bytes": 0}})
+                                              "message": "", "reserved": {"docs": 1, "passages": 0, "bytes": 0}, "sha256": sha256.lower() if sha256 else None})
     form = bucket().presigned_post(_source_key(owner, collection, doc_id, ext), size, UPLOAD_SECONDS)
     return {"doc_id": doc_id, **form}
 
@@ -438,7 +446,8 @@ def start(owner, collection, doc_id, now):
 def _doc_view(doc_id, status, record):
     out = {"id": doc_id, "state": status["state"], "filename": status.get("filename"), "size": status.get("size"), "message": status.get("message", ""),
            "title": (record or {}).get("title") or status.get("filename"), "pages": (record or {}).get("pages"), "passages": (record or {}).get("passages"),
-           "paged": (record or {}).get("paged"), "needs_ocr": (record or {}).get("needs_ocr") or [], "added": (record or {}).get("added")}
+           "paged": (record or {}).get("paged"), "needs_ocr": (record or {}).get("needs_ocr") or [], "added": (record or {}).get("added"),
+           "sha256": status.get("sha256")}
     return out
 
 
@@ -521,6 +530,10 @@ def _read_book(owner, collection, doc_id, status, now, ocr):
         if not meta:
             raise ApiError(404, "not_found", "The collection was removed.")
         data = bucket().get(_source_key(owner, collection, doc_id, status["ext"]))
+        digest = hashlib.sha256(data or b"").hexdigest()
+        if status.get("sha256") and status["sha256"] != digest:
+            raise ApiError(409, "changed", "The file changed while it was being sent. Run the sync again.")
+        status["sha256"] = digest  # what is stored is what was hashed: a later sync compares with it
         prepared = ki.prepare(data or b"", status["filename"], ocr=ocr)
         passages = prepared["passages"]
         if db().counter_add(owner.counter("pass"), len(passages), limit=owner.caps["passages"], now=now) is None:
@@ -647,11 +660,48 @@ def admin_route(method, path, body, now):
     if match and method == "GET":
         return 200, {"documents": [{k: v for k, v in d.items() if k != "reserved"} for d in portal_call(documents, owner, match.group(1), now)]}
     if match and method == "POST":
-        return 200, portal_call(upload_url, owner, match.group(1), body.get("filename"), body.get("size"), now)
+        return 200, portal_call(upload_url, owner, match.group(1), body.get("filename"), body.get("size"), now, body.get("sha256"))
     match = re.fullmatch(re.escape(LIB) + r"/([^/]+)/documents/([^/]+)/start", path)
     if match and method == "POST":
         return 200, portal_call(start, owner, match.group(1), match.group(2), now)
     match = re.fullmatch(re.escape(LIB) + r"/([^/]+)/documents/([^/]+)", path)
+    if match and method == "DELETE":
+        return 200, portal_call(delete_document, owner, match.group(1), match.group(2), now)
+    return None
+
+
+# ------------------------------------------------------------------ the student's own shelf through the portal (the deploy tool's folder sync)
+
+STUDENT = "/api/student/knowledge"
+
+
+def student_route(item, method, path, body, now):
+    """A student's own shelf, for the kit's folder sync (`npm run knowledge`). It is the same operations as the API the student's function uses, reached with the
+    student's login instead of the function's key, so the key never leaves the function. The owner is always derived from the login: there is no way to
+    name another student's shelf or the class library here. Returns (status, body), or None when the path is not one of these routes."""
+    if not (path == STUDENT or path.startswith(STUDENT + "/")):
+        return None
+    if not available():
+        raise PortalError(503, "The class knowledge connector is not set up on this server.")
+    status = portal.status_of(item, now)
+    if status != "active":
+        raise PortalError(403, f"Your token is {status}, so your book shelf is paused.")
+    if not (settings(item).get("enabled") and is_on(item)):
+        raise PortalError(403, "Class knowledge is switched off for you. Ask your teacher.")
+    owner, rest = student_owner(item), path[len(STUDENT):]
+    if (method, rest) == ("GET", ""):
+        return 200, {"knowledge": view(item, now), "collections": portal_call(list_collections, owner, now)}
+    if (method, rest) == ("POST", "/collections"):
+        return 201, portal_call(create_collection, owner, body.get("name"), str(body.get("title") or "")[:100], now)
+    match = re.fullmatch(r"/([^/]+)/documents", rest)
+    if match and method == "GET":
+        return 200, {"documents": [{k: v for k, v in d.items() if k != "reserved"} for d in portal_call(documents, owner, match.group(1), now)]}
+    if match and method == "POST":
+        return 200, portal_call(upload_url, owner, match.group(1), body.get("filename"), body.get("size"), now, body.get("sha256"))
+    match = re.fullmatch(r"/([^/]+)/documents/([^/]+)/start", rest)
+    if match and method == "POST":
+        return 200, portal_call(start, owner, match.group(1), match.group(2), now)
+    match = re.fullmatch(r"/([^/]+)/documents/([^/]+)", rest)
     if match and method == "DELETE":
         return 200, portal_call(delete_document, owner, match.group(1), match.group(2), now)
     return None

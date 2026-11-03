@@ -322,6 +322,17 @@ Base address `CLASS_KNOWLEDGE_URL`, key `CLASS_KNOWLEDGE_KEY` (`ks_<slug>.<secre
 | `POST /v1/search` | `{"query", "collections"?: ["mine", "library/name"], "k"?: 1..10}` | `200 {"hits": [{"text", "title", "page", "page_end", "section", "collection", "score", "vector", "bm25", "coverage"}], "confident", "collections", "tokens"}` |
 | `GET /v1/usage` | | `200` limits and usage |
 
+**Folder sync through the portal** (student login as bearer; the same operations for the student's own shelves, used by `npm run knowledge`; the owner always comes from the login):
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /api/student/knowledge` | | `200 {"knowledge": <limits and usage>, "collections": [...]}`; `403` when the token is not active or the switch is off |
+| `POST /api/student/knowledge/collections` | `{"name", "title"?}` | `201` the shelf; `409` exists; `413` too many shelves |
+| `GET /api/student/knowledge/{shelf}/documents` | | `200 {"documents": [{"id", "state", "filename", "sha256", "passages", "message"...}]}` |
+| `POST /api/student/knowledge/{shelf}/documents` | `{"filename", "size", "sha256"?}` | `200 {"doc_id", "url", "fields"}` (the upload form; `sha256` is kept with the book and checked by the reader) |
+| `POST /api/student/knowledge/{shelf}/documents/{id}/start` | | `200`; `429` busy or allowance or ceiling |
+| `DELETE /api/student/knowledge/{shelf}/documents/{id}` | | `200`; `409` while it is being read |
+
 Errors are the same JSON `{"error", "message"}`: `bad_key` 401, `token_inactive` and `not_enabled` 403, `allowance_used`, `class_budget` and `busy` 429, `quota_exceeded` and `too_large` 413, `unsupported` 415, `not_found` 404, `bad_state` 409, `not_ready` and `embedding_failed` 502 or 503, `bad_request` 400.
 
 Errors are JSON `{"error": "<code>", "message": "..."}`:

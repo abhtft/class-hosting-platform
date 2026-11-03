@@ -62,6 +62,21 @@ try {
     assert.doesNotMatch(again.stdout, /Backend/);
   });
 
+  // a knowledge/ folder while class knowledge is off for the student: the deploy still succeeds and says why the books were not uploaded
+  mkdirSync(join(full, 'knowledge', 'notes'), { recursive: true });
+  writeFileSync(join(full, 'knowledge', 'notes', 'week1.txt'), 'Week one.');
+  const withBooks = run(full, undefined, '--frontend', 'frontend');
+  check('a knowledge/ folder with the feature off: the deploy still works and the warning says the books were not uploaded', () => {
+    assert.equal(withBooks.status, 0, withBooks.stdout + withBooks.stderr);
+    assert.match(withBooks.stdout + withBooks.stderr, /knowledge\/ folder, but class knowledge is .*so the books were NOT uploaded/);
+  });
+  const skipped = run(full, undefined, '--frontend', 'frontend', '--no-knowledge');
+  check('--no-knowledge skips the books without a word', () => {
+    assert.equal(skipped.status, 0, skipped.stdout + skipped.stderr);
+    assert.doesNotMatch(skipped.stdout + skipped.stderr, /knowledge/);
+  });
+  rmSync(join(full, 'knowledge'), { recursive: true, force: true });
+
   // an app at the repo root (a normal Vite project) next to backend/ is a supported layout: only its build output is published
   const rootLayout = project('rootapp', { frontend: false });
   mkdirSync(join(rootLayout, 'dist'), { recursive: true });

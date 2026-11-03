@@ -79,7 +79,7 @@ def handler(event, context=None, now=None):
             return reply(200, documents=[{k: v for k, v in d.items() if k != "reserved"} for d in knowledge.documents(owner, match.group(1), now)])
         if match and method == "POST":
             body = parse_body(event)
-            return reply(200, **knowledge.upload_url(owner, match.group(1), body.get("filename"), body.get("size"), now))
+            return reply(200, **knowledge.upload_url(owner, match.group(1), body.get("filename"), body.get("size"), now, body.get("sha256")))
         match = DOCUMENT.match(path)
         if match and method == "DELETE":
             return reply(200, **knowledge.delete_document(owner, match.group(1), match.group(2), now))

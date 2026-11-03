@@ -28,8 +28,9 @@
 //
 // Books are DATA, not instructions: a book that says "ignore your rules" must not be obeyed. answer() fences the passages for you; if you build your own
 // prompt, do the same (see wrapPassages). The key and your documents are never logged by this helper.
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 const REF_RE = /^(library\/)?[a-z0-9][a-z0-9_-]{0,39}$/;
@@ -116,7 +117,20 @@ const localPassages = (text, size = 200) => {
   for (let start = 0; start < all.length; start += size) out.push(all.slice(start, start + size).join(' '));
   return out;
 };
-const localCollection = (name) => join(folder(), check(NAME_RE, name, 'collection (lowercase letters, digits, - and _)'));
+const LOCAL_TYPES = ['txt', 'text', 'md', 'markdown', 'html', 'htm'];
+// the project's knowledge/ folder (the one `npm run knowledge` uploads): on your computer its text, Markdown and HTML books are searchable too, read-only
+const syncedRoot = () => resolve('knowledge');
+const localCollection = (name) => {
+  const own = join(folder(), check(NAME_RE, name, 'collection (lowercase letters, digits, - and _)'));
+  const synced = join(syncedRoot(), name);
+  return !existsSync(own) && existsSync(synced) ? synced : own;
+};
+const fromFolder = (path) => dirname(path) === syncedRoot();
+const guardFolder = (path) => {
+  if (fromFolder(path)) throw new KnowledgeError('bad_request', 'This shelf comes from your knowledge/ folder: change the files there, then run npm run knowledge to upload them.');
+};
+const localFiles = (path) => readdirSync(path).filter((n) => n !== 'meta.json' && !n.startsWith('.') && LOCAL_TYPES.includes(n.split('.').pop().toLowerCase()) && statSync(join(path, n)).isFile()).sort();
+const readLocal = (path, name) => localText(name, readFileSync(join(path, name)));
 const localText = (name, data) => {
   const ext = name.split('.').pop().toLowerCase();
   if (ext === 'pdf') throw new KnowledgeError('unsupported', 'PDFs are only read on the platform. On your computer add a .txt or .md copy to test.');
@@ -143,15 +157,22 @@ export async function collections() {
   }
   const out = readdirSync(folder())
     .filter((name) => existsSync(join(folder(), name, 'meta.json')))
-    .sort()
-    .map((name) => ({ name, title: JSON.parse(readFileSync(join(folder(), name, 'meta.json'), 'utf8')).title, documents: readdirSync(join(folder(), name)).length - 1 }));
-  return { collections: out, library: [] };
+    .map((name) => ({ name, title: JSON.parse(readFileSync(join(folder(), name, 'meta.json'), 'utf8')).title, documents: localFiles(join(folder(), name)).length }));
+  if (existsSync(syncedRoot())) { // the shelves of the knowledge/ folder
+    for (const name of readdirSync(syncedRoot())) {
+      const path = join(syncedRoot(), name);
+      if (!out.some((c) => c.name === name) && NAME_RE.test(name) && statSync(path).isDirectory()) out.push({ name, title: name, documents: localFiles(path).length });
+    }
+  }
+  return { collections: out.sort((a, b) => a.name.localeCompare(b.name)), library: [] };
 }
 
 export async function deleteCollection(name) {
   check(NAME_RE, name, 'collection');
   if (remote()) return (await request('DELETE', `/v1/collections/${name}`)).deleted;
-  rmSync(localCollection(name), { recursive: true, force: true });
+  const path = localCollection(name);
+  guardFolder(path);
+  rmSync(path, { recursive: true, force: true });
   return name;
 }
 
@@ -161,16 +182,15 @@ export async function documents(collection) {
   if (remote()) return (await request('GET', `/v1/collections/${collection}/documents`)).documents;
   const path = localCollection(collection);
   if (!existsSync(path)) throw new KnowledgeError('not_found', 'No such collection.', 404);
-  return readdirSync(path)
-    .filter((n) => n !== 'meta.json')
-    .sort()
-    .map((n) => ({ id: n, state: 'ready', filename: n, title: n, passages: localPassages(readFileSync(join(path, n), 'utf8')).length }));
+  return localFiles(path).map((n) => ({ id: n, state: 'ready', filename: n, title: n, passages: localPassages(readLocal(path, n)).length }));
 }
 
 export async function deleteDocument(collection, id) {
   check(NAME_RE, collection, 'collection');
   if (remote()) return (await request('DELETE', `/v1/collections/${collection}/documents/${check(NAME_RE, id, 'document')}`)).deleted;
-  rmSync(join(localCollection(collection), basename(id)), { force: true });
+  const path = localCollection(collection);
+  guardFolder(path);
+  rmSync(join(path, basename(id)), { force: true });
   return id;
 }
 
@@ -186,11 +206,12 @@ export async function addDocument(collection, filename, data, { wait = true, tim
   if (!remote()) {
     const text = localText(filename, bytes);
     const dir = localCollection(collection);
+    guardFolder(dir);
     if (!existsSync(dir)) throw new KnowledgeError('not_found', 'No such collection.', 404);
     writeFileSync(join(dir, basename(filename)), text);
     return { id: basename(filename), state: 'ready', filename, title: filename, passages: localPassages(text).length };
   }
-  const target = await request('POST', `/v1/collections/${collection}/documents`, { filename, size: bytes.length });
+  const target = await request('POST', `/v1/collections/${collection}/documents`, { filename, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') });
   const form = new FormData();
   for (const [field, value] of Object.entries(target.fields)) form.append(field, value);
   form.append('file', new Blob([bytes]), target.doc_id); // S3 needs the file as the LAST field
@@ -228,7 +249,7 @@ export async function search(query, refs, k = 5) {
   const scored = [];
   for (const name of names) {
     for (const doc of await documents(name)) {
-      localPassages(readFileSync(join(localCollection(name), doc.id), 'utf8')).forEach((passage, number) => {
+      localPassages(readLocal(localCollection(name), doc.id)).forEach((passage, number) => {
         const own = words(passage);
         const overlap = own.filter((w, i) => question.has(w) && own.indexOf(w) === i).length;
         if (overlap) scored.push([overlap / Math.sqrt(own.length + 1), { text: passage, title: doc.title, page: number + 1, page_end: number + 1, section: '', collection: name }]);

@@ -2,7 +2,7 @@
 // class library, the answer pattern, every error kind, the local folder on a student's computer, and that no key ever shows up in an error.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { dirname } from 'node:path';
@@ -168,6 +168,34 @@ try {
   assert.equal((await kb.usage()).local, true);
   await fails('bad_request', () => kb.createCollection('Bad'));
   say("on a student's computer text, Markdown and HTML books work from a local folder with the same shapes; PDFs are refused with a clear message");
+
+  // ---------- the project's knowledge/ folder is searchable offline too (read-only) ----------
+  const project = mkdtempSync(join(tmpdir(), 'kfolder-'));
+  mkdirSync(join(project, 'knowledge', 'physics'), { recursive: true });
+  mkdirSync(join(project, 'knowledge', 'Bad Shelf'), { recursive: true });
+  writeFileSync(join(project, 'knowledge', 'physics', 'ohm.txt'), "Ohm's law says the current through a conductor is proportional to the voltage across it.");
+  for (const name of ['scan.pdf', 'notes.docx']) writeFileSync(join(project, 'knowledge', 'physics', name), 'x');
+  const oldCwd = process.cwd();
+  process.env.CLASS_KNOWLEDGE_DIR = join(project, '.class-knowledge');
+  process.chdir(project);
+  try {
+    assert.deepEqual((await kb.collections()).collections.map((c) => c.name), ['physics'], 'the shelf of the folder; a bad shelf name is ignored');
+    assert.deepEqual((await kb.documents('physics')).map((d) => d.filename), ['ohm.txt'], 'only text types offline; a PDF is read on the platform');
+    const folderFound = await kb.search("What does Ohm's law say about the current and voltage?");
+    assert.ok(folderFound.confident && folderFound.hits[0].collection === 'physics' && folderFound.hits[0].title === 'ohm.txt');
+    await fails('exists', () => kb.createCollection('physics'));
+    await fails('bad_request', () => kb.addDocument('physics', 'new.txt', 'x'));
+    await fails('bad_request', () => kb.deleteDocument('physics', 'ohm.txt'));
+    await fails('bad_request', () => kb.deleteCollection('physics'));
+    assert.ok(existsSync(join(project, 'knowledge', 'physics', 'ohm.txt')), 'your files are never changed or removed by the helper');
+    await kb.createCollection('mine');
+    await kb.addDocument('mine', 'own.txt', 'Friction opposes motion.');
+    assert.deepEqual((await kb.collections()).collections.map((c) => c.name), ['mine', 'physics']);
+  } finally {
+    process.chdir(oldCwd);
+    rmSync(project, { recursive: true, force: true });
+  }
+  say("on a student's computer the knowledge/ folder's text books are searchable too, read-only (the helper never changes your files)");
   console.log('test_class_knowledge.mjs: all passed');
 } finally {
   fixture.kill();

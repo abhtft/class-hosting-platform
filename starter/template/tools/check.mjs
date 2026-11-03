@@ -227,6 +227,7 @@ if (tracked.status === 0) {
   for (const name of list.filter((n) => /(^|\/)\.env(\.[^/]*)?$/.test(n) && !n.endsWith('.env.example') || /\.local$/.test(n))) {
     add('error', 'env-committed', `${name} is tracked by git, so it goes to GitHub.`, `Run  git rm --cached ${name}  and commit. If it held a key or token, treat it as leaked: revoke it.`);
   }
+  if (list.some((n) => /^knowledge\//.test(n))) add('warn', 'knowledge-committed', 'Books in knowledge/ are tracked by git, so they go to GitHub.', 'If the repository is public, anyone can download them (and many books are copyrighted). Run  git rm -r --cached knowledge  and commit; keep the line  knowledge/  in .gitignore. The books are uploaded from your computer by  npm run knowledge  (it also runs on  npm run deploy ).');
   if (list.some((n) => /(^|\/)node_modules\//.test(n))) add('warn', 'node-modules-committed', 'node_modules is tracked by git.', 'Run  git rm -r --cached frontend/node_modules  and commit; the build installs packages itself.');
 }
 

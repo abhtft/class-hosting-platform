@@ -32,6 +32,7 @@ Student (the token itself is the login -> signed session, 12 h):
   GET .../backend/logs?minutes=&limit=&errors=1                     the newest log lines of the student's backend (see backends.py)
   GET  /api/student/ai                   refresh the AI usage numbers (ai.py)
   GET  /api/student/storage              storage usage including the file count and size (storage.py)
+  GET|POST|DELETE /api/student/knowledge[/collections|/{shelf}/documents[/{id}[/start]]]   the student's own book shelf for the kit's folder sync (knowledge.py student_route)
 
 A token is active until expires_at, "expired" (read-only) for GRACE_DAYS, then "offline".
 Only a SHA-256 of each token is stored. Teacher and student sessions use different signing keys.
@@ -458,6 +459,12 @@ def dispatch(method, path, body, event, now, site_url):
         item = student_token(event, now)
         files = storage.files_usage(item) if storage.available() and storage.settings(item).get("enabled") else None
         return reply(200, token=view(item, now, site_url), files=files)
+    if path == "/api/student/knowledge" or path.startswith("/api/student/knowledge/"):
+        import knowledge
+        routed = knowledge.student_route(student_token(event, now), method, path, body, now)
+        if routed is None:
+            return reply(404, error="Unknown route.")
+        return reply(routed[0], **routed[1])
     if path in ("/api/student/domain", "/api/student/domain/status") and method in ("PUT", "DELETE", "GET"):
         import domains
         item = student_token(event, now)

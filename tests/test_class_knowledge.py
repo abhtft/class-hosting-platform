@@ -135,6 +135,33 @@ try:
         assert kb.collections()["collections"] == [] and kb.usage()["local"] is True
         fails("bad_request", kb.create_collection, "Bad")
     print("  ok  on a student's computer text, Markdown and HTML books work from a local folder with the same shapes; PDFs are refused with a clear message")
+
+    # ---------- the project's knowledge/ folder is searchable offline too (read-only) ----------
+    with tempfile.TemporaryDirectory() as project:
+        os.makedirs(os.path.join(project, "knowledge", "physics"))
+        os.makedirs(os.path.join(project, "knowledge", "Bad Shelf"))
+        with open(os.path.join(project, "knowledge", "physics", "ohm.txt"), "w", encoding="utf8") as f:
+            f.write("Ohm's law says the current through a conductor is proportional to the voltage across it.")
+        for name in ("scan.pdf", "notes.docx"):
+            open(os.path.join(project, "knowledge", "physics", name), "wb").write(b"x")
+        old_cwd, os.environ["CLASS_KNOWLEDGE_DIR"] = os.getcwd(), os.path.join(project, ".class-knowledge")
+        os.chdir(project)
+        try:
+            assert [c["name"] for c in kb.collections()["collections"]] == ["physics"], "the shelf of the folder; a bad shelf name is ignored"
+            assert [d["filename"] for d in kb.documents("physics")] == ["ohm.txt"], "only text types offline; a PDF is read on the platform"
+            found = kb.search("What does Ohm's law say about the current and voltage?")
+            assert found["confident"] and found["hits"][0]["collection"] == "physics" and found["hits"][0]["title"] == "ohm.txt"
+            fails("exists", kb.create_collection, "physics")
+            fails("bad_request", kb.add_document, "physics", "new.txt", "x")
+            fails("bad_request", kb.delete_document, "physics", "ohm.txt")
+            fails("bad_request", kb.delete_collection, "physics")
+            assert os.path.exists(os.path.join(project, "knowledge", "physics", "ohm.txt")), "your files are never changed or removed by the helper"
+            kb.create_collection("mine")  # a shelf of its own still works beside it
+            kb.add_document("mine", "own.txt", "Friction opposes motion.")
+            assert [c["name"] for c in kb.collections()["collections"]] == ["mine", "physics"]
+        finally:
+            os.chdir(old_cwd)
+    print("  ok  on a student's computer the knowledge/ folder's text books are searchable too, read-only (the helper never changes your files)")
     print("test_class_knowledge.py: all passed")
 finally:
     fixture.kill()

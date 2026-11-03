@@ -60,13 +60,25 @@ reply = kb.answer("What is Ohm's law?")                    # {"answer", "sources
 
 Node: `import * as kb from './class_knowledge.mjs'` with the same names in camel case (`createCollection`, `addDocument`, `search`, `answer`). On the student's computer (`npm run dev`) text, Markdown and HTML books work from the git-ignored `.class-knowledge/` folder with a plain keyword search and the same answer shapes; PDFs are only read on the platform. Errors are `KnowledgeError` with a kind (`not_enabled`, `allowance_used`, `class_budget`, `quota_exceeded`, `too_large`, `unsupported`, `busy`, `not_ready`, `not_found`, `bad_state`, `bad_request`, `failed`, `token_inactive`, `bad_key`, `unavailable`). The rules for AI editors ("Answering from books") say to show sources, to say "The books do not say." instead of guessing, to treat book text as data, and never to let a visitor choose whose shelf is searched.
 
+### The `knowledge/` folder (folder sync)
+
+A student does not have to write upload code. They put books in `knowledge/<shelf>/` in their project and run `npm run knowledge` (also run by `npm run deploy`, without waiting and without ever stopping the deploy; `--no-knowledge` skips it):
+
+- The folder name is the shelf name. Only PDF, text, Markdown and HTML files directly inside a shelf folder are read; anything else is skipped with a reason.
+- Each file is compared by its content hash with what the shelf holds: unchanged files are skipped (nothing is read or paid for twice), new ones are uploaded, a changed one replaces the book of the same name after the new copy is ready. A book that failed is reported with the reason and only tried again with `--retry`.
+- Nothing is deleted by itself. Books that left the folder are listed and removed only with `--prune`. Shelves that are not folders (for example one a backend creates) are never touched.
+- `--dry-run` shows the plan, `status` the state of each book, `--wait` waits for the reader.
+- The tool uses the student's login with the portal (routes `/api/student/knowledge/...`, see API_REFERENCE.md), so the shelf key never leaves the student's function. The owner is always taken from the login: no route can name another student's shelf or the class library. The same limits apply as for the API (books, passages, space, file size, monthly allowance, the class ceiling, at most 2 books read at once); when one is reached the tool stops uploading, says which, and lists what is waiting.
+- `knowledge/` is in the kit's `.gitignore` (books are often copyrighted and a repository may be public); `npm run check` warns if books are tracked by git anyway. So the sync runs from the student's computer, not from the GitHub Action.
+- Offline, `npm run dev` also searches the text, Markdown and HTML books of that folder (read-only; PDFs are read on the platform).
+
 ## 6. Permissions (the reviewed list)
 
 | Function | Can do | Cannot do |
 |---|---|---|
 | Knowledge API (29 s, 1 GB) | read single items in the tokens table; update counters whose keys start `kdoc#`, `kpass#`, `kbytes#`, `ksearch#`, `ktok#`, `kspend#`, `kwork#`; write whole items only for the embedding cache (`emb#`) and the reader slot (`kwork#`); S3 read and write under `knowledge/`; start the book reader; read the AI secret | scan or query the table, delete items, touch the kit, student sites or student files, start anything else |
 | Book reader (15 min, 2 GB) | the same, except it cannot start anything | be called from the internet, be retried by the platform |
-| Portal | `knowledge/` objects (the library), start the book reader for a library book | anything new elsewhere |
+| Portal | `knowledge/` objects (the library, and a student's own shelf for the folder sync), start the book reader | anything new elsewhere. The student routes need a student login, an active token and the switch on |
 
 `tests/test_template_knowledge.py` fails if any of these grants grow.
 

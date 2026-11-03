@@ -451,4 +451,67 @@ for text in EXPOSED:
 assert all(a_key not in json.dumps(v) for v in [call("GET", "/api/student/me", session=a_session)[1]]), "nor in the student's own view"
 print("  ok  clearing a student removes her books and counters but not the library; no key appears in any answer")
 
+# ---------- 10. the student's own shelf through the portal (the deploy tool's folder sync) ----------
+import hashlib  # noqa: E402
+
+BASE = "/api/student/knowledge"
+c_tid, c_session, c_slug = new_student("Cara")
+d_tid, d_session, d_slug = new_student("Dan")
+assert call("GET", BASE)[0] == 401, "a login is needed"
+assert call("GET", BASE, session=c_session)[0] == 403, "switched off: no shelf"
+kn_set(c_tid, enabled=True)
+kn_set(d_tid, enabled=True)
+status, listing = call("GET", BASE, session=c_session)
+assert status == 200 and listing["collections"] == [] and listing["knowledge"]["limits"]["documents"] == 20 and listing["knowledge"]["enabled"], listing
+assert call("POST", f"{BASE}/collections", {"name": "physics", "title": "Physics"}, c_session)[0] == 201
+assert call("POST", f"{BASE}/collections", {"name": "physics"}, c_session)[0] == 409
+assert call("POST", f"{BASE}/collections", {"name": "Bad Name"}, c_session)[0] == 400
+assert call("POST", f"{BASE}/nothing", {}, c_session)[0] == 404, "an unknown path under the prefix"
+
+book = b"Ohm's law says the current through a conductor is proportional to the voltage across it. The constant is the resistance, measured in ohms."
+digest = hashlib.sha256(book).hexdigest()
+status, form = call("POST", f"{BASE}/physics/documents", {"filename": "ohm.txt", "size": len(book), "sha256": digest}, c_session)
+assert status == 200 and form["doc_id"] and form["fields"]["key"].startswith(f"knowledge/student/{c_slug}/physics/"), form
+assert call("POST", f"{BASE}/physics/documents", {"filename": "x.txt", "size": 5, "sha256": "nothex"}, c_session)[0] == 400, "a bad hash is refused"
+bucket.put(form["fields"]["key"], book)
+assert call("POST", f"{BASE}/physics/documents/{form['doc_id']}/start", {}, c_session)[0] == 200
+run_worker()
+status, docs = call("GET", f"{BASE}/physics/documents", session=c_session)
+assert status == 200 and [(d["filename"], d["state"], d["sha256"]) for d in docs["documents"]] == [("ohm.txt", "ready", digest)], docs
+assert all("reserved" not in d for d in docs["documents"]), "internal bookkeeping is not shown"
+assert api(key_of(c_tid), "GET", "/v1/collections/physics/documents")[1]["documents"][0]["sha256"] == digest, "the function's own API shows the same hash"
+print("  ok  the student's shelf through the portal: switch, create, upload form, start, the reader stores and shows the content hash")
+
+# a file that changed while it was being sent is refused by the reader, with a plain message, and its reservation is given back
+used_before = count("doc", c_slug)
+status, form2 = call("POST", f"{BASE}/physics/documents", {"filename": "other.txt", "size": 10, "sha256": hashlib.sha256(b"what the tool hashed").hexdigest()}, c_session)
+bucket.put(form2["fields"]["key"], b"different!")
+call("POST", f"{BASE}/physics/documents/{form2['doc_id']}/start", {}, c_session)
+run_worker()
+failed = [d for d in call("GET", f"{BASE}/physics/documents", session=c_session)[1]["documents"] if d["id"] == form2["doc_id"]][0]
+assert failed["state"] == "failed" and "changed while it was being sent" in failed["message"], failed
+assert count("doc", c_slug) == used_before, "a failed book does not keep its slot"
+print("  ok  a file that changed during the upload fails with a plain message and keeps no slot")
+
+# isolation: Dan sees nothing of Cara's, cannot reach her shelf by name, and the class library is not addressable here
+assert call("GET", BASE, session=d_session)[1]["collections"] == []
+assert call("GET", f"{BASE}/physics/documents", session=d_session)[0] == 404
+assert call("POST", f"{BASE}/physics/documents", {"filename": "x.txt", "size": 5}, d_session)[0] == 404
+assert call("DELETE", f"{BASE}/physics/documents/{form['doc_id']}", session=d_session)[0] == 404
+assert call("GET", f"{BASE}/science-9/documents", session=d_session)[0] == 404, "the class library's shelf is not reachable as a student shelf"
+assert call("POST", f"{BASE}/physics/documents/{form['doc_id']}/start", {}, d_session)[0] == 404
+print("  ok  another student cannot list, upload to, start or delete from this shelf, and the class library is not reachable through it")
+
+# delete, and the limits of the shelf are the same ones the API enforces
+assert call("DELETE", f"{BASE}/physics/documents/{form['doc_id']}", session=c_session)[0] == 200
+assert [d["state"] for d in call("GET", f"{BASE}/physics/documents", session=c_session)[1]["documents"]] == ["failed"], "only the failed upload is left"
+assert count("pass", c_slug) == 0 and count("bytes", c_slug) == 0, "deleting the book gives its space back"
+kn_set(c_tid, documents=1)
+call("POST", f"{BASE}/physics/documents", {"filename": "a.txt", "size": 5}, c_session)
+status, full = call("POST", f"{BASE}/physics/documents", {"filename": "b.txt", "size": 5}, c_session)
+assert status == 413 and "up to 1 documents" in json.dumps(full), full
+kn_set(c_tid, enabled=False)
+assert call("GET", BASE, session=c_session)[0] == 403, "switched off again: closed at once"
+print("  ok  delete gives space back; the document limit applies here too; switching off closes the routes at once")
+
 print("test_knowledge.py: all passed")

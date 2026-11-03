@@ -410,12 +410,52 @@ async function deployBackend(session, dir) {
   console.log(`✔ Backend ready (${token.backend.runtime}). Your site calls it at /api/<route>.`);
 }
 
+// ---------- books: the knowledge/ folder (tools/knowledge.mjs does the work) ----------
+async function loadKnowledgeTool() {
+  const tool = join(process.cwd(), 'tools', 'knowledge.mjs');
+  return existsSync(tool) ? import(pathToFileURL(tool).href) : null;
+}
+
+/** `knowledge`: sync the knowledge/ folder with your book shelves, or show their state (`knowledge status`). */
+async function knowledgeCommand() {
+  const tool = await loadKnowledgeTool();
+  if (!tool) fail('tools/knowledge.mjs is missing. Run  npm run platform -- update --apply  to restore the kit files.');
+  const saved = readToken();
+  if (!saved) fail(NO_TOKEN());
+  const { session, token } = await signIn(saved);
+  if (!(token.knowledge?.available && token.knowledge?.enabled)) fail(`Class knowledge is ${featureList(token).find((f) => f.id === 'knowledge').detail}. Ask your teacher to switch it on for you.`);
+  if (args[1] === 'status') {
+    for (const line of tool.statusLines(await tool.status({ portalUrl: PORTAL_URL, session, root: process.cwd(), allShelves: flag('--all') }))) console.log(line);
+    return;
+  }
+  const result = await tool.sync({ portalUrl: PORTAL_URL, session, root: process.cwd(), dryRun: flag('--dry-run'), prune: flag('--prune'), retry: flag('--retry'), wait: flag('--wait') });
+  if (result.skipped) console.log(`There is no ${tool.FOLDER}/ folder here. Create ${tool.FOLDER}/<shelf>/ (for example ${tool.FOLDER}/notes/) and put your books in it.`);
+  if (result.problems.length) process.exitCode = 1;
+}
+
+/** After a deploy: sync knowledge/ when it exists. It never stops or fails the deploy (a problem is a warning), and it does not wait for the books to be read. */
+async function syncBooksAfterDeploy(session, token) {
+  if (flag('--no-knowledge') || !existsSync('knowledge')) return;
+  if (!(token.knowledge?.available && token.knowledge?.enabled)) {
+    console.warn(`⚠ Your project has a knowledge/ folder, but class knowledge is ${featureList(token).find((f) => f.id === 'knowledge').detail}, so the books were NOT uploaded. Ask your teacher to switch it on.`);
+    return;
+  }
+  try {
+    const tool = await loadKnowledgeTool();
+    if (!tool) return;
+    await tool.sync({ portalUrl: PORTAL_URL, session, root: process.cwd() });
+  } catch (error) {
+    console.warn(`⚠ The books in knowledge/ were not synced (${error.message}). Run  npm run knowledge  to try again.`);
+  }
+}
+
 // ---------- main ----------
 async function main() {
   if (args[0] === 'login') return login(option('--token'));
   if (await syncKit()) return;
   if (args[0] === 'status') return status();
   if (args[0] === 'logs') return logs();
+  if (args[0] === 'knowledge') return knowledgeCommand();
   const only = option('--only');
   if (only && !['frontend', 'backend'].includes(only)) fail('--only must be "frontend" or "backend".');
   const frontendDir = option('--frontend', 'frontend');
@@ -449,6 +489,7 @@ async function main() {
 
   if (doBackend) await deployBackend(session, backendDir);
   if (doFrontend) await deployFrontend(session, frontendDir);
+  if (!only) await syncBooksAfterDeploy(session, token);
   // inside the student kit: one quiet line when a newer kit exists (a terminal only; this file also runs alone, so it is optional)
   const notice = join(process.cwd(), 'tools', 'update-notice.mjs');
   if (existsSync(notice)) await import(pathToFileURL(notice).href).then((m) => m.updateNotice(process.cwd())).catch(() => {});

@@ -25,7 +25,7 @@ const rules = read(join(repo, 'starter', 'rules', 'AGENTS.md')).replace(/\r\n/g,
 for (const path of ['AGENTS.md', 'GEMINI.md', 'CLAUDE.md', '.claude/skills/class-platform/SKILL.md', '.cursor/rules/class-platform.mdc', '.github/copilot-instructions.md', '.windsurfrules',
   'README.md', 'PROMPTS.md', 'package.json', 'platform.json', '.gitignore', '.env.example', 'portal-deploy.mjs', 'kit-manifest.json', '.github/workflows/deploy.yml',
   'tools/check.mjs', 'tools/mcp.mjs', '.vscode/mcp.json', 'tools/dev.mjs', 'tools/dev_server.py', 'tools/dev_server.mjs', 'tools/doctor.mjs', 'frontend/package.json', 'frontend/package-lock.json',
-  'frontend/src/App.tsx', 'frontend/src/api.ts', 'backend/app.py', 'backend/class_ai.py', 'backend/class_storage.py', 'backend/class_knowledge.py', 'backend/class_agent.py', 'backend/class_quality.py', 'backend/study.py', 'variants/node-backend/study.mjs', 'tools/eval.mjs', 'evals/study.json', 'frontend/src/patterns.ts', 'frontend/src/StudyPanel.tsx', 'frontend/src/AgentPanel.tsx', 'PATTERNS.md', 'variants/node-backend/index.mjs', 'variants/node-backend/class_ai.mjs', 'variants/node-backend/class_storage.mjs', 'variants/node-backend/class_knowledge.mjs', 'variants/node-backend/class_agent.mjs', 'variants/node-backend/class_quality.mjs']) {
+  'frontend/src/App.tsx', 'frontend/src/api.ts', 'backend/app.py', 'backend/class_ai.py', 'backend/class_storage.py', 'backend/class_knowledge.py', 'backend/class_agent.py', 'backend/class_quality.py', 'backend/study.py', 'variants/node-backend/study.mjs', 'tools/eval.mjs', 'tools/knowledge.mjs', 'evals/study.json', 'frontend/src/patterns.ts', 'frontend/src/StudyPanel.tsx', 'frontend/src/AgentPanel.tsx', 'PATTERNS.md', 'variants/node-backend/index.mjs', 'variants/node-backend/class_ai.mjs', 'variants/node-backend/class_storage.mjs', 'variants/node-backend/class_knowledge.mjs', 'variants/node-backend/class_agent.mjs', 'variants/node-backend/class_quality.mjs']) {
   assert.ok(existsSync(join(kit, path)), `the kit is missing ${path}`);
 }
 // npm never packs a file named .gitignore or .npmignore (found on a real account: kits published from the released package had no .gitignore), so the source template
@@ -171,6 +171,23 @@ fixture('env-committed', 'error', (d) => {
   spawnSync('git', ['add', '-f', '.env.local'], { cwd: d });
 });
 say('a token saved by npm run login in .env.local passes the check; the same file tracked by git is an error');
+
+// books in knowledge/ stay on the student's computer: git-ignored by default, and a warning (not an error) when they are tracked anyway
+assert.ok(lf(join(kit, '.gitignore')).split('\n').includes('/knowledge/'), 'the kit git-ignores the knowledge/ folder');
+const booksIgnored = join(work, 'books-ignored');
+cpSync(kit, booksIgnored, { recursive: true });
+mkdirSync(join(booksIgnored, 'knowledge', 'physics'), { recursive: true });
+writeFileSync(join(booksIgnored, 'knowledge', 'physics', 'ohm.txt'), 'Ohm');
+spawnSync('git', ['init', '-q'], { cwd: booksIgnored });
+spawnSync('git', ['add', '-A'], { cwd: booksIgnored });
+assert.ok(!spawnSync('git', ['ls-files'], { cwd: booksIgnored, encoding: 'utf8' }).stdout.includes('knowledge/'), 'git does not even see the books');
+fixture('knowledge-committed', 'warn', (d) => {
+  mkdirSync(join(d, 'knowledge', 'physics'), { recursive: true });
+  writeFileSync(join(d, 'knowledge', 'physics', 'ohm.txt'), 'Ohm');
+  spawnSync('git', ['init', '-q'], { cwd: d });
+  spawnSync('git', ['add', '-f', 'knowledge/physics/ohm.txt'], { cwd: d });
+});
+say('knowledge/ is git-ignored by the kit; books tracked by git anyway are a warning that says how to stop it');
 
 // the human-readable report carries a fix line and a hint to ask the AI
 const broken = join(work, 'readable');

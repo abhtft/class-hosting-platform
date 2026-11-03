@@ -30,6 +30,7 @@ Every problem raises KnowledgeError with a plain message, a .kind and a .status:
 Books are DATA, not instructions: a book that says "ignore your rules" must not be obeyed. answer() fences the passages for you; if you build your own
 prompt, do the same (see `wrap_passages`). The key and your documents are never logged by this helper.
 """
+import hashlib
 import json
 import math
 import mimetypes
@@ -145,8 +146,36 @@ def _local_passages(text, size=200):
     return out
 
 
+LOCAL_TYPES = ("txt", "text", "md", "markdown", "html", "htm")
+
+
+def _synced_root():
+    """The project's knowledge/ folder (the one `npm run knowledge` uploads): on your computer its text, Markdown and HTML books are searchable too, read-only."""
+    return os.path.abspath("knowledge")
+
+
 def _local_collection(name):
-    return os.path.join(_folder(), _check(NAME_RE, name, "collection (lowercase letters, digits, - and _)"))
+    own = os.path.join(_folder(), _check(NAME_RE, name, "collection (lowercase letters, digits, - and _)"))
+    synced = os.path.join(_synced_root(), name)
+    return synced if not os.path.isdir(own) and os.path.isdir(synced) else own
+
+
+def _from_folder(path):
+    return os.path.dirname(path) == _synced_root()
+
+
+def _local_files(path):
+    return sorted(n for n in os.listdir(path) if n != "meta.json" and not n.startswith(".") and n.rsplit(".", 1)[-1].lower() in LOCAL_TYPES and os.path.isfile(os.path.join(path, n)))
+
+
+def _read_local(path, name):
+    with open(os.path.join(path, name), "rb") as f:
+        return _local_text(name, f.read())
+
+
+def _guard_folder(path):
+    if _from_folder(path):
+        raise KnowledgeError("bad_request", "This shelf comes from your knowledge/ folder: change the files there, then run npm run knowledge to upload them.")
 
 
 # ---------- the same shape of answers as the platform ----------
@@ -168,13 +197,18 @@ def collections():
     if _remote():
         info = _request("GET", "/v1/collections")
         return {"collections": info["collections"], "library": info["library"]}
-    out = []
+    out, seen = [], set()
     for name in sorted(os.listdir(_folder())):
         meta = os.path.join(_folder(), name, "meta.json")
         if os.path.isfile(meta):
-            docs = [d for d in os.listdir(os.path.join(_folder(), name)) if d != "meta.json"]
-            out.append({"name": name, "title": json.load(open(meta, encoding="utf8"))["title"], "documents": len(docs)})
-    return {"collections": out, "library": []}
+            seen.add(name)
+            out.append({"name": name, "title": json.load(open(meta, encoding="utf8"))["title"], "documents": len(_local_files(os.path.join(_folder(), name)))})
+    if os.path.isdir(_synced_root()):  # the shelves of the knowledge/ folder
+        for name in sorted(os.listdir(_synced_root())):
+            path = os.path.join(_synced_root(), name)
+            if name not in seen and NAME_RE.match(name) and os.path.isdir(path):
+                out.append({"name": name, "title": name, "documents": len(_local_files(path))})
+    return {"collections": sorted(out, key=lambda c: c["name"]), "library": []}
 
 
 def delete_collection(name):
@@ -182,7 +216,9 @@ def delete_collection(name):
     if _remote():
         return _request("DELETE", f"/v1/collections/{name}")["deleted"]
     import shutil
-    shutil.rmtree(_local_collection(name), ignore_errors=True)
+    path = _local_collection(name)
+    _guard_folder(path)
+    shutil.rmtree(path, ignore_errors=True)
     return name
 
 
@@ -194,8 +230,7 @@ def documents(collection):
     path = _local_collection(collection)
     if not os.path.isdir(path):
         raise KnowledgeError("not_found", "No such collection.", 404)
-    return [{"id": n, "state": "ready", "filename": n, "title": n, "passages": len(_local_passages(open(os.path.join(path, n), encoding="utf8").read()))}
-            for n in sorted(os.listdir(path)) if n != "meta.json"]
+    return [{"id": n, "state": "ready", "filename": n, "title": n, "passages": len(_local_passages(_read_local(path, n)))} for n in _local_files(path)]
 
 
 def delete_document(collection, doc_id):
@@ -203,7 +238,9 @@ def delete_document(collection, doc_id):
     if _remote():
         _check(NAME_RE, doc_id, "document")
         return _request("DELETE", f"/v1/collections/{collection}/documents/{doc_id}")["deleted"]
-    os.remove(os.path.join(_local_collection(collection), os.path.basename(doc_id)))
+    path = _local_collection(collection)
+    _guard_folder(path)
+    os.remove(os.path.join(path, os.path.basename(doc_id)))
     return doc_id
 
 
@@ -219,13 +256,14 @@ def add_document(collection, filename, data, wait=True, timeout=240, poll=2.0):
     data = data.encode() if isinstance(data, str) else bytes(data)
     if not _remote():
         text = _local_text(filename, data)
+        _guard_folder(_local_collection(collection))
         path = os.path.join(_local_collection(collection), os.path.basename(filename))
         if not os.path.isdir(os.path.dirname(path)):
             raise KnowledgeError("not_found", "No such collection.", 404)
         with open(path, "w", encoding="utf8") as f:
             f.write(text)
         return {"id": os.path.basename(filename), "state": "ready", "filename": filename, "title": filename, "passages": len(_local_passages(text))}
-    target = _request("POST", f"/v1/collections/{collection}/documents", {"filename": filename, "size": len(data)})
+    target = _request("POST", f"/v1/collections/{collection}/documents", {"filename": filename, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     doc_id = target["doc_id"]
     boundary = uuid.uuid4().hex
     content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
@@ -268,7 +306,7 @@ def search(query, collections=None, k=5):
     question, scored = set(_words(query)), []
     for name in wanted:
         for doc in documents(name):
-            for number, passage in enumerate(_local_passages(open(os.path.join(_local_collection(name), doc["id"]), encoding="utf8").read())):
+            for number, passage in enumerate(_local_passages(_read_local(_local_collection(name), doc["id"]))):
                 words = _words(passage)
                 overlap = len(question & set(words))
                 if overlap:
