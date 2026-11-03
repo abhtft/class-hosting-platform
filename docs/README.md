@@ -64,6 +64,7 @@ Start here if you want to understand the whole project. The first half is a one-
 | [MCP.md](MCP.md) | The student tool server and the `class-platform-mcp` package: tools, setup, tokens, updates, security |
 | [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
 | [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
+| [AGENT_GUIDE.md](AGENT_GUIDE.md) | How the student agent works: the approaches considered and chosen, the architecture and one run step by step (diagrams), the guardrails, human approval, **where every setting lives**, time and cost, security, what real tests taught, what is not built |
 | [RAG_GUIDE.md](RAG_GUIDE.md) | How class knowledge works end to end in plain words: shelf vs class library vs the `knowledge/` folder, the three workflows with diagrams, every setting (what you can change today and what is built in), a tuning playbook, domain notes (school, medical, finance, legal), cost, failure modes |
 | [KNOWLEDGE_CONNECTOR.md](KNOWLEDGE_CONNECTOR.md) | Class knowledge: books and a class library a student's app answers from (PDF reading, search, the "books do not say" rule, limits, cost, permissions, helpers) |
 | [BACKGROUND_JOBS.md](BACKGROUND_JOBS.md) | Background jobs: work longer than a request. The parts, a job's life and states, the data model, limits, security model, failures, cost, local development, tests, design decisions |

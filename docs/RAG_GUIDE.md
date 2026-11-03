@@ -20,6 +20,11 @@ So the two things you described are **not** two kinds of shelf. The difference i
 
 A student's app can search **both at once**: `kb.search(question)` with no list searches the student's own shelves and the class library; `kb.search(question, ["physics", "library/science"])` chooses (at most 4 shelves per question).
 
+<!-- diagram:b5b7ba70 -->
+![Diagram: 1. The three words you need: shelf, class library, knowledge/ folder](diagrams/rag-guide/01-1-the-three-words-you-need-shelf-class-library-k.png)
+
+<details><summary>Diagram source (Mermaid, editable; GitHub also draws it)</summary>
+
 ```mermaid
 flowchart LR
     subgraph T["Teacher"]
@@ -39,6 +44,9 @@ flowchart LR
     APP -->|searches| SS
 ```
 
+</details>
+<!-- /diagram -->
+
 Another student's app can **not** search your student's own shelves. Only the class library is shared.
 
 ---
@@ -56,6 +64,11 @@ Another student's app can **not** search your student's own shelves. Only the cl
 
 ## 3. Workflow A: adding a book (reading and indexing)
 
+<!-- diagram:90dd7206 -->
+![Diagram: 3. Workflow A: adding a book (reading and indexing)](diagrams/rag-guide/02-3-workflow-a-adding-a-book-reading-and-indexing.png)
+
+<details><summary>Diagram source (Mermaid, editable; GitHub also draws it)</summary>
+
 ```mermaid
 flowchart TD
     A["File: PDF, text, Markdown or HTML"] --> B["Upload form (size limited S3 POST)"]
@@ -71,6 +84,9 @@ flowchart TD
     J --> K["Ready"]
 ```
 
+</details>
+<!-- /diagram -->
+
 What matters for quality in this workflow:
 - **Extraction** decides everything after it. A scanned PDF has no text: those pages are skipped and the book says so (no OCR yet). Tables and equations come out as plain text.
 - **Cleaning** removes a header or footer only when it repeats across pages **at the page edges** (first and last two lines), and page numbers like `12`, `(iv)`, `- 7 -`. A line that is repeated in the middle of a page is kept.
@@ -80,6 +96,11 @@ What matters for quality in this workflow:
 ---
 
 ## 4. Workflow B: answering a question
+
+<!-- diagram:560fa56f -->
+![Diagram: 4. Workflow B: answering a question](diagrams/rag-guide/03-4-workflow-b-answering-a-question.png)
+
+<details><summary>Diagram source (Mermaid, editable; GitHub also draws it)</summary>
 
 ```mermaid
 flowchart TD
@@ -91,12 +112,15 @@ flowchart TD
     D1 --> E["Fuse the two lists (reciprocal rank fusion)"]
     D2 --> E
     E --> F["Drop near-duplicate passages, keep the best k"]
-    F --> G{"Confident?<br/>best cosine >= min_similarity<br/>OR best passage covers >= min_coverage of the question's words"}
+    F --> G{"Confident?<br/>best cosine at least min_similarity<br/>OR best passage covers at least min_coverage of the question words"}
     G -- "no" --> R["Answer: The books do not say.<br/>(no AI call, nothing spent)"]
     G -- "yes" --> H["Helper: same passage on two shelves kept once;<br/>passages numbered [1], [2], fenced as DATA"]
     H --> I["Class AI answers ONLY from the passages and cites [n]"]
     I --> J["Return answer + numbered sources<br/>(each marked cited or looked-at)"]
 ```
+
+</details>
+<!-- /diagram -->
 
 Two important behaviours:
 - **"Confident" is a gate, not a score.** It is true when the **best similarity anywhere in the shelf** is at least `min_similarity` **or** the **best passage contains at least `min_coverage` of the question's words**. When it is false, `answer()` replies "The books do not say." **without calling the AI**.
@@ -106,9 +130,14 @@ Two important behaviours:
 
 ## 5. Workflow C: the `knowledge/` folder sync
 
+<!-- diagram:227141f4 -->
+![Diagram: 5. Workflow C: the knowledge/ folder sync](diagrams/rag-guide/04-5-workflow-c-the-knowledge-folder-sync.png)
+
+<details><summary>Diagram source (Mermaid, editable; GitHub also draws it)</summary>
+
 ```mermaid
 flowchart TD
-    S["npm run knowledge<br/>(also runs after npm run deploy)"] --> A["Scan knowledge/&lt;shelf&gt;/ files<br/>valid shelf name, allowed type, size within limit"]
+    S["npm run knowledge<br/>(also runs after npm run deploy)"] --> A["Scan the files in knowledge/SHELF/<br/>valid shelf name, allowed type, size within limit"]
     A --> B["Ask the portal what each shelf already holds<br/>(login with the student's token)"]
     B --> C{"Compare content hash per file"}
     C -- "same hash, ready" --> K["Keep: nothing uploaded or read"]
@@ -117,6 +146,9 @@ flowchart TD
     C -- "on the shelf, not in the folder" --> O["Reported only;<br/>removed with --prune"]
     C -- "failed before" --> F["Reported with the reason;<br/>tried again only with --retry"]
 ```
+
+</details>
+<!-- /diagram -->
 
 Commands: `npm run knowledge` (sync), `-- --dry-run` (plan only), `-- status`, `-- --wait`, `-- --prune`, `-- --retry`. The folder is git-ignored by the kit. Shelves that are not folders (for example one a backend creates) are never touched.
 

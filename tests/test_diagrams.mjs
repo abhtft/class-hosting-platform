@@ -10,7 +10,7 @@ import { plan } from '../docs/diagrams/render.mjs';
 const docs = join(dirname(fileURLToPath(import.meta.url)), '..', 'docs');
 const problems = [];
 let total = 0;
-for (const name of ['TECHNICAL_SPECIFICATION.md', 'AI_CONNECTOR.md', 'STUDENT_KIT.md', 'STORAGE_CONNECTOR.md', 'AWS_LEARNINGS.md']) {
+for (const name of ['TECHNICAL_SPECIFICATION.md', 'AI_CONNECTOR.md', 'STUDENT_KIT.md', 'STORAGE_CONNECTOR.md', 'AWS_LEARNINGS.md', 'RAG_GUIDE.md', 'AGENT_GUIDE.md']) {
   const text = readFileSync(join(docs, name), 'utf8').replace(/\r\n/g, '\n');
   const { blocks } = plan(name, text);
   assert.ok(blocks.length > 0, `${name} has no diagrams`);
