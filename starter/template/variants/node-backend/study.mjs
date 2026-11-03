@@ -24,7 +24,8 @@ const RUN_ID_LENGTH = 24;
 function tools() {
   return [
     agent.tool('search_books', 'Find passages in the books', { query: 'text' },
-      async (a) => (await kb.search(a.query, BOOKS, 3)).hits.map((h) => ({ title: h.title, page: h.page, text: h.text.slice(0, 300) }))),
+      // the section is the label of the passage ("CHIEF ADVISOR"): without it the model sees names with no idea which is which
+      async (a) => (await kb.search(a.query, BOOKS, 3)).hits.map((h) => ({ title: h.title, page: h.page, section: h.section, text: h.text.slice(0, 600) }))),
     agent.tool('save_note', 'Save a short note for the student', { text: 'text' },
       async (a) => { await storage.put('notes', String(Date.now()).padStart(13, '0'), { text: a.text.slice(0, 200) }); return 'saved'; }, { needsApproval: true }),
   ];

@@ -50,7 +50,7 @@ does the work.
 ```python
 import class_agent as agent
 tools = [
-    agent.tool("search_books", "Find passages in the class books", {"query": "text"}, lambda a: kb.search(a["query"])["hits"][:3]),
+    agent.tool("search_books", "Find passages in the class books", {"query": "text"}, lambda a: kb.search(a["query"])["hits"][:3]),   # keep each hit's "section" and "page": they say which passage is which
     agent.tool("add_numbers", "Add two numbers", {"a": "number", "b": "number"}, lambda a: a["a"] + a["b"]),
 ]
 result = agent.run(goal, tools, max_steps=5, max_seconds=16)   # a web request stops at 25 s: a real model needs 2 to 5 s per step, so keep this under 18

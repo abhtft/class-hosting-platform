@@ -28,7 +28,8 @@ def tools():
     """What the agent may do. Keep it to 2 to 4 small, safe tools. A tool that changes something needs a human's approval first."""
     return [
         agent.tool("search_books", "Find passages in the books", {"query": "text"},
-                   lambda a: [{"title": h["title"], "page": h["page"], "text": h["text"][:300]} for h in kb.search(a["query"], BOOKS, 3)["hits"]]),
+                   # the section is the label of the passage ("CHIEF ADVISOR"): without it the model sees names with no idea which is which
+                   lambda a: [{"title": h["title"], "page": h["page"], "section": h["section"], "text": h["text"][:600]} for h in kb.search(a["query"], BOOKS, 3)["hits"]]),
         agent.tool("save_note", "Save a short note for the student", {"text": "text"},
                    lambda a: storage.put("notes", f"{int(time.time() * 1000):013d}", {"text": a["text"][:200]}) and "saved", needs_approval=True),
     ]
