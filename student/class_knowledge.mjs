@@ -240,8 +240,12 @@ export async function search(query, refs, k = 5) {
   if (refs !== undefined && refs !== null) refs.forEach((ref) => check(REF_RE, ref, 'collection'));
   const count = Math.max(1, Math.min(Number(k) || 5, 10));
   if (remote()) {
-    const info = await request('POST', '/v1/search', { query, k: count, ...(refs ? { collections: refs } : {}) });
-    return { hits: info.hits, confident: info.confident };
+    // The same book can sit on two shelves (yours and the class library's), and then every passage turns up twice and fills the places meant for different
+    // ones. So ask for more than needed and keep each passage text once (the first, which is the best).
+    const info = await request('POST', '/v1/search', { query, k: Math.min(10, count * 2), ...(refs ? { collections: refs } : {}) });
+    const seen = new Set();
+    const hits = info.hits.filter((hit) => !seen.has(hit.text) && seen.add(hit.text));
+    return { hits: hits.slice(0, count), confident: info.confident };
   }
   const wanted = (refs || []).filter((r) => !r.startsWith('library/'));
   const names = wanted.length ? wanted : (await collections()).collections.map((c) => c.name);

@@ -299,9 +299,16 @@ def search(query, collections=None, k=5):
         collections = [_check(REF_RE, c, "collection") for c in collections]
     k = max(1, min(int(k), 10))
     if _remote():
-        body = {"query": query, "k": k, **({"collections": collections} if collections is not None else {})}
+        # The same book can sit on two shelves (yours and the class library's), and then every passage turns up twice and fills the places meant for different
+        # ones. So ask for more than needed and keep each passage text once (the first, which is the best).
+        body = {"query": query, "k": min(10, k * 2), **({"collections": collections} if collections is not None else {})}
         info = _request("POST", "/v1/search", body)
-        return {"hits": info["hits"], "confident": info["confident"]}
+        hits, seen = [], set()
+        for hit in info["hits"]:
+            if hit["text"] not in seen:
+                seen.add(hit["text"])
+                hits.append(hit)
+        return {"hits": hits[:k], "confident": info["confident"]}
     wanted = [c for c in (collections or []) if not c.startswith("library/")] or [c["name"] for c in collections_local()]
     question, scored = set(_words(query)), []
     for name in wanted:

@@ -55,6 +55,15 @@ try:
     assert water["confident"] and water["hits"][0]["collection"] == info["library"] and "condenses" in water["hits"][0]["text"], water
     nothing = kb.search("How do I bake sourdough bread with a starter?")
     assert nothing["confident"] is False, nothing
+    kb.create_collection("copy", "A copy of the library book")
+    kb.add_document("copy", "water.txt", b"The Water Cycle\n\nWater evaporates from oceans and lakes when the sun heats it. The vapour rises, cools and condenses into clouds. "
+                    b"Rain, snow and hail then fall as precipitation and the water flows back to rivers and the sea. Plants also release water vapour, "
+                    b"which is called transpiration.", poll=0.05)
+    twice = kb.search("Why do clouds form from evaporated water?", k=4)
+    texts = [h["text"] for h in twice["hits"]]
+    assert len(texts) == len(set(texts)) and texts, "the same book on two shelves gives each passage once, not twice"
+    assert {h["collection"] for h in kb.search("Why do clouds form from evaporated water?", collections=["copy", info["library"]], k=4)["hits"]} <= {"copy", info["library"]}
+    kb.delete_collection("copy")
     fails("not_found", kb.search, "x", collections=["nope"])
     fails("bad_request", kb.search, "   ")
     fails("bad_request", kb.search, "x", collections=["Bad Name"])

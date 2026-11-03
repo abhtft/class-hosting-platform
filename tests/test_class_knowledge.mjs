@@ -76,6 +76,11 @@ try {
   assert.equal(water.hits[0].collection, info.library);
   assert.match(water.hits[0].text, /condenses/);
   assert.equal((await kb.search('How do I bake sourdough bread with a starter?')).confident, false);
+  await kb.createCollection('copy', 'A copy of the library book');
+  await kb.addDocument('copy', 'water.txt', 'The Water Cycle\n\nWater evaporates from oceans and lakes when the sun heats it. The vapour rises, cools and condenses into clouds. Rain, snow and hail then fall as precipitation and the water flows back to rivers and the sea. Plants also release water vapour, which is called transpiration.', { poll: 0.05 });
+  const twice = (await kb.search('Why do clouds form from evaporated water?', undefined, 4)).hits.map((h) => h.text);
+  assert.ok(twice.length > 0 && new Set(twice).size === twice.length, 'the same book on two shelves gives each passage once, not twice');
+  await kb.deleteCollection('copy');
   await fails('not_found', () => kb.search('x', ['nope']));
   await fails('bad_request', () => kb.search('   '));
   await fails('bad_request', () => kb.search('x', ['Bad Name']));
