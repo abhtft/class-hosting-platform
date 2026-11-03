@@ -35,6 +35,7 @@ const MAX_CACHED_BYTES = 40 * 1024;
 export const MAX_COMMENT_CHARS = 300;
 const FEEDBACK_PAGES = 3;
 const NOT_SURE = 'The books do not say.';
+const ANSWER_SHAPE = 2; // part of every cached book answer's key: raise it when the shape of answer() changes, so copies made by an older helper are never served
 const REFUSAL_WORDS = ['do not say', 'do not know', "don't know", 'cannot', "can't", 'no information', 'not sure'];
 
 const storage = () => import('./class_storage.mjs');
@@ -83,7 +84,7 @@ export async function answerCached(question, { collections, days = 7, ...options
   const found = await kb.search(question, collections, options.k ?? 4);
   if (!found.confident || !found.hits.length) return { answer: kb.NOT_SURE, sources: [], confident: false, cached: false };
   const fingerprint = found.hits.map((h) => sha(h.text).slice(0, 16));
-  const [value, hit] = await cached('answer', question, () => kb.answer(question, { collections, ...options }), { days, extra: [fingerprint, options.system || ''] });
+  const [value, hit] = await cached('answer', question, () => kb.answer(question, { collections, ...options }), { days, extra: [ANSWER_SHAPE, fingerprint, options.system || ''] });
   return { ...value, cached: hit };
 }
 

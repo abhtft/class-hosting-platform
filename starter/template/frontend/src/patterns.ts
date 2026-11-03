@@ -4,7 +4,7 @@
  */
 import { api } from './api'
 
-export type Source = { n: number; title: string; page: number | null; section: string; collection: string }
+export type Source = { n: number; cited: boolean; title: string; page: number | null; section: string; collection: string }
 export type StudyAnswer = { answer: string; sources: Source[]; confident: boolean; cached: boolean; answer_id?: string }
 
 export type TraceStep = {

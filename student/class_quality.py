@@ -39,6 +39,7 @@ MAX_CACHED_BYTES = 40 * 1024
 MAX_COMMENT_CHARS = 300
 FEEDBACK_PAGES = 3
 NOT_SURE = "The books do not say."
+ANSWER_SHAPE = 2  # part of every cached book answer's key: raise it when the shape of kb.answer() changes, so copies made by an older helper are never served
 REFUSAL_WORDS = ("do not say", "do not know", "don't know", "cannot", "can't", "no information", "not sure")
 
 
@@ -93,7 +94,7 @@ def answer_cached(question, collections=None, days=7, **options):
     if not found["confident"] or not found["hits"]:
         return {"answer": kb.NOT_SURE, "sources": [], "confident": False, "cached": False}
     fingerprint = [hashlib.sha256(h["text"].encode("utf8")).hexdigest()[:16] for h in found["hits"]]
-    value, hit = cached("answer", question, lambda: kb.answer(question, collections, **options), days=days, extra=[fingerprint, options.get("system", "")])
+    value, hit = cached("answer", question, lambda: kb.answer(question, collections, **options), days=days, extra=[ANSWER_SHAPE, fingerprint, options.get("system", "")])
     return {**value, "cached": hit}
 
 

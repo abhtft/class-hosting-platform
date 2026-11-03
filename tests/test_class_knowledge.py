@@ -69,6 +69,8 @@ try:
     three = [{"title": "A", "page": 1}, {"title": "A", "page": 1}, {"title": "A", "page": 2}]
     assert [s["n"] for s in kb.sources(three)] == [1, 2, 3], "every passage keeps its number, so [2] in an answer is entry 2"
     assert [s["n"] for s in kb.sources(three, 2)] == [1, 2], "passages that did not fit in the prompt are not listed"
+    assert [s["cited"] for s in kb.sources(three, None, "It is A [2, 3].")] == [False, True, True], "the answer's references mark the passages it used"
+    assert [s["cited"] for s in kb.sources(three, None, "No references.")] == [True, True, True], "an answer that cites none counts all as used"
     long = [{"title": "L", "page": 1, "section": "", "text": "w " * 5000}, {"title": "M", "page": 2, "section": "", "text": "short"}]
     assert "[1]" in kb.wrap_passages(long, 500) and "[2]" not in kb.wrap_passages(long, 500), "an oversized first passage is cut, not dropped"
     print("  ok  answer(): cites its sources, says 'The books do not say.' without calling the AI, and fences passage text so a book cannot close the fence")

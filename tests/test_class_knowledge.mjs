@@ -96,6 +96,8 @@ try {
   const three = [{ title: 'A', page: 1 }, { title: 'A', page: 1 }, { title: 'A', page: 2 }];
   assert.deepEqual(kb.sources(three).map((s) => s.n), [1, 2, 3], 'every passage keeps its number, so [2] in an answer is entry 2');
   assert.deepEqual(kb.sources(three, 2).map((s) => s.n), [1, 2], 'passages that did not fit in the prompt are not listed');
+  assert.deepEqual(kb.sources(three, undefined, 'It is A [2, 3].').map((s) => s.cited), [false, true, true], "the answer's references mark the passages it used");
+  assert.deepEqual(kb.sources(three, undefined, 'No references.').map((s) => s.cited), [true, true, true], 'an answer that cites none counts all as used');
   const long = [{ title: 'L', page: 1, section: '', text: 'w '.repeat(5000) }, { title: 'M', page: 2, section: '', text: 'short' }];
   assert.ok(kb.wrapPassages(long, 500).includes('[1]') && !kb.wrapPassages(long, 500).includes('[2]'), 'an oversized first passage is cut, not dropped');
   say("answer(): cites its sources, says 'The books do not say.' without calling the AI, and fences passage text so a book cannot close the fence");

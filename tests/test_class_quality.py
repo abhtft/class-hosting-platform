@@ -56,6 +56,13 @@ with tempfile.TemporaryDirectory() as folder:
     kb.add_document("physics", "ohm.txt", "Ohm's law says the current through a conductor is proportional to the voltage across it. Resistance is measured in ohms (symbol omega).")
     third = quality.answer_cached(question, ["physics"])
     assert third["cached"] is False, "a changed book means the old answer is not served"
+    shape = quality.ANSWER_SHAPE
+    quality.ANSWER_SHAPE = shape + 1  # a newer helper changed the shape of answer(): copies made by the older one must not be served
+    try:
+        assert quality.answer_cached(question, ["physics"])["cached"] is False, "a cached answer of an older shape is never served"
+        assert quality.answer_cached(question, ["physics"])["cached"] is True
+    finally:
+        quality.ANSWER_SHAPE = shape
     unsure = quality.answer_cached("How do I bake sourdough bread?", ["physics"])
     assert unsure == {"answer": kb.NOT_SURE, "sources": [], "confident": False, "cached": False}
     print("  ok  answer_cached: a repeat is a hit; changing the book changes the key; an unanswerable question is refused without caching")

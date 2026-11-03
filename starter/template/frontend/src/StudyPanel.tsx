@@ -47,7 +47,7 @@ export default function StudyPanel() {
           {result.sources.length > 0 && (
             <ul className="sources" aria-label="Where this came from">
               {result.sources.map((s) => (
-                <li key={s.n}><strong>[{s.n}]</strong> {s.title}{s.page ? `, page ${s.page}` : ''}{s.section ? ` (${s.section})` : ''}</li>
+                <li key={s.n} className={s.cited ? '' : 'muted'}><strong>[{s.n}]</strong> {s.title}{s.page ? `, page ${s.page}` : ''}{s.section ? ` (${s.section})` : ''}{s.cited ? '' : ' · looked at, not used'}</li>
               ))}
             </ul>
           )}

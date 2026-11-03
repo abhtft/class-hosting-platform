@@ -341,11 +341,18 @@ def wrap_passages(hits, max_chars=6000):
     return "<books>\n" + "\n\n".join(_blocks(hits, max_chars)) + "\n</books>"
 
 
-def sources(hits, included=None):
+def _cited(text):
+    """The passage numbers an answer refers to: [1], [2, 3]."""
+    return {int(n) for group in re.findall(r"\[(\d+(?:\s*,\s*\d+)*)\]", str(text or "")) for n in re.findall(r"\d+", group)}
+
+
+def sources(hits, included=None, answer_text=None):
     """Where the passages came from, for showing under an answer: one entry per passage with the SAME number "n" the prompt gave it, so a reference like [2]
-    in the answer is entry n=2. `included` is how many passages actually fitted in the prompt (answer() passes it): the others were never shown to the AI."""
-    return [{"n": n, "title": hit.get("title"), "page": hit.get("page"), "section": hit.get("section"), "collection": hit.get("collection")}
-            for n, hit in enumerate(hits if included is None else hits[:included], 1)]
+    in the answer is entry n=2. `included` is how many passages actually fitted in the prompt (answer() passes it): the others were never shown to the AI.
+    With `answer_text`, each entry says whether the answer cited it ("cited"); when the answer cites none, every entry counts as cited."""
+    cited = _cited(answer_text)
+    return [{"n": n, "title": hit.get("title"), "page": hit.get("page"), "section": hit.get("section"), "collection": hit.get("collection"),
+             "cited": n in cited or not cited} for n, hit in enumerate(hits if included is None else hits[:included], 1)]
 
 
 def answer(question, collections=None, k=4, system=None, max_tokens=400, mock=None):
@@ -360,7 +367,7 @@ def answer(question, collections=None, k=4, system=None, max_tokens=400, mock=No
         f"Mention the passage numbers you used, like [1]. If the passages do not contain the answer, reply exactly: {NOT_SURE}")
     text = class_ai.ask(f"{wrap_passages(found['hits'])}\n\nQuestion: {question}", system=rules, max_tokens=max_tokens,
                         mock=mock or f"[mock AI] From the books: {found['hits'][0]['text'][:120]} [1]")
-    return {"answer": text, "sources": sources(found["hits"], len(_blocks(found["hits"], 6000))), "confident": True}
+    return {"answer": text, "sources": sources(found["hits"], len(_blocks(found["hits"], 6000)), text), "confident": True}
 
 
 def usage():
