@@ -24,6 +24,8 @@ import knowledge
 import knowledge_ingest as ki
 import knowledge_store as ks
 import portal
+import trace_core
+import traces
 from knowledge import ApiError
 
 COLLECTIONS = re.compile(r"^/v1/collections$")
@@ -52,6 +54,17 @@ def parse_body(event):
     if not isinstance(body, dict):
         raise ApiError(400, "bad_request", "The request body must be a JSON object.")
     return body
+
+
+def trace_search(item, trace_id, body, result, started, now):
+    """One "retrieval" step in the answer's trace: the question, which shelves, which passages and why they were (not) trusted."""
+    hits = result.get("hits") or []
+    traces.record(item, trace_id, "retrieval", "retriever", {
+        "query": body.get("query"), "k": body.get("k", 5), "collections": result.get("collections"), "confident": result.get("confident"),
+        "hit_count": len(hits), "embed_tokens": result.get("tokens"),
+        "hits": [{key: h.get(key) for key in ("collection", "doc", "page", "section", "score", "vector", "bm25", "coverage")} for h in hits],
+        "passages": [h.get("text") for h in hits]},
+        ts_ms=int(started * 1000), dur_ms=int((time.time() - started) * 1000), tokens=int(result.get("tokens") or 0), now=now)
 
 
 def handler(event, context=None, now=None):
@@ -84,7 +97,15 @@ def handler(event, context=None, now=None):
         if match and method == "DELETE":
             return reply(200, **knowledge.delete_document(owner, match.group(1), match.group(2), now))
         if (method, path) == ("POST", "/v1/search"):
-            return reply(200, **knowledge.search(item, parse_body(event), now))
+            trace_id = trace_core.trace_id_or_new(headers.get("x-trace-id")) if traces.available() else None
+            started, body = time.time(), parse_body(event)
+            result = knowledge.search(item, body, now)
+            if trace_id:
+                trace_search(item, trace_id, body, result, started, now)
+            out = reply(200, **result)
+            if trace_id:
+                out["headers"]["x-trace-id"] = trace_id
+            return out
         if (method, path) == ("GET", "/v1/usage"):
             return reply(200, **knowledge.view(item, now))
         raise ApiError(404, "not_found", "Unknown route.")

@@ -17,6 +17,8 @@ import time
 import ai
 import gemini
 import portal
+import trace_core
+import traces
 from portal import db
 
 KEY_RE = re.compile(r"^ga_([a-z0-9][a-z0-9-]{0,29})\.([A-Za-z0-9_-]{20,})$")
@@ -32,8 +34,11 @@ class ProxyError(Exception):
         self.status, self.code = status, code
 
 
-def reply(status, body):
-    return {"statusCode": status, "headers": {"content-type": "application/json", "cache-control": "no-store"}, "body": json.dumps(body)}
+def reply(status, body, trace_id=None):
+    headers = {"content-type": "application/json", "cache-control": "no-store"}
+    if trace_id:
+        headers["x-trace-id"] = trace_id
+    return {"statusCode": status, "headers": headers, "body": json.dumps(body)}
 
 
 def error_reply(status, code, message):
@@ -74,7 +79,22 @@ def parse_body(event):
     return body
 
 
-def complete(item, body, now):
+def trace_llm(item, trace_id, model, sent, answer, started, now, error=None):
+    """One "llm" step in the answer's trace. Never raises (traces.record swallows its own errors)."""
+    usage = (answer or {}).get("usage") or {}
+    choice = ((answer or {}).get("choices") or [{}])[0]
+    text = (choice.get("message") or {}).get("content") if answer else None
+    cost = gemini.cost_micro(model, usage) if answer else 0
+    traces.record(item, trace_id, "llm", "llm", {
+        "model": model, "provider": "gemini", "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+        "completion_tokens": int(usage.get("completion_tokens") or 0), "cost_micro": cost,
+        "finish_reason": choice.get("finish_reason"), "temperature": sent.get("temperature"), "max_tokens": sent.get("max_tokens"),
+        "messages": [m.get("content") for m in sent.get("messages", []) if isinstance(m, dict)],
+        "answer": text, "error": error}, ts_ms=int(started * 1000), dur_ms=int((time.time() - started) * 1000),
+        status="error" if error else "ok", tokens=int(usage.get("total_tokens") or 0), cost_micro=cost, now=now)
+
+
+def complete(item, body, now, trace_id=None):
     if body.get("stream"):
         raise ProxyError(400, "stream_not_supported", "Streaming is not available on the class AI. Leave stream out (or set it to false).")
     if not isinstance(body.get("messages"), list) or not body["messages"]:
@@ -89,12 +109,15 @@ def complete(item, body, now):
     wanted = body.get("max_completion_tokens", body.get("max_tokens"))
     sent["max_tokens"] = min(int(wanted), MAX_MAX_TOKENS) if isinstance(wanted, int) and not isinstance(wanted, bool) and wanted > 0 else DEFAULT_MAX_TOKENS
     sent["model"] = model
+    started = time.time()
     try:
         answer = gemini.chat(sent, timeout=ai.student_timeout() - 3)
     except gemini.GeminiError as e:
+        trace_llm(item, trace_id, model, sent, None, started, now, error=str(e))
         # Tokens may have been used even when Google answers late; an error carries no usage, so nothing is counted.
         raise ProxyError(429 if e.status == 429 else 502 if e.status >= 500 else e.status, "provider_error", str(e))
     ai.add_gemini_usage(item, gemini.cost_micro(model, answer.get("usage")), now)
+    trace_llm(item, trace_id, model, sent, answer, started, now)
     return answer
 
 
@@ -106,7 +129,8 @@ def handler(event, context=None, now=None):
     try:
         item = authenticate(headers, now)
         if (method, path) == ("POST", "/v1/chat/completions"):
-            return reply(200, complete(item, parse_body(event), now))
+            trace_id = trace_core.trace_id_or_new(headers.get("x-trace-id")) if traces.available() else None
+            return reply(200, complete(item, parse_body(event), now, trace_id), trace_id)
         if (method, path) == ("GET", "/v1/models"):
             return reply(200, {"object": "list", "data": [{"id": ai.model_of(item), "object": "model", "owned_by": "google"}]})
         raise ProxyError(404, "not_found", "Unknown route.")

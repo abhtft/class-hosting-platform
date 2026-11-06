@@ -19,6 +19,8 @@ Teacher (password -> signed session, 8 h):
   GET  /api/admin/storage                storage across the class: per student sizes and counts, totals (never the content)
   POST /api/admin/tokens/{id}/knowledge  {enabled?, collections?, documents?, passages?, stored_mb?, upload_mb?, searches_limit?, searches_period?, embed_tokens?}
                                          class knowledge connector (knowledge.py); POST .../knowledge/clear removes all of the student's books
+  POST /api/admin/tokens/{id}/traces     {enabled?, level? (metadata|masked|full), retention_days? (30|60|90), student_view? (off|metadata|stored), daily_limit?}   trace settings (traces.py)
+  GET  /api/admin/traces[?slug&day&limit&before]   recent traces (summaries, newest first);  GET|DELETE /api/admin/traces/{slug}/{trace_id}   one trace with its steps
   GET  /api/admin/knowledge              the class library and this month's spending against the ceiling
   POST|DELETE /api/admin/knowledge/library/collections[/{name}[/documents[/{id}[/start]]]]   the teacher's class library (knowledge.py admin_route)
 
@@ -325,6 +327,7 @@ def view(item, now, site_url):
         "ai": ai_view(item, now),
         "storage": storage_view(item, now),
         "knowledge": knowledge_view(item, now),
+        "traces": traces_view(item),
     }
 
 
@@ -341,6 +344,11 @@ def ai_view(item, now):
 def storage_view(item, now):
     import storage
     return storage.view(item, now)
+
+
+def traces_view(item):
+    import traces
+    return traces.view_settings(item)
 
 
 def knowledge_view(item, now):
@@ -514,6 +522,24 @@ def dispatch(method, path, body, event, now, site_url):
             import storage
             item = storage.set_storage(get_token(storage_route.group(1)), body, now)
             return reply(200, token=view(item, now, site_url))
+        trace_set = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/traces", path)
+        if method == "POST" and trace_set:
+            import traces
+            item = get_token(trace_set.group(1))
+            traces.set_settings(item, body)
+            return reply(200, token=view(db().get(item["pk"]) or item, now, site_url))
+        if method == "GET" and path == "/api/admin/traces":
+            import traces
+            q = event.get("queryStringParameters") or {}
+            before = int(q["before"]) if str(q.get("before", "")).isdigit() else None
+            return reply(200, **traces.list_traces(q.get("slug") or None, q.get("day") or None, q.get("limit") or 50, before))
+        trace_one = re.fullmatch(r"/api/admin/traces/([a-z0-9][a-z0-9-]{0,29})/(tr_[0-9a-f]{16})", path)
+        if method == "GET" and trace_one:
+            import traces
+            return reply(200, **traces.get_trace(trace_one.group(1), trace_one.group(2)))
+        if method == "DELETE" and trace_one:
+            import traces
+            return reply(200, **traces.delete_trace(trace_one.group(1), trace_one.group(2)))
         know_clear = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/knowledge/clear", path)
         if method == "POST" and know_clear:
             import knowledge

@@ -36,9 +36,11 @@ assert re.search(r"Path: /\{proxy\+\}\n\s+Method: ANY", api) and "ApiId: !Ref Kn
 assert "ThrottlingRateLimit: 20" in block("KnowledgeApi"), "its own throttle"
 
 LEADING_UPDATE = "['kdoc#*', 'kpass#*', 'kbytes#*', 'ksearch#*', 'ktok#*', 'kspend#*', 'kwork#*']"
+LEADING_API = LEADING_UPDATE[:-1] + ", 'trd#*']"  # the API function also counts the daily traces of a student (traces.py)
 for label, fn in (("the API function", api), ("the book reader", block("KnowledgeWorkerFunction"))):
+    LEADING_UPDATE_HERE = LEADING_API if fn is api else LEADING_UPDATE
     assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt TokensTable\.Arn", fn), f"{label}: single-item reads in the tokens table"
-    assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt TokensTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: " + re.escape(LEADING_UPDATE), fn), \
+    assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt TokensTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: " + re.escape(LEADING_UPDATE_HERE), fn), \
         f"{label}: it may update counters only"
     assert re.search(r"Action: dynamodb:PutItem\n\s+Resource: !GetAtt TokensTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['emb#\*', 'kwork#\*'\]", fn), \
         f"{label}: it may write whole items only for the embedding cache and the reader slot"

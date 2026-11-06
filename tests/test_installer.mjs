@@ -100,7 +100,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.throws(() => engine.normalise({ features: ['teleport'] }), /Unknown feature/);
   assert.throws(() => engine.normalise({ stack: '1bad' }), /stack name/);
   const config = engine.normalise({ features: ['ai'], domain: 'apps.example.com', certificateArn: 'arn:x' });
-  assert.deepEqual(engine.parametersFor(config), ['RootDomain=apps.example.com', 'CertificateArn=arn:x', 'PortalAlias=false', 'BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=false', 'StorageEnabled=false', 'KnowledgeEnabled=false', 'TenantDistributionId=', 'ConnectionGroupId=', 'RoutingEndpoint=']);
+  assert.deepEqual(engine.parametersFor(config), ['RootDomain=apps.example.com', 'CertificateArn=arn:x', 'PortalAlias=false', 'BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=false', 'StorageEnabled=false', 'KnowledgeEnabled=false', 'TracesEnabled=false', 'TenantDistributionId=', 'ConnectionGroupId=', 'RoutingEndpoint=']);
   assert.ok(engine.parametersFor(config, { aliasOn: true }).includes('PortalAlias=true'));
   assert.ok(engine.parametersFor(engine.normalise({})).includes('PortalAlias=false') && engine.parametersFor(engine.normalise({})).includes('RootDomain='), 'try mode: no domain, no alias');
   assert.deepEqual(parseArgs(['install', '--profile', 'p', '--dry-run', '--features', 'ai']), { command: 'install', args: [], flags: { profile: 'p', 'dry-run': true, features: 'ai' } });
@@ -264,7 +264,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
 
 // ---------- every feature is installed by default; "none" and explicit lists still work ----------
 {
-  assert.deepEqual(engine.normalise({}).features, ['ai', 'backend', 'customdomains', 'gemini', 'knowledge', 'storage'], 'no choice given: every feature is available (each stays off per student)');
+  assert.deepEqual(engine.normalise({}).features, ['ai', 'backend', 'customdomains', 'gemini', 'knowledge', 'storage', 'traces'], 'no choice given: every feature is available (each stays off per student)');
   assert.deepEqual(engine.normalise({ features: [] }).features, [], 'an explicit empty list means none');
   const { parseFeatures } = await import('../setup.mjs');
   assert.deepEqual(parseFeatures('none'), []);

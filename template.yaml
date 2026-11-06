@@ -103,6 +103,14 @@ Parameters:
       (needs BackendEnabled='true'). Creates its API and two functions: one answers searches, one reads uploaded books in the background. The books
       live under knowledge/ in the sites bucket; embeddings use the Google key in the same secret as the class AI. Off by default; with it off nothing
       about student backends changes. See docs/KNOWLEDGE_CONNECTOR.md.
+  TracesEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Traces: a step-by-step record of every answer (the question, which book passages were found, what the AI was asked and answered, the cost),
+      stored per student in its own table and deleted automatically after 30, 60 or 90 days. The teacher sets how much text is stored (nothing by
+      default). Needs BackendEnabled='true'. Off by default; with it off nothing changes. See docs/TRACEABILITY_PLAN.md.
   KnowledgeMonthlyCapUsd:
     Type: String
     Default: '3'
@@ -150,6 +158,7 @@ Conditions:
   UseGemini: !And [!Condition UseAi, !Condition UseBackend, !Equals [!Ref AiGeminiEnabled, 'true']]
   UseStorage: !And [!Condition UseBackend, !Equals [!Ref StorageEnabled, 'true']]
   UseKnowledge: !And [!Condition UseBackend, !Equals [!Ref KnowledgeEnabled, 'true']]
+  UseTraces: !And [!Condition UseBackend, !Equals [!Ref TracesEnabled, 'true']]
   UseAlerts: !Not [!Equals [!Ref AlertEmailParameter, '']]
   UseAlertsAndBackend: !And [!Condition UseAlerts, !Condition UseBackend]
   UseAlertsAndStorage: !And [!Condition UseAlerts, !Condition UseStorage]
@@ -181,6 +190,8 @@ Globals:
         AI_GEMINI_ENABLED: !Ref AiGeminiEnabled
         STORAGE_ENABLED: !Ref StorageEnabled
         KNOWLEDGE_ENABLED: !Ref KnowledgeEnabled
+        TRACES_ENABLED: !If [UseTraces, 'true', 'false']
+        TRACES_TABLE: !If [UseTraces, !Ref TracesTable, '']
         KNOWLEDGE_MONTHLY_CAP_USD: !Ref KnowledgeMonthlyCapUsd
         KNOWLEDGE_EMBEDDING_MODEL: !Ref KnowledgeEmbeddingModel
         KNOWLEDGE_EMBEDDING_DIMS: !Ref KnowledgeEmbeddingDims
@@ -351,6 +362,52 @@ Resources:
           KeyType: HASH
         - AttributeName: id
           KeyType: RANGE
+
+  # Traces (traces.py): one partition per answer (t#<slug>#<trace id>) holding a summary item and one small item per step. Every item expires by
+  # itself (ttl). Only summary items carry app / day / started, so the two indexes list answers without ever holding step text. On-demand: idle costs nothing.
+  TracesTable:
+    Type: AWS::DynamoDB::Table
+    Condition: UseTraces
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: s
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: app
+          AttributeType: S
+        - AttributeName: day
+          AttributeType: S
+        - AttributeName: started
+          AttributeType: N
+      KeySchema:
+        - AttributeName: s
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: by-app
+          KeySchema:
+            - AttributeName: app
+              KeyType: HASH
+            - AttributeName: started
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: by-day
+          KeySchema:
+            - AttributeName: day
+              KeyType: HASH
+            - AttributeName: started
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   # ---------- CDN ----------
   SitesOAC:
@@ -730,7 +787,7 @@ Resources:
               Resource: !GetAtt TokensTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['kdoc#*', 'kpass#*', 'kbytes#*', 'ksearch#*', 'ktok#*', 'kspend#*', 'kwork#*']
+                  dynamodb:LeadingKeys: ['kdoc#*', 'kpass#*', 'kbytes#*', 'ksearch#*', 'ktok#*', 'kspend#*', 'kwork#*', 'trd#*']
             - Effect: Allow # the embedding cache and the reader slot are the only items it may write whole
               Action: dynamodb:PutItem
               Resource: !GetAtt TokensTable.Arn
@@ -752,6 +809,15 @@ Resources:
             - Effect: Allow # the provider keys for embedding a question (this one secret, nothing else)
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+            - !If # traces: it may add steps to a trace (its own partition prefix only), nothing else in that table
+              - UseTraces
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
+                Resource: !GetAtt TracesTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: ['t#*']
+              - !Ref AWS::NoValue
       Events:
         Any:
           Type: HttpApi
@@ -831,6 +897,15 @@ Resources:
             - Effect: Allow # the Google key (this one secret, nothing else)
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+            - !If # traces: it may add steps to a trace (its own partition prefix only), nothing else in that table
+              - UseTraces
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
+                Resource: !GetAtt TracesTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: ['t#*']
+              - !Ref AWS::NoValue
       Events:
         Any:
           Type: HttpApi
@@ -1020,6 +1095,12 @@ Resources:
               - Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !GetAtt KnowledgeWorkerFunction.Arn
+              - !Ref AWS::NoValue
+            - !If # traces: the teacher's list, one trace and delete (reads and deletes only; steps are written by the AI and knowledge functions)
+              - UseTraces
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:Query, dynamodb:BatchWriteItem, dynamodb:DeleteItem]
+                Resource: [!GetAtt TracesTable.Arn, !Sub '${TracesTable.Arn}/index/*']
               - !Ref AWS::NoValue
             - Effect: Allow # hand the sandbox role (and only that role) to Lambda
               Action: iam:PassRole
@@ -1333,6 +1414,9 @@ Outputs:
   StudentDataTableName:
     Condition: UseStorage
     Value: !Ref StudentDataTable
+  TracesTableName:
+    Condition: UseTraces
+    Value: !Ref TracesTable
   KeysParameterName:
     Value: !Ref KeysParameterName
   TeacherParameterName:

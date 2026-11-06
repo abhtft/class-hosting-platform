@@ -17,10 +17,10 @@
 | Regulation | No special rules stated yet; **Tier C** (regulated) is designed in anyway |
 | Languages | **English and Hindi** (including Hinglish attacks and questions) |
 | Which error is worse | **Answering wrongly** is worse than refusing. Thresholds and judges lean toward refusing |
-| Logging | By default **only guard decisions and hashes**; flagged items keep their text for review, for a limited time (section 5) |
+| Logging | **Traces** ([TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md)): by default **metadata only** (numbers, ids, decisions, never the text); the teacher can store masked or full text per student; **90 days for everything** |
 | Managed guard | **Amazon Bedrock Guardrails is allowed as an option to test** |
 | Latency and cost | **Fine** for guard overhead (targets in section 6 stay as limits) |
-| Flagged answers | Saved in **one place** (the review table, section 5) |
+| Flagged answers | Marked in **one place**: the trace store. The Review tab is a filtered view of it (section 5) |
 | Benchmark documents | **Yes** to downloading openly licensed documents; the exact list (source, size, licence) is shown **before** anything is downloaded |
 
 **Principles**
@@ -55,7 +55,7 @@ The tier lives in the shelf settings file (phase 1) and switches the guards on.
 | **3. Constrained generation** | A structured answer: the answer, the passage numbers behind each claim, an explicit "cannot answer" flag; low temperature |
 | **4. Output guard** | Citations valid; numbers, names and quotes really present in the cited passages; a small-model check that each claim is supported; secret and personal-data scan; policy check. On failure: refuse, or show quotes only |
 | **5. Agent guard** | Allowlist, approval, budgets (exist), plus filtering what tools return |
-| **6. Observability** | Guard decisions, golden probes, drift metrics, the review table |
+| **6. Observability** | Guard decisions, golden probes, drift metrics, the trace store and its Review view |
 
 ---
 
@@ -74,20 +74,20 @@ The tier lives in the shelf settings file (phase 1) and switches the guards on.
 
 ---
 
-## 5. The review table (where flagged answers are saved)
+## 5. The review table (a filtered view of the trace store)
 
-**Place:** a dedicated small on-demand DynamoDB table in the customer's AWS account, with automatic expiry, shown on the teacher page as a **Review** tab.
+*Changed after the owner's traceability decisions (2026-11-06): there is **no separate review table**. Every answer already has a trace ([TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md)), so a flagged answer is a trace with a flag and a status, and the Review tab is a filtered view of the Traces tab.*
 
 | Item | Decision |
 |---|---|
-| What is saved | Only **flagged** answers: time, shelf, tier, the question and answer (cut to a safe length), the passage numbers, the guard reasons, the model ids, the scores, any thumbs-down |
-| What is **not** saved | Anything unflagged: those leave only counters and hashes |
-| Retention | Default **30 days** (Tier C longer, set by the teacher); items expire by themselves |
-| Who can see it | **The teacher only** (teacher login). Students see nothing |
+| What is saved | The trace of every answer, at the privacy level the teacher chose for that student (default **metadata only**). A flag, a status and a reviewer note are added to the trace summary |
+| Text of flagged answers | If the student's level stores no text, a flagged answer's text is **not** kept; to review text, the teacher raises the level for that student (masked or full) or replays the question |
+| Retention | **90 days for everything**, shortened per student to 30 or 60; items expire by themselves; reminders and one download for all apps keep what the teacher wants to keep |
+| Who can see it | **The teacher always.** A student sees their **own app's** traces only if the teacher allows it (per-student toggle: Off, Metadata only, As stored) |
 | Statuses | New, confirmed wrong, false alarm, fixed, ignored; plus a reviewer note |
 | Actions | **Add to the regression set** (turns a confirmed failure into a permanent test case), export, delete |
-| Why not S3 or the tokens table | S3 cannot filter or update status easily; the tokens table is deliberately designed so no function can scan it |
-| Privacy | Students are told in the docs that flagged answers are kept for review for a limited time |
+| Why one store | One place to look, one retention rule, one privacy rule, one cost line (about $0.30 a month at 10,000 answers with metadata only) |
+| Privacy | Students are told in the docs and by a notice line on the page when text is stored |
 
 ---
 
@@ -119,9 +119,10 @@ Each phase is a separate release step: tests first, then `plan` and `apply` for 
 
 | Phase | Deliverable | Gate to pass |
 |---|---|---|
+| **T0 and T1. Traces first** | (parallel track, started 2026-11-06) The trace format, the trace store, platform steps from the AI proxy and the knowledge API; then T2 helper steps, T3 Traces tab, T4 student view ([TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md) section 9) | Every search and AI call has a trace; deletion and expiry tests pass |
 | **0. Foundation and baseline** | The **benchmark pack** (about 15 to 20 openly licensed documents in English and Hindi, varied types, including one with an old non-Unicode font), the question and attack sets, a runner and a report; a **baseline on the current version** | The owner approves the document list (sources, sizes, licences) **before** any download |
 | **1. Shelf settings** | A per-shelf settings file and teacher screen: tier, thresholds, `k`, passage size, notes, with safe ranges for students; the evaluation numbers shown next to the settings | Changing a threshold visibly moves the benchmark |
-| **2. Deterministic guards and the review table** | Ingest scan, input flags, passage scan, citation and number checks, secret and personal-data rules (including common Indian identifiers), the guard-decision log, the **review table and Review tab** | Attack success under 5%; overhead small |
+| **2. Deterministic guards and the Review tab** | Ingest scan, input flags, passage scan, citation and number checks, secret and personal-data rules (including common Indian identifiers), the guard decisions **as steps in the trace**, the **Review tab (a filtered view of the Traces tab)** | Attack success under 5%; overhead small |
 | **3. Profiler, strategies and Hindi support** | A rule-based document profiler choosing from 3 or 4 tested strategies; Hindi-aware word search, sentence splitting and stop words; Hinglish handling | Improves at least two very different documents, regresses none |
 | **4. Groundedness judge and quote-only mode** | A claim-level check with a small model, calibrated on the benchmark; quote-only mode for Tier C | At least 95% claims supported; wrong answers at most 2% |
 | **5. Stability** | Golden probes on a schedule, model recording, drift metrics and alerts on the teacher page, the fallback chain | A deliberate quality drop is detected within a day |
@@ -141,6 +142,6 @@ Each phase is a separate release step: tests first, then `plan` and `apply` for 
 
 ## 9. Open items I will confirm with the owner as they come up
 - The exact benchmark document list (shown first, then downloaded).
-- Retention for Tier C, and who reviews flagged items when more than one teacher exists.
+- Retention for Tier C is **90 days like everything else** (decided); who reviews flagged items when more than one teacher exists.
 - Whether to keep a fallback model through a second provider.
 - The price and Hindi support of managed guards (verified at phase 6).
