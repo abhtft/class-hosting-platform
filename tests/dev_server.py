@@ -21,7 +21,7 @@ os.environ.update(AWS_REGION="us-east-1", AWS_DEFAULT_REGION="us-east-1", AWS_AC
                   KEYS_PARAM="/k", TENANT_DISTRIBUTION_ID="EMT", ROUTING_ENDPOINT="route.cloudfront.net",
                   BACKEND_ENABLED="true", SANDBOX_ROLE_ARN="arn:aws:iam::1:role/sandbox", ORIGIN_SECRET="dev-origin-secret", GATEWAY_CACHE_SECONDS="0",
                   AI_ENABLED="true", AI_SECRET_NAME="openrouter", AI_DEFAULT_MODEL="anthropic/claude-haiku-5.5", AI_DEFAULT_LIMIT_USD="0.25",
-                  STORAGE_ENABLED="true", STORAGE_URL=f"http://127.0.0.1:{port}/storage", JOB_RUNNER_FUNCTION="job-runner")
+                  TRACES_ENABLED="true", STORAGE_ENABLED="true", STORAGE_URL=f"http://127.0.0.1:{port}/storage", JOB_RUNNER_FUNCTION="job-runner")
 sys.path[:0] = [os.path.join(here, "..", "lambda"), here]
 import app  # noqa: E402
 import backends  # noqa: E402
@@ -31,6 +31,8 @@ import gateway  # noqa: E402
 import openrouter  # noqa: E402
 import portal  # noqa: E402
 import storage_api  # noqa: E402
+import trace_core  # noqa: E402
+import traces  # noqa: E402
 from fakes import FakeLambda, FakeLogs, FakeOpenRouter, FakeS3, FakeSSM, FakeTenantCloudFront, store  # noqa: E402
 
 WEB = os.path.join(here, "..", "web")
@@ -119,6 +121,14 @@ seed("Carol", -1)
 dave = seed("Dave", -5, archived=True, archived_at=t0 - 2 * DAY)
 seed("Erin", 10, revoked=True)
 print("Teacher: teacher / teacher-pass-123")
+_alice = portal.db().get(f"tok#{[k for k in portal.db().items if k.startswith('tok#') and portal.db().items[k].get('student_name') == 'Alice'][0][4:]}")
+portal.db().update(_alice["pk"], {"traces": {"level": "masked"}})
+_alice = portal.db().get(_alice["pk"])
+for _i, (_q, _a) in enumerate([("What does the book say about photosynthesis?", "Plants make food from sunlight [1]."), ("Who is the chief advisor?", "The books do not say.")]):
+    _id, _ts = trace_core.new_trace_id(), (t0 - 600 * (_i + 1)) * 1000
+    traces.record(_alice, _id, "answer", "chain", {"question": _q, "answer": _a, "confident": _i == 0}, ts_ms=_ts, dur_ms=1800, now=t0 - 600 * (_i + 1))
+    traces.record(_alice, _id, "retrieval", "retriever", {"query": _q, "hit_count": 3 - _i, "confident": _i == 0, "hits": [{"doc": "d1", "page": 12, "score": 0.03, "vector": 0.71}]}, ts_ms=_ts + 50, dur_ms=40, tokens=12, now=t0 - 600 * (_i + 1))
+    traces.record(_alice, _id, "llm", "llm", {"model": "gemini-3.5-flash-lite", "prompt_tokens": 1300, "completion_tokens": 120, "messages": [_q], "answer": _a, "finish_reason": "stop"}, ts_ms=_ts + 100, dur_ms=1500, tokens=1420, cost_micro=210, now=t0 - 600 * (_i + 1))
 
 
 class Handler(BaseHTTPRequestHandler):

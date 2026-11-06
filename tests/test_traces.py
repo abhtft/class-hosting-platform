@@ -104,6 +104,7 @@ CHAT = {"messages": [{"role": "user", "content": "Explain photosynthesis to " + 
 
 
 def chat(trace_id=None, at=None):
+    time.sleep(0.004)  # steps are ordered by the millisecond they started
     headers = {"authorization": f"Bearer {gkey}"}
     if trace_id:
         headers["x-trace-id"] = trace_id

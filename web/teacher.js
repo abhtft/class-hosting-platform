@@ -87,7 +87,7 @@ function render() {
   const pending = requests.length;
   $('badge').textContent = pending;
   $('badge').classList.toggle('hidden', pending === 0);
-  for (const name of ['students', 'requests', 'storage', 'library', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
+  for (const name of ['students', 'requests', 'storage', 'library', 'traces', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
   $('toolbar').classList.toggle('hidden', tab !== 'students');
   $('stats').replaceChildren(...stats());
   let rows;
@@ -101,6 +101,8 @@ function render() {
     rows = usageTab();
   } else if (tab === 'library') {
     rows = libraryTab();
+  } else if (tab === 'traces') {
+    rows = tracesTab();
   } else {
     rows = storageTab();
   }
@@ -337,6 +339,114 @@ async function uploadBooks(shelf, files) {
   render();
 }
 
+// ---------- the traces tab: what happened in each answer, step by step (traces.py) ----------
+const LEVEL_NAMES = { metadata: 'Numbers only (no text)', masked: 'Text with personal details hidden', full: 'Full text' };
+const VIEW_NAMES = { off: 'Nothing', metadata: 'Numbers only', stored: 'Whatever is stored' };
+let traceList = null; // { available, traces } or { unavailable: true }
+let traceFilter = { slug: '', day: '' };
+let traceOpen = null; // { slug, trace_id, data } the trace being read
+let traceBusy = false;
+
+async function loadTraces(more = false) {
+  traceBusy = true;
+  try {
+    const q = new URLSearchParams();
+    if (traceFilter.slug) q.set('slug', traceFilter.slug);
+    if (traceFilter.day) q.set('day', traceFilter.day);
+    if (more && traceList?.traces?.length) q.set('before', String(traceList.traces.at(-1).started));
+    const out = await call(`/api/admin/traces?${q}`);
+    traceList = out.available === false ? { unavailable: true } : more ? { ...out, traces: [...traceList.traces, ...out.traces] } : out;
+  } catch (e) {
+    $('error').textContent = e.message;
+  }
+  traceBusy = false;
+}
+
+async function openTrace(slug, id) {
+  if (traceOpen?.trace_id === id) { traceOpen = null; render(); return; }
+  traceOpen = { slug, trace_id: id, data: null };
+  render();
+  try { traceOpen.data = await call(`/api/admin/traces/${slug}/${id}`); } catch (e) { traceOpen = null; toast(e.message); }
+  render();
+}
+
+async function deleteTrace(slug, id) {
+  const r = await ask({ title: 'Delete this trace', text: 'The steps of this answer are removed now (they would expire by themselves anyway). This cannot be undone.', confirm: 'Delete', danger: true });
+  if (!r) return;
+  try { await call(`/api/admin/traces/${slug}/${id}`, { method: 'DELETE' }); traceOpen = null; toast('Trace deleted'); await loadTraces(); } catch (e) { toast(e.message); }
+  render();
+}
+
+const when = (ms) => new Date(ms).toLocaleString();
+const micro = (n) => (n ? `$${(n / 1e6).toFixed(n < 1e4 ? 4 : 3)}` : '$0');
+
+function tracesTab() {
+  if (!traceList) return [h('div', { class: 'empty' }, 'Loading traces…')];
+  if (traceList.unavailable) return [h('div', { class: 'empty' }, 'Traces are not set up on this server. Install them from your terminal with:  plan --enable traces  and then  apply <id>.')];
+  const slugs = h('select', { 'aria-label': 'Student', onchange: (e) => { traceFilter.slug = e.target.value; reloadTraces(); } },
+    h('option', { value: '' }, 'All students'), ...tokens.filter((t) => t.traces?.available).map((t) => h('option', { value: t.slug, selected: t.slug === traceFilter.slug }, `${t.student_name} (${t.slug})`)));
+  const day = h('input', { type: 'date', value: traceFilter.day, 'aria-label': 'Day', onchange: (e) => { traceFilter.day = e.target.value; reloadTraces(); } });
+  const bar = h('div', { class: 'btns', style: 'padding:12px 16px' }, slugs, day, h('button', { class: 'small', onclick: reloadTraces }, 'Refresh'), traceBusy ? h('span', { class: 'small muted' }, 'Loading…') : null);
+  const note = h('p', { class: 'privacy small muted' }, 'One row is one answer. Open it to see each step: the search, the AI call and the app’s own steps. By default no text is stored, only sizes, scores and costs; set how much text is kept for each student on their card. Every trace is deleted automatically after the student’s retention (30, 60 or 90 days).');
+  if (!traceList.traces.length) return [bar, note, h('div', { class: 'empty' }, 'No traces for this filter yet. They appear when a student’s app uses the class AI or the books.')];
+  const rows = traceList.traces.flatMap((t) => {
+    const opened = traceOpen?.trace_id === t.trace_id;
+    const row = h('div', { class: 'srow', style: 'grid-template-columns: 150px minmax(110px,1fr) 70px 80px 90px 60px; cursor:pointer', role: 'button', tabindex: 0,
+      onclick: () => openTrace(t.slug, t.trace_id), onkeydown: (e) => { if (e.key === 'Enter') openTrace(t.slug, t.trace_id); } },
+      h('span', { class: 'small' }, when(t.started)), h('span', { title: t.trace_id }, `${t.slug} · ${t.trace_id.slice(3, 9)}`),
+      h('span', { class: 'small muted' }, `${t.spans} step${t.spans === 1 ? '' : 's'}`), h('span', { class: 'small muted' }, `${(t.tokens || 0).toLocaleString()} tok`),
+      h('span', { class: 'small muted' }, micro(t.cost_micro)), t.errors ? h('span', { class: 'pill expired' }, 'error') : h('span', { class: 'small muted' }, t.level));
+    return opened ? [row, traceDetail()] : [row];
+  });
+  const more = traceList.traces.length >= 50 ? [h('div', { class: 'btns', style: 'padding:12px 16px' }, h('button', { class: 'small', onclick: async () => { await loadTraces(true); render(); } }, 'Older…'))] : [];
+  return [bar, note, ...rows, ...more];
+}
+
+async function reloadTraces() { traceOpen = null; render(); await loadTraces(); render(); }
+
+function attrLines(attrs) {
+  return Object.entries(attrs || {}).filter(([, v]) => v !== null && v !== undefined).map(([k, v]) =>
+    h('div', { class: 'small', style: 'display:grid;grid-template-columns:150px 1fr;gap:8px' }, h('span', { class: 'muted' }, k),
+      h('span', { style: 'white-space:pre-wrap;overflow-wrap:anywhere' }, typeof v === 'object' ? JSON.stringify(v, null, 1) : String(v))));
+}
+
+function traceDetail() {
+  const box = h('div', { style: 'padding:8px 16px 16px;background:rgba(127,127,127,.06)' });
+  if (!traceOpen.data) { box.append(h('div', { class: 'small muted' }, 'Loading…')); return box; }
+  const { trace, spans } = traceOpen.data;
+  box.append(h('div', { class: 'small muted' }, `${trace.trace_id} · stored as: ${LEVEL_NAMES[trace.level] || trace.level}`));
+  for (const s of spans) {
+    box.append(h('section', { style: 'margin:10px 0;border-left:3px solid #888;padding-left:10px' },
+      h('div', {}, h('strong', {}, s.name), ' ', h('span', { class: `pill ${s.status === 'error' ? 'expired' : s.status === 'skipped' ? 'warn' : 'active'}` }, s.status),
+        h('span', { class: 'small muted' }, ` ${s.source} · ${s.dur_ms} ms · ${new Date(s.ts).toLocaleTimeString()}`)), ...attrLines(s.attrs)));
+  }
+  box.append(h('div', { class: 'btns' }, h('button', { class: 'small', onclick: () => copyText(JSON.stringify(traceOpen.data, null, 2)).then(() => toast('Copied')) }, 'Copy as JSON'),
+    h('button', { class: 'small danger', onclick: () => deleteTrace(trace.slug, trace.trace_id) }, 'Delete…')));
+  return box;
+}
+
+/** Per-student trace settings (card on the student's panel). */
+function tracesFeature(t, live, btn) {
+  const x = t.traces;
+  return feature({ title: 'Traces', hint: x.enabled ? `${LEVEL_NAMES[x.level]} · kept ${x.retention_days} days` : 'Not recording this student’s answers', on: x.enabled, disabled: !live,
+    onToggle: () => act(`/api/admin/tokens/${t.id}/traces`, { enabled: !x.enabled }, x.enabled ? `Traces switched off for ${t.slug}` : `Traces switched on for ${t.slug}`),
+    body: [h('div', { class: 'small' }, `Stored: ${LEVEL_NAMES[x.level]}`), h('div', { class: 'small' }, `Kept: ${x.retention_days} days`),
+      h('div', { class: 'small' }, `The student sees: ${VIEW_NAMES[x.student_view]} (the student view comes later)`),
+      h('div', { class: 'small' }, `At most ${x.daily_limit.toLocaleString()} new traces a day`),
+      h('div', { class: 'btns' }, btn('Change…', () => editTraces(t)), btn('See their traces', () => { closeDrawer(); traceFilter = { slug: t.slug, day: '' }; tab = 'traces'; reloadTraces(); })),
+      h('p', { class: 'privacy small muted' }, 'Numbers only is the default: what visitors typed is never stored. Choose more text only for projects whose users know their questions are recorded.')] });
+}
+
+async function editTraces(t) {
+  const x = t.traces;
+  const r = await ask({ title: `Traces for ${t.slug}`, text: 'How much of each answer is stored. It applies to answers from now on; older traces stay as they were until they expire or you delete them.',
+    fields: [{ name: 'level', label: 'Stored', options: Object.entries(LEVEL_NAMES), value: x.level },
+      { name: 'retention_days', label: 'Kept for', options: [[30, '30 days'], [60, '60 days'], [90, '90 days']], value: x.retention_days },
+      { name: 'student_view', label: 'The student can see', options: Object.entries(VIEW_NAMES), value: x.student_view },
+      { name: 'daily_limit', label: 'New traces a day (0 stops recording)', type: 'number', value: x.daily_limit, min: 0, max: 100000, required: true }], confirm: 'Save' });
+  if (r) act(`/api/admin/tokens/${t.id}/traces`, { level: r.level, retention_days: Number(r.retention_days), student_view: r.student_view, daily_limit: Number(r.daily_limit) }, 'Trace settings saved');
+}
+
 // ---------- the detail panel (opens when you click a student) ----------
 const drawer = h('dialog', { class: 'drawer', 'aria-label': 'Student details' });
 document.body.append(drawer);
@@ -408,6 +518,7 @@ function drawerContent(t) {
     }
     if (t.storage?.available) features.push(storageFeature(t, live, btn));
     if (t.knowledge?.available) features.push(knowledgeFeature(t, live, btn));
+    if (t.traces?.available) features.push(tracesFeature(t, live, btn));
   }
 
   return h('div', { class: 'drawer-body' },
@@ -701,7 +812,7 @@ $('login-form').addEventListener('submit', async (e) => {
     $('login-error').textContent = err.message;
   }
 });
-$('logout').onclick = () => { session('teacher', null); tokens = requests = []; overview = null; library = null; libraryBooks = {}; closeDrawer(); $('created').classList.add('hidden'); show(false); };
+$('logout').onclick = () => { session('teacher', null); tokens = requests = []; overview = null; library = null; libraryBooks = {}; traceList = null; traceOpen = null; closeDrawer(); $('created').classList.add('hidden'); show(false); };
 $('refresh').onclick = load;
 $('new-token').onclick = newToken;
 $('search').addEventListener('input', (e) => { query = e.target.value; render(); });
@@ -710,6 +821,7 @@ $('tab-requests').onclick = () => { tab = 'requests'; render(); };
 $('tab-usage').onclick = () => { tab = 'usage'; render(); };
 $('tab-storage').onclick = async () => { tab = 'storage'; render(); await loadOverview(); render(); };
 $('tab-library').onclick = async () => { tab = 'library'; render(); await loadLibrary(); render(); };
+$('tab-traces').onclick = async () => { tab = 'traces'; render(); await loadTraces(); render(); };
 
 setInterval(() => { if (session('teacher') && !document.hidden && !document.querySelector('dialog[open]:not(.drawer)')) load(); }, 60000);
 if (session('teacher')) { show(true); load(); } else show(false);
