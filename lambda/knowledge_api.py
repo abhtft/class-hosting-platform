@@ -67,6 +67,28 @@ def trace_search(item, trace_id, body, result, started, now):
         ts_ms=int(started * 1000), dur_ms=int((time.time() - started) * 1000), tokens=int(result.get("tokens") or 0), now=now)
 
 
+MAX_APP_SPANS = 30
+
+
+def record_app_spans(item, body, now):
+    """Steps the student's own app reports for an answer (prompt, answer, agent steps). They join the platform's steps by the trace id.
+    The student's slug comes from the key, never from the body. Never an error for the app: tracing off or full only means nothing is kept."""
+    trace_id = body.get("trace_id")
+    spans = body.get("spans")
+    if not trace_core.valid_trace_id(trace_id) or not isinstance(spans, list):
+        raise ApiError(400, "bad_request", "Send {trace_id: 'tr_...', spans: [...]}.")
+    kept = 0
+    for span in spans[:MAX_APP_SPANS]:
+        if not isinstance(span, dict):
+            continue
+        ms = span.get("ts")
+        ok = traces.record(item, trace_id, str(span.get("name") or "step"), span.get("kind", "other"), span.get("attrs") if isinstance(span.get("attrs"), dict) else {},
+                           ts_ms=ms if isinstance(ms, int) and not isinstance(ms, bool) and ms > 0 else None, dur_ms=span.get("dur_ms") if isinstance(span.get("dur_ms"), int) else 0,
+                           status=span.get("status", "ok"), now=now, source="app")
+        kept += 1 if ok else 0
+    return {"trace_id": trace_id, "recorded": kept}
+
+
 def handler(event, context=None, now=None):
     now = int(now if now is not None else time.time())
     method = event["requestContext"]["http"]["method"]
@@ -106,6 +128,8 @@ def handler(event, context=None, now=None):
             if trace_id:
                 out["headers"]["x-trace-id"] = trace_id
             return out
+        if (method, path) == ("POST", "/v1/trace"):
+            return reply(200, **record_app_spans(item, parse_body(event), now))
         if (method, path) == ("GET", "/v1/usage"):
             return reply(200, **knowledge.view(item, now))
         raise ApiError(404, "not_found", "Unknown route.")

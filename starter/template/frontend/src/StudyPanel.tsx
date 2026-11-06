@@ -37,7 +37,7 @@ export default function StudyPanel() {
   return (
     <section aria-labelledby="study-title">
       <h2 id="study-title">3. Ask the books</h2>
-      <p className="muted">Answers come only from the books your teacher added. When they do not say, you are told so.</p>
+      <p className="muted">Answers come only from the books your teacher added. When they do not say, you are told so. Answers are recorded so your teacher can check their quality.</p>
       <textarea value={question} onChange={(e) => setQuestion(e.target.value)} rows={2} maxLength={500} placeholder="What does the book say about…?" aria-label="Your question" />
       <button onClick={ask} disabled={busy || !question.trim()}>{busy ? 'Looking in the books…' : 'Ask the books'}</button>
       {error && <p className="error" role="alert">{error}</p>}
@@ -51,6 +51,7 @@ export default function StudyPanel() {
               ))}
             </ul>
           )}
+          {result.trace_id && <p className="muted" title="Give this reference to your teacher if the answer looks wrong">Reference: {result.trace_id}</p>}
           {result.answer_id && result.confident && (
             <div className="row" role="group" aria-label="Was this helpful?">
               <span className="muted">Was this helpful?</span>

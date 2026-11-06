@@ -220,3 +220,33 @@ traces._store[:] = [traces.MemoryTraces()]
 assert traces.record(None, None, "x") is None
 assert traces.record({"slug": "a"}, "tr_0123456789abcdef", "x", now=NOW) == "tr_0123456789abcdef"
 print("  ok  a broken trace store never breaks an answer")
+
+# ---------- 5. steps the student's app reports (the helper's answer and agent steps) ----------
+traces._store[:] = [traces.MemoryTraces()]
+call("POST", f"/api/admin/tokens/{tid}/traces", {"level": "masked", "enabled": True, "daily_limit": 100}, admin)
+knowledge.authenticate = lambda headers, now: portal.db().get(f"tok#{tid}")
+app_id = tc.new_trace_id()
+
+
+def report(body):
+    event = {"rawPath": "/v1/trace", "requestContext": {"http": {"method": "POST"}}, "headers": {}, "body": json.dumps(body)}
+    result = knowledge_api.handler(event, now=NOW + 7)
+    return result["statusCode"], json.loads(result["body"])
+
+
+status, body = report({"trace_id": app_id, "spans": [
+    {"name": "answer", "kind": "chain", "attrs": {"question": "mail " + MAIL, "answer": "ok", "confident": True, "slug": "someone-else"}, "dur_ms": 900, "status": "ok", "ts": 1700000000000},
+    {"name": "tool:save", "kind": "tool", "attrs": {"arguments": {"note": "call 98765 43210"}}, "status": "skipped"},
+    "junk", {"name": "x" * 99, "kind": "nonsense", "status": "weird"}]})
+assert status == 200 and body == {"trace_id": app_id, "recorded": 3}, body
+one = call("GET", f"/api/admin/traces/{slug}/{app_id}", session=admin)[1]
+assert one["trace"]["slug"] == slug and one["trace"]["spans"] == 3 and all(s["source"] == "app" for s in one["spans"]), one
+flat = json.dumps(one)
+assert MAIL not in flat and "98765" not in flat and "[email]" in flat and "[phone]" in flat, "app text is masked like platform text"
+assert [s for s in one["spans"] if s["name"] == "answer"][0]["kind"] == "chain" and [s for s in one["spans"] if s["name"] == "tool:save"][0]["status"] == "skipped"
+assert [s for s in one["spans"] if s["name"].startswith("xxx")][0]["kind"] == "other", "unknown values are made safe"
+assert report({"trace_id": "bad", "spans": []})[0] == 400 and report({"trace_id": app_id, "spans": "x"})[0] == 400
+os.environ["TRACES_ENABLED"] = "false"
+assert report({"trace_id": app_id, "spans": [{"name": "answer"}]}) == (200, {"trace_id": app_id, "recorded": 0}), "traces off: accepted and ignored, the app never sees an error"
+os.environ["TRACES_ENABLED"] = "true"
+print("  ok  app steps: joined by trace id, source=app, slug from the key, masked, unknown values made safe, bad input refused, off means ignored")

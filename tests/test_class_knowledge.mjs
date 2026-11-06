@@ -91,7 +91,9 @@ try {
   assert.ok(good.answer.startsWith('[mock AI]'));
   assert.ok(good.sources[0].title);
   assert.equal(good.sources[0].page, 1);
-  assert.deepEqual(await kb.answer('How do I bake sourdough bread with a starter?'), { answer: kb.NOT_SURE, sources: [], confident: false });
+  const unsure = await kb.answer('How do I bake sourdough bread with a starter?');
+  assert.match(unsure.trace_id, /^tr_[0-9a-f]{16}$/, 'every answer has its own trace id');
+  assert.deepEqual({ ...unsure, trace_id: undefined }, { answer: kb.NOT_SURE, sources: [], confident: false, trace_id: undefined });
   let asked = 0;
   await kb.answer('How do I bake sourdough bread with a starter?', { ask: async () => { asked += 1; return 'x'; } });
   assert.equal(asked, 0, 'the AI is not called when the books do not answer');

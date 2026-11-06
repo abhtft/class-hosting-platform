@@ -28,6 +28,7 @@ Your prompts go to the AI provider, so do not send private data.
 """
 import json
 import os
+import secrets
 import time
 import urllib.error
 import urllib.request
@@ -87,10 +88,48 @@ def _classify(status):
     return "provider_error"
 
 
+# ---------- traces: one answer = one trace (the teacher's Traces view). Best effort: a failure here can never change an answer. ----------
+_trace = {"id": None, "spans": []}
+
+
+def trace_begin(trace_id=None):
+    """Start (or continue, with an id from a saved run) the trace of one answer. Calls to the class AI and the books made after this carry its id."""
+    ok = isinstance(trace_id, str) and len(trace_id) == 19 and trace_id.startswith("tr_") and all(c in "0123456789abcdef" for c in trace_id[3:])
+    _trace["id"], _trace["spans"] = (trace_id if ok else "tr_" + secrets.token_hex(8)), []
+    return _trace["id"]
+
+
+def trace_id():
+    return _trace["id"]
+
+
+def trace_span(name, kind="other", attrs=None, ms=0, status="ok"):
+    """Note one step of your own (the platform already records the AI call and the book search). Sent with trace_flush()."""
+    if _trace["id"] and len(_trace["spans"]) < 30:
+        _trace["spans"].append({"name": str(name)[:60], "kind": kind, "attrs": attrs or {}, "dur_ms": int(ms), "status": status, "ts": int(time.time() * 1000) - int(ms)})
+
+
+def trace_flush():
+    """Send the noted steps (one small request, 2 seconds at most) and end the trace. Never raises."""
+    spans, tid = _trace["spans"], _trace["id"]
+    _trace["id"], _trace["spans"] = None, []
+    url, key = os.environ.get("CLASS_KNOWLEDGE_URL", ""), os.environ.get("CLASS_KNOWLEDGE_KEY", "")
+    if not (tid and spans and url and key) or _mock_mode():
+        return tid
+    try:
+        request = urllib.request.Request(url.rstrip("/") + "/v1/trace", data=json.dumps({"trace_id": tid, "spans": spans}).encode("utf-8"), method="POST",
+                                         headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+        urllib.request.urlopen(request, timeout=2).close()
+    except Exception:
+        pass
+    return tid
+
+
 def _request(url, key, payload, timeout):
-    request = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"), method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+    if _trace["id"]:
+        headers["x-trace-id"] = _trace["id"]
+    request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST", headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8").strip())
 

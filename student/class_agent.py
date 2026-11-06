@@ -272,13 +272,43 @@ def _run_tool(state, selected, args, started, tokens):
     state["tokens"] = tokens
 
 
+def _traced(state, call):
+    """Run one stretch of the agent as part of an answer's trace: every step becomes a step of the trace (the teacher's Traces view). Best effort only: a trace problem
+    never changes what the agent does. An older class_ai without traces just means no trace."""
+    try:
+        import class_ai
+        state["trace_id"] = class_ai.trace_begin(state.get("trace_id"))
+    except (ImportError, AttributeError):
+        return call()
+    first = state.get("traced_upto", 0)
+    try:
+        result = call()
+    except Exception:
+        class_ai.trace_flush()
+        raise
+    try:
+        for t in result["trace"][first:]:
+            tool_step = t["kind"] in ("tool", "refused", "approval", "declined")
+            class_ai.trace_span(f"tool:{t['tool']}" if tool_step and t.get("tool") else f"agent:{t['kind']}", "tool" if tool_step else "agent",
+                                {"step": t["step"], "tool": t.get("tool"), "arguments": t.get("args"), "result": t.get("result"), "reason": t.get("reason"),
+                                 "approved": t.get("approved"), "failed": t.get("failed")}, ms=t.get("ms", 0),
+                                status="error" if t.get("failed") or t["kind"] == "error" else "skipped" if t["kind"] in ("refused", "budget", "declined") else "ok")
+        class_ai.trace_span("agent", "agent", {"status": result["status"], "steps": result["steps"], "approx_tokens": result["approx_tokens"], "seconds": result["seconds"],
+                                               "answer": result["answer"]}, ms=result["seconds"] * 1000, status="error" if result["status"] == "error" else "ok")
+        state["traced_upto"] = len(result["trace"])
+        result["trace_id"] = state["trace_id"]
+    finally:
+        class_ai.trace_flush()
+    return result
+
+
 def run(goal, tools, system=None, model=None, max_steps=DEFAULT_MAX_STEPS, max_seconds=DEFAULT_MAX_SECONDS, max_tokens=DEFAULT_MAX_TOKENS, step_tokens=400, mock=None, max_calls_per_tool=DEFAULT_MAX_CALLS_PER_TOOL):
     """Run the agent on a goal. See the module docstring for the result."""
     if not isinstance(goal, str) or not goal.strip():
         raise AgentError("The goal must be some text.")
     state = {"messages": [{"role": "system", "content": system_prompt(tools, max_steps, system)}, {"role": "user", "content": f"Goal: {goal.strip()[:2000]}"}],
              "trace": [], "steps": 0, "tokens": 0, "seen": [], "calls": {}, "pending": None}
-    return _loop(state, tools, _pick_model(model, mock), max_steps, max_seconds, max_tokens, step_tokens, time.time(), max_calls_per_tool)
+    return _traced(state, lambda: _loop(state, tools, _pick_model(model, mock), max_steps, max_seconds, max_tokens, step_tokens, time.time(), max_calls_per_tool))
 
 
 def resume(state, approve, tools, model=None, max_steps=DEFAULT_MAX_STEPS, max_seconds=DEFAULT_MAX_SECONDS, max_tokens=DEFAULT_MAX_TOKENS, step_tokens=400, mock=None, max_calls_per_tool=DEFAULT_MAX_CALLS_PER_TOOL):
@@ -301,4 +331,4 @@ def resume(state, approve, tools, model=None, max_steps=DEFAULT_MAX_STEPS, max_s
     else:
         _step(state["trace"], "declined", time.time(), tool=pending["tool"], args=pending["args"])
         state["messages"].append({"role": "user", "content": f"The human did NOT approve {pending['tool']}. Do not try it again. Finish another way or explain."})
-    return _loop(state, tools, _pick_model(model, mock), max_steps, max_seconds, max_tokens, step_tokens, started, max_calls_per_tool)
+    return _traced(state, lambda: _loop(state, tools, _pick_model(model, mock), max_steps, max_seconds, max_tokens, step_tokens, started, max_calls_per_tool))

@@ -25,6 +25,8 @@
 // Safety: the key is never printed, logged or put in an error. Never send it to the browser: your page calls your own /api route.
 // Your prompts go to the AI provider, so do not send private data.
 
+import { randomBytes } from 'node:crypto';
+
 export const KIT_HELPER_VERSION = 1;
 const DEFAULT_TIMEOUT_SECONDS = 20;
 
@@ -72,13 +74,46 @@ function classify(status) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ---------- traces: one answer = one trace (the teacher's Traces view). Best effort: a failure here can never change an answer. ----------
+const trace = { id: null, spans: [] };
+const TRACE_ID = /^tr_[0-9a-f]{16}$/;
+
+/** Start (or continue, with an id from a saved run) the trace of one answer. Calls to the class AI and the books made after this carry its id. */
+export function traceBegin(id) {
+  trace.id = typeof id === 'string' && TRACE_ID.test(id) ? id : `tr_${randomBytes(8).toString('hex')}`;
+  trace.spans = [];
+  return trace.id;
+}
+
+export const traceId = () => trace.id;
+
+/** Note one step of your own (the platform already records the AI call and the book search). Sent with traceFlush(). */
+export function traceSpan(name, kind = 'other', attrs = {}, ms = 0, status = 'ok') {
+  if (trace.id && trace.spans.length < 30) trace.spans.push({ name: String(name).slice(0, 60), kind, attrs, dur_ms: Math.round(ms), status, ts: Date.now() - Math.round(ms) });
+}
+
+/** Send the noted steps (one small request, 2 seconds at most) and end the trace. Never throws. */
+export async function traceFlush() {
+  const { id, spans } = trace;
+  trace.id = null;
+  trace.spans = [];
+  const url = process.env.CLASS_KNOWLEDGE_URL;
+  const key = process.env.CLASS_KNOWLEDGE_KEY;
+  if (!id || !spans.length || !url || !key || mockMode()) return id;
+  try {
+    await fetch(`${url.replace(/\/+$/, '')}/v1/trace`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ trace_id: id, spans }), signal: AbortSignal.timeout(2000) });
+  } catch { /* tracing never changes an answer */ }
+  return id;
+}
+
 async function post(url, key, payload, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}`, ...(trace.id ? { 'x-trace-id': trace.id } : {}) },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });

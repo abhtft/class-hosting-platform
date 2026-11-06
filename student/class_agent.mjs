@@ -255,13 +255,44 @@ async function loop(state, tools, model, limits, started) {
 
 const limitsOf = (o = {}) => ({ ...DEFAULTS, ...Object.fromEntries(Object.entries(o).filter(([k, v]) => k in DEFAULTS && v !== undefined)) });
 
+/** Run one stretch of the agent as part of an answer's trace: every step becomes a step of the trace (the teacher's Traces view). Best effort only: a trace
+ *  problem never changes what the agent does. An older class_ai without traces just means no trace. */
+async function traced(state, call) {
+  const ai = await import('./class_ai.mjs').catch(() => ({}));
+  if (!ai.traceBegin) return call();
+  state.trace_id = ai.traceBegin(state.trace_id);
+  const first = state.traced_upto || 0;
+  let result;
+  try {
+    result = await call();
+  } catch (error) {
+    await ai.traceFlush();
+    throw error;
+  }
+  try {
+    for (const t of result.trace.slice(first)) {
+      const isTool = ['tool', 'refused', 'approval', 'declined'].includes(t.kind);
+      ai.traceSpan(isTool && t.tool ? `tool:${t.tool}` : `agent:${t.kind}`, isTool ? 'tool' : 'agent',
+        { step: t.step, tool: t.tool, arguments: t.args, result: t.result, reason: t.reason, approved: t.approved, failed: t.failed }, t.ms || 0,
+        t.failed || t.kind === 'error' ? 'error' : ['refused', 'budget', 'declined'].includes(t.kind) ? 'skipped' : 'ok');
+    }
+    ai.traceSpan('agent', 'agent', { status: result.status, steps: result.steps, approx_tokens: result.approx_tokens, seconds: result.seconds, answer: result.answer },
+      result.seconds * 1000, result.status === 'error' ? 'error' : 'ok');
+    state.traced_upto = result.trace.length;
+    result.trace_id = state.trace_id;
+  } finally {
+    await ai.traceFlush();
+  }
+  return result;
+}
+
 /** Run the agent on a goal. See the top of this file for the result. Options: { system, model, maxSteps, maxSeconds, maxTokens, stepTokens }. */
 export async function run(goal, tools, options = {}) {
   if (typeof goal !== 'string' || !goal.trim()) throw new AgentError('The goal must be some text.');
   const limits = limitsOf(options);
   const state = { messages: [{ role: 'system', content: systemPrompt(tools, limits.maxSteps, options.system) }, { role: 'user', content: `Goal: ${goal.trim().slice(0, 2000)}` }],
     trace: [], steps: 0, tokens: 0, seen: [], calls: {}, pending: null };
-  return loop(state, tools, await pickModel(options), limits, Date.now());
+  return traced(state, async () => loop(state, tools, await pickModel(options), limits, Date.now()));
 }
 
 /** Continue a run that stopped with 'needs_approval'. approve true runs the pending tool; false tells the agent the human said no.
@@ -284,5 +315,5 @@ export async function resume(saved, approve, tools, options = {}) {
     step(state.trace, 'declined', Date.now(), { tool: pending.tool, args: pending.args });
     state.messages.push({ role: 'user', content: `The human did NOT approve ${pending.tool}. Do not try it again. Finish another way or explain.` });
   }
-  return loop(state, tools, await pickModel(options), limitsOf(options), Date.now());
+  return traced(state, async () => loop(state, tools, await pickModel(options), limitsOf(options), Date.now()));
 }

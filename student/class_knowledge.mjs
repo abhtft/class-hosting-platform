@@ -65,13 +65,17 @@ function remote() {
   return null; // on your computer: the local folder
 }
 
+let aiModule; // class_ai.mjs, loaded once; an older or missing one just means no trace
+const loadAi = async () => (aiModule ??= await import('./class_ai.mjs').catch(() => ({})));
+
 async function request(method, path, body) {
   const { url, key } = remote();
+  const tid = (await loadAi()).traceId?.();
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const response = await fetch(url + path, {
         method,
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'User-Agent': 'class-knowledge/1' },
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'User-Agent': 'class-knowledge/1', ...(tid ? { 'x-trace-id': tid } : {}) },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
@@ -297,7 +301,25 @@ export function sources(hits, included, answerText) {
 
 /** Search, then ask the class AI to answer ONLY from the passages found. Returns { answer, sources, confident }. When the books do not seem to answer,
  *  it returns "The books do not say." without calling the AI (nothing is spent and nothing is invented). `ask` is the class_ai.mjs ask function. */
-export async function answer(question, { collections: refs, k = 4, system, maxTokens = 400, mock, ask } = {}) {
+export async function answer(question, options = {}) {
+  const ai = await loadAi();
+  if (!ai.traceBegin) return answerOnce(question, options); // an older class_ai: no traces
+  const started = Date.now();
+  const id = ai.traceBegin();
+  try {
+    const out = await answerOnce(question, options);
+    ai.traceSpan('answer', 'chain', { question, answer: out.answer, confident: out.confident, refused: out.answer === NOT_SURE, sources: out.sources.length,
+      cited: out.sources.filter((s) => s.cited).length }, Date.now() - started);
+    return { ...out, trace_id: id };
+  } catch (error) {
+    ai.traceSpan('answer', 'chain', { error: error?.kind || error?.name || 'Error' }, Date.now() - started, 'error');
+    throw error;
+  } finally {
+    await ai.traceFlush();
+  }
+}
+
+async function answerOnce(question, { collections: refs, k = 4, system, maxTokens = 400, mock, ask } = {}) {
   const found = await search(question, refs, k);
   if (!found.confident || !found.hits.length) return { answer: NOT_SURE, sources: [], confident: false };
   const askAi = ask || (await import('./class_ai.mjs')).ask;

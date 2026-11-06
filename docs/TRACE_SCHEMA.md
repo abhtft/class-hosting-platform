@@ -46,6 +46,16 @@ Attributes written today:
 
 \* **text keys**: `query`, `question`, `prompt`, `messages`, `answer`, `output`, `input`, `passages`, `text`, `reason`, `arguments`, `result`.
 
+## 4b. How the student's app adds its own steps (T2)
+
+The kit helpers (`class_ai`, `class_knowledge`, `class_agent`; Python and Node) do this without any code from the student:
+
+1. `answer()` or an agent run starts a trace (`tr_` + 16 hex) and sends it as the `x-trace-id` header on the class AI call and the book search, so the platform's `llm` and `retrieval` steps join it.
+2. The helper notes its own steps (`answer`; for an agent `tool:<name>`, `agent:final`, `agent:budget`, and one `agent` summary) and sends them **once at the end** to `POST <knowledge url>/v1/trace` with `{trace_id, spans: [...]}` (at most 30 spans, 2-second limit, errors ignored). The platform stores them with `source: "app"`, the student taken from the key, at the student's privacy level.
+3. The result carries `trace_id`, which the starter page shows as a short "Reference" under the answer. A paused agent run keeps its trace id in its saved state, so the run after approval continues the same trace and sends only the new steps.
+
+A cached answer shows the reference of the trace that made it. This needs the knowledge feature for the student (the spans go through its API); without it the AI call is still traced, only the app's own steps are missing.
+
 ## 5. Privacy levels (set per student by the teacher)
 
 | Level | Text keys | Everything else | Use |
