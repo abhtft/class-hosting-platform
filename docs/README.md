@@ -65,6 +65,7 @@ Start here if you want to understand the whole project. The first half is a one-
 | [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
 | [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
 | [RAG_ROADMAP.md](RAG_ROADMAP.md) | The agreed plan for a generic, trustworthy RAG and agent platform: decisions, risk tiers, the layered guards, the four evaluation sets, the review table, drift and stability, and the phased roadmap with gates and targets (not built yet) |
+| [COMPUTE_WORKER_PLAN.md](COMPUTE_WORKER_PLAN.md) | **Plan (decided, not built):** one small EC2 machine, off by default, switched on and off from the teacher page and optionally scheduled daily, for the heavy quality checks (golden probes, judging, attack tests); cost, permissions and tasks |
 | [TRACE_SCHEMA.md](TRACE_SCHEMA.md) | **Built (T0, T1):** the trace format, the storage layout, what each privacy level keeps, a sample trace |
 | [TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md) | **Plan (T0 and T1 built, the rest not):** seeing exactly what happened in every answer: our own small trace format shaped like OpenTelemetry, five modules, privacy levels, cost under $5 a month, the Traces tab, the roadmap T0 to T6 |
 | [AGENT_GUIDE.md](AGENT_GUIDE.md) | How the student agent works: the approaches considered and chosen, the architecture and one run step by step (diagrams), the guardrails, human approval, **where every setting lives**, time and cost, security, what real tests taught, what is not built |
