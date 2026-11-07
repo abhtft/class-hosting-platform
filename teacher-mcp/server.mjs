@@ -28,7 +28,7 @@ const args = process.argv.slice(2);
 const option = (name) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 const flagRepo = option('--repo') ? resolve(option('--repo')) : null;
 let editorRoot = null;
-const FEATURES = ['backend', 'ai', 'gemini', 'storage', 'knowledge'];
+const FEATURES = ['backend', 'ai', 'gemini', 'storage', 'knowledge', 'traces', 'worker'];
 const MAX_TAIL = 4000;
 
 const version = () => { try { return JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version; } catch { return '0'; } };

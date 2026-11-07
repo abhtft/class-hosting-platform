@@ -21,7 +21,7 @@ os.environ.update(AWS_REGION="us-east-1", AWS_DEFAULT_REGION="us-east-1", AWS_AC
                   KEYS_PARAM="/k", TENANT_DISTRIBUTION_ID="EMT", ROUTING_ENDPOINT="route.cloudfront.net",
                   BACKEND_ENABLED="true", SANDBOX_ROLE_ARN="arn:aws:iam::1:role/sandbox", ORIGIN_SECRET="dev-origin-secret", GATEWAY_CACHE_SECONDS="0",
                   AI_ENABLED="true", AI_SECRET_NAME="openrouter", AI_DEFAULT_MODEL="anthropic/claude-haiku-5.5", AI_DEFAULT_LIMIT_USD="0.25",
-                  TRACES_ENABLED="true", STORAGE_ENABLED="true", STORAGE_URL=f"http://127.0.0.1:{port}/storage", JOB_RUNNER_FUNCTION="job-runner")
+                  TRACES_ENABLED="true", WORKER_INSTANCE_ID="i-0dev", WORKER_INSTANCE_TYPE="c7g.xlarge", WORKER_DISK_GB="30", WORKER_MAX_MINUTES="60", STORAGE_ENABLED="true", STORAGE_URL=f"http://127.0.0.1:{port}/storage", JOB_RUNNER_FUNCTION="job-runner")
 sys.path[:0] = [os.path.join(here, "..", "lambda"), here]
 import app  # noqa: E402
 import backends  # noqa: E402
@@ -33,6 +33,7 @@ import portal  # noqa: E402
 import storage_api  # noqa: E402
 import trace_core  # noqa: E402
 import traces  # noqa: E402
+import worker  # noqa: E402
 from fakes import FakeLambda, FakeLogs, FakeOpenRouter, FakeS3, FakeSSM, FakeTenantCloudFront, store  # noqa: E402
 
 WEB = os.path.join(here, "..", "web")
@@ -132,6 +133,52 @@ for _i, (_q, _a) in enumerate([("What does the book say about photosynthesis?", 
 
 traces.record(_alice, None, "llm", "llm", {"model": "gemini-3.5-flash-lite", "prompt_tokens": 900, "completion_tokens": 80, "messages": ["an old question"], "answer": "an old answer"},
               ts_ms=(t0 - 80 * DAY) * 1000, dur_ms=900, tokens=980, cost_micro=150, now=t0 - 80 * DAY)  # about to expire: the banner shows
+
+
+class DevEC2:
+    """A pretend machine for the Worker tab: Start makes it 'running' after a few seconds, a run lasts a few seconds, Stop stops it."""
+
+    def __init__(self):
+        self.state, self.since = "stopped", 0
+
+    def _tick(self):
+        age = time.time() - self.since
+        if self.state == "pending" and age > 3:
+            self.state, self.since = "running", time.time()
+        elif self.state == "running" and self.since and age > 12 and self.auto:
+            self.state = "stopped"
+
+    auto = True
+
+    def describe_instances(self, InstanceIds):
+        self._tick()
+        return {"Reservations": [{"Instances": [{"State": {"Name": self.state}, "LaunchTime": None, "InstanceType": "c7g.xlarge"}]}]}
+
+    def start_instances(self, InstanceIds):
+        self.state, self.since = "pending", time.time()
+
+    def stop_instances(self, InstanceIds):
+        self.state = "stopped"
+
+
+class DevWorkerS3:
+    def __init__(self):
+        self.objects = {}
+
+    def put_object(self, Bucket, Key, Body, ContentType=None):
+        self.objects[Key] = Body
+
+    def get_object(self, Bucket, Key):
+        import io
+        if Key not in self.objects:
+            raise KeyError(Key)
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+
+_dev_s3 = DevWorkerS3()
+_dev_s3.objects[worker.RESULTS_KEY] = json.dumps({"started": "2026-11-06T03:00:02Z", "finished_epoch": t0 - 3000, "seconds": 41, "exit": 0, "task": "runner",
+                                                  "output": "compute worker: built-in runner\npython 3.9.16 aarch64\ndisk free GB 21.4\ncpus 4"}).encode()
+worker._clients.update({"ec2": DevEC2(), "s3": _dev_s3})
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -87,7 +87,7 @@ function render() {
   const pending = requests.length;
   $('badge').textContent = pending;
   $('badge').classList.toggle('hidden', pending === 0);
-  for (const name of ['students', 'requests', 'storage', 'library', 'traces', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
+  for (const name of ['students', 'requests', 'storage', 'library', 'traces', 'worker', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
   $('toolbar').classList.toggle('hidden', tab !== 'students');
   $('stats').replaceChildren(...stats());
   let rows;
@@ -103,6 +103,8 @@ function render() {
     rows = libraryTab();
   } else if (tab === 'traces') {
     rows = tracesTab();
+  } else if (tab === 'worker') {
+    rows = workerTab();
   } else {
     rows = storageTab();
   }
@@ -337,6 +339,74 @@ async function uploadBooks(shelf, files) {
   libraryBusy = '';
   await loadLibrary();
   render();
+}
+
+// ---------- the worker tab: one small machine, off unless started (worker.py) ----------
+let worker = null; // the answer of GET /api/admin/worker, or { unavailable: true }
+let workerTimer = null;
+let workerBusy = '';
+const WORKER_STATES = { running: ['Running', 'active'], pending: ['Starting…', 'warn'], stopping: ['Stopping…', 'warn'], 'shutting-down': ['Stopping…', 'warn'], stopped: ['Off', 'offline'] };
+
+async function loadWorker() {
+  try {
+    const out = await call('/api/admin/worker');
+    worker = out.available === false ? { unavailable: true } : out;
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 409)) worker = { unavailable: true };
+    else $('error').textContent = e.message;
+  }
+  clearTimeout(workerTimer);
+  if (tab === 'worker' && worker && ['pending', 'stopping', 'shutting-down'].includes(worker.state)) workerTimer = setTimeout(async () => { if (tab === 'worker') { await loadWorker(); render(); } }, 5000);
+}
+
+async function workerAct(path, body, message) {
+  workerBusy = message;
+  render();
+  try {
+    const out = await call(path, { method: 'POST', body });
+    worker = out.available === false ? { unavailable: true } : out;
+    toast(message);
+  } catch (e) { toast(e.message); }
+  workerBusy = '';
+  clearTimeout(workerTimer);
+  await loadWorker();
+  render();
+}
+
+function workerTab() {
+  if (!worker) return [h('div', { class: 'empty' }, 'Loading the worker…')];
+  if (worker.unavailable) return [h('div', { class: 'empty' }, 'The compute worker is not installed on this server. It is a small machine that is off until you start it. Install it from your terminal with:  plan --enable worker  and then  apply <id>.')];
+  const [label, cls] = WORKER_STATES[worker.state] || [worker.state, 'offline'];
+  const on = ['running', 'pending'].includes(worker.state);
+  const s = worker.settings;
+  const m = worker.month;
+  const lease = worker.lease;
+  const head = h('div', { class: 'tiles inner' },
+    tile('Machine', label, `${worker.instance_type} · ${worker.disk_gb} GB disk`),
+    tile('Hours this month', (m.minutes / 60).toFixed(1), m.compute_usd === null ? 'price unknown' : `about $${m.compute_usd.toFixed(2)} compute + $${m.disk_usd.toFixed(2)} disk`),
+    tile('Time limit', `${s.max_minutes} min`, 'a watchdog stops it after this'));
+  const note = h('p', { class: 'privacy small muted' }, 'A small machine for heavy checks that do not fit in a web request. It is off until you start it, nothing can connect to it from the internet, it can only use its own folder in the bucket, and it never runs student code. The cost shown is an estimate from list prices; the AWS bill is the truth.');
+  const buttons = h('div', { class: 'btns', style: 'padding:0 16px 12px' },
+    h('button', { class: 'primary small', disabled: on || Boolean(workerBusy), onclick: () => workerAct('/api/admin/worker/start', { mode: 'run' }, 'Starting the machine: it runs the checks, writes a report and shuts itself down') }, 'Start now'),
+    h('button', { class: 'small', disabled: on || Boolean(workerBusy), onclick: () => workerAct('/api/admin/worker/start', { mode: 'keep' }, 'Starting the machine and keeping it on until the time limit') }, 'Start and keep on'),
+    h('button', { class: 'small danger', disabled: !on || Boolean(workerBusy), onclick: () => workerAct('/api/admin/worker/stop', {}, 'Stopping the machine') }, 'Stop now'),
+    workerBusy ? h('span', { class: 'small muted' }, workerBusy) : null);
+  const state = h('div', { class: 'small', style: 'padding:0 16px 12px' }, on && lease ? `On since ${when(lease.started * 1000)} (${lease.mode === 'keep' ? 'kept on' : 'runs, then shuts down'}), it will be stopped by ${when(lease.until * 1000)} at the latest.` : 'The machine is off. A stopped machine costs only its disk.');
+  const hours = Array.from({ length: 24 }, (_, i) => [i, `${String(i).padStart(2, '0')}:00 UTC`]);
+  const schedule = h('section', { class: `feature ${s.daily_enabled ? 'on' : ''}`, style: 'margin:0 16px 12px' },
+    h('div', { class: 'feature-head' }, h('div', {}, h('h3', {}, 'Run every day'), h('div', { class: 'small muted' }, s.daily_enabled ? `Starts every day at ${String(s.hour_utc).padStart(2, '0')}:00 UTC and shuts itself down when done` : 'Off: the machine only runs when you start it')),
+      switchControl('Run every day', s.daily_enabled, false, () => workerAct('/api/admin/worker/settings', { daily_enabled: !s.daily_enabled }, s.daily_enabled ? 'The daily start is off' : 'The daily start is on'))),
+    h('div', { class: 'feature-body' }, h('div', { class: 'btns' },
+      h('label', { class: 'small' }, 'Hour ', h('select', { 'aria-label': 'Hour (UTC)', onchange: (e) => workerAct('/api/admin/worker/settings', { hour_utc: Number(e.target.value) }, 'The daily hour is saved') },
+        ...hours.map(([v, text]) => h('option', { value: v, selected: v === s.hour_utc }, text)))),
+      h('label', { class: 'small' }, 'Time limit ', h('select', { 'aria-label': 'Time limit', onchange: (e) => workerAct('/api/admin/worker/settings', { max_minutes: Number(e.target.value) }, 'The time limit is saved') },
+        ...[30, 60, 120, 180, 360].map((v) => h('option', { value: v, selected: v === s.max_minutes }, `${v} minutes`)))))));
+  const last = worker.last
+    ? h('section', { class: 'feature on', style: 'margin:0 16px 12px' }, h('div', { class: 'feature-head' }, h('div', {}, h('h3', {}, 'Last run'),
+      h('div', { class: 'small muted' }, `${worker.last.started} · ${worker.last.seconds} s · ${worker.last.exit === 0 ? 'finished' : `ended with code ${worker.last.exit}`}`))),
+      h('div', { class: 'feature-body' }, h('pre', { class: 'small', style: 'white-space:pre-wrap;overflow-wrap:anywhere;margin:0' }, worker.last.output || '')))
+    : h('div', { class: 'small muted', style: 'padding:0 16px 12px' }, 'No run yet.');
+  return [head, note, buttons, state, schedule, last];
 }
 
 // ---------- the traces tab: what happened in each answer, step by step (traces.py) ----------
@@ -896,6 +966,7 @@ $('tab-usage').onclick = () => { tab = 'usage'; render(); };
 $('tab-storage').onclick = async () => { tab = 'storage'; render(); await loadOverview(); render(); };
 $('tab-library').onclick = async () => { tab = 'library'; render(); await loadLibrary(); render(); };
 $('tab-traces').onclick = async () => { tab = 'traces'; render(); await loadTraces(); render(); };
+$('tab-worker').onclick = async () => { tab = 'worker'; render(); await loadWorker(); render(); };
 
 setInterval(() => { if (session('teacher') && !document.hidden && !document.querySelector('dialog[open]:not(.drawer)')) load(); }, 60000);
 if (session('teacher')) { show(true); load(); } else show(false);

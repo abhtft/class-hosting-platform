@@ -13,8 +13,8 @@ import { runVerify } from './verify.mjs';
 export const REGION = 'us-east-1'; // CloudFront certificates must live here, so the whole stack does
 export const STATEFUL = new Set(['AWS::DynamoDB::Table', 'AWS::S3::Bucket', 'AWS::SSM::Parameter', 'AWS::SecretsManager::Secret', 'AWS::CloudFront::Distribution']);
 // every feature is installed by default; each stays OFF for every student until the teacher switches it on for that student
-export const FEATURES = { backend: 'BackendEnabled', ai: 'AiEnabled', gemini: 'AiGeminiEnabled', storage: 'StorageEnabled', knowledge: 'KnowledgeEnabled', traces: 'TracesEnabled' };
-export const ALL_FEATURES = ['backend', 'ai', 'gemini', 'storage', 'knowledge', 'traces', 'customdomains'];
+export const FEATURES = { backend: 'BackendEnabled', ai: 'AiEnabled', gemini: 'AiGeminiEnabled', storage: 'StorageEnabled', knowledge: 'KnowledgeEnabled', traces: 'TracesEnabled', worker: 'WorkerEnabled' };
+export const ALL_FEATURES = ['backend', 'ai', 'gemini', 'storage', 'knowledge', 'traces', 'customdomains']; // the compute worker (a machine that costs money while on) is never part of "everything": it is asked for with --enable worker
 export const FEATURE_NAMES = [...Object.keys(FEATURES), 'customdomains']; // customdomains has three parameters (ids), not one true/false
 const NEEDS = { ai: ['backend'], gemini: ['backend', 'ai'], storage: ['backend'], knowledge: ['backend'], traces: ['backend'], customdomains: ['backend'] };
 const STACK_RE = /^[A-Za-z][A-Za-z0-9-]{0,40}$/;
@@ -192,8 +192,19 @@ export function packageTemplate(ctx, bucket) {
   return out;
 }
 
+/** The machine image of the compute worker is chosen ONCE (the stack's own value when it has one, else the current Amazon Linux 2023 ARM image) and then carried on
+ *  every update, so a new image release never makes CloudFormation replace the machine. Nothing is added while the worker is off. */
+export const WORKER_AMI_PARAMETER = '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64';
+function withWorkerImage(ctx, params) {
+  if (!params.includes('WorkerEnabled=true') || params.some((p) => p.startsWith('WorkerAmiId='))) return params;
+  let ami = '';
+  try { ami = stackOutputs(ctx).parameters.WorkerAmiId || ''; } catch { /* a first install has no stack yet */ }
+  if (!ami) ami = String(call(ctx, ['ssm', 'get-parameter', '--name', WORKER_AMI_PARAMETER, '--query', 'Parameter.Value', '--output', 'text'])).trim();
+  return ami ? [...params, `WorkerAmiId=${ami}`] : params;
+}
+
 export const deployArgs = (ctx, packaged, params, extra = []) => ['cloudformation', 'deploy', '--template-file', packaged, '--stack-name', ctx.stack, '--capabilities', 'CAPABILITY_IAM', 'CAPABILITY_AUTO_EXPAND',
-  '--no-fail-on-empty-changeset', ...(packagedWith.has(packaged) ? ['--s3-bucket', packagedWith.get(packaged)] : []), '--parameter-overrides', ...params, ...extra];
+  '--no-fail-on-empty-changeset', ...(packagedWith.has(packaged) ? ['--s3-bucket', packagedWith.get(packaged)] : []), '--parameter-overrides', ...withWorkerImage(ctx, params), ...extra];
 
 // ---------- why a stack failed ----------
 // `aws cloudformation deploy` only says "Failed to create/update the stack". The reason is in the stack events: the first resource that failed for

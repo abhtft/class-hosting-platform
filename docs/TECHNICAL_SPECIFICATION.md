@@ -915,7 +915,7 @@ Techniques: in-memory fakes for S3, Lambda, CloudWatch Logs, CloudFront tenants 
 
 ### 7.2 Continuous integration
 
-`.github/workflows/ci.yml` on every push and pull request: Node 22, Python 3.12, `cfn-lint -i W1030 -t template.yaml`, then `node tests/run.mjs`; failing checks are shown as an annotation. No AWS credentials are used.
+`.github/workflows/ci.yml` on every push and pull request: Node 22, Python 3.12, `cfn-lint -i W1030 W2506 -t template.yaml`, then `node tests/run.mjs`; failing checks are shown as an annotation. No AWS credentials are used.
 
 ### 7.3 Release procedure
 
@@ -1157,7 +1157,7 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
   "reservedSlugs": ["sites", "uploads", "archive", "deploy", "www", "api", "admin", "mail", "ftp", "app", "apps", "static", "assets", "bs", "lenden"],
   "kitVersion": "2.3.1",
   "mcpPackage": { "version": "2.3.1" },
-  "testSteps": 45,
+  "testSteps": 46,
   "teacherTools": 11,
   "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors"]
 }

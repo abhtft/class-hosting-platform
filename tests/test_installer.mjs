@@ -100,7 +100,7 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.throws(() => engine.normalise({ features: ['teleport'] }), /Unknown feature/);
   assert.throws(() => engine.normalise({ stack: '1bad' }), /stack name/);
   const config = engine.normalise({ features: ['ai'], domain: 'apps.example.com', certificateArn: 'arn:x' });
-  assert.deepEqual(engine.parametersFor(config), ['RootDomain=apps.example.com', 'CertificateArn=arn:x', 'PortalAlias=false', 'BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=false', 'StorageEnabled=false', 'KnowledgeEnabled=false', 'TracesEnabled=false', 'TenantDistributionId=', 'ConnectionGroupId=', 'RoutingEndpoint=']);
+  assert.deepEqual(engine.parametersFor(config), ['RootDomain=apps.example.com', 'CertificateArn=arn:x', 'PortalAlias=false', 'BackendEnabled=true', 'AiEnabled=true', 'AiGeminiEnabled=false', 'StorageEnabled=false', 'KnowledgeEnabled=false', 'TracesEnabled=false', 'WorkerEnabled=false', 'TenantDistributionId=', 'ConnectionGroupId=', 'RoutingEndpoint=']);
   assert.ok(engine.parametersFor(config, { aliasOn: true }).includes('PortalAlias=true'));
   assert.ok(engine.parametersFor(engine.normalise({})).includes('PortalAlias=false') && engine.parametersFor(engine.normalise({})).includes('RootDomain='), 'try mode: no domain, no alias');
   assert.deepEqual(parseArgs(['install', '--profile', 'p', '--dry-run', '--features', 'ai']), { command: 'install', args: [], flags: { profile: 'p', 'dry-run': true, features: 'ai' } });
@@ -260,6 +260,21 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   assert.equal(fake.w.stack, 'CREATE_COMPLETE', 'a dry run deletes nothing');
   assert.equal(fake.w.versions['sites-b'].length, 230);
   console.log('  ok  destroy: all bucket versions, the stack, the staging bucket; data table and AI keys kept unless --everything; state removed; dry run safe');
+}
+
+// ---------- the compute worker is never part of "everything" (it is a machine that costs money while on); its image is chosen once ----------
+{
+  assert.ok(!engine.ALL_FEATURES.includes('worker'), 'the worker is only installed when asked for');
+  assert.ok(engine.FEATURE_NAMES.includes('worker') && engine.FEATURES.worker === 'WorkerEnabled');
+  const asked = [];
+  const ctx = { stack: 'student-hosting', repo, dryRun: false, would: [], aws: (args) => { asked.push(args.join(' ')); if (args[0] === 'cloudformation' && args[1] === 'describe-stacks') throw new Error('no stack yet'); return 'ami-0123456789abcdef0\n'; } };
+  const on = engine.deployArgs(ctx, '/tmp/t.yaml', ['WorkerEnabled=true']);
+  assert.ok(on.includes('WorkerAmiId=ami-0123456789abcdef0'), 'the current image is looked up once when the worker is on');
+  assert.ok(asked.some((a) => a.startsWith('ssm get-parameter') && a.includes(engine.WORKER_AMI_PARAMETER)));
+  const kept = { stack: 'student-hosting', repo, dryRun: false, would: [], aws: (args) => (args[0] === 'cloudformation' ? JSON.stringify({ Stacks: [{ StackId: 'x', StackStatus: 'UPDATE_COMPLETE', Parameters: [{ ParameterKey: 'WorkerAmiId', ParameterValue: 'ami-keepme' }] }] }) : 'ami-newer') };
+  assert.ok(engine.deployArgs(kept, '/tmp/t.yaml', ['WorkerEnabled=true']).includes('WorkerAmiId=ami-keepme'), 'the stack keeps its own image: a new release never replaces the machine');
+  assert.ok(!engine.deployArgs(kept, '/tmp/t.yaml', ['WorkerEnabled=false']).some((a) => a.startsWith('WorkerAmiId')), 'nothing is added while the worker is off');
+  console.log('  ok  compute worker: asked for explicitly, image chosen once and kept');
 }
 
 // ---------- every feature is installed by default; "none" and explicit lists still work ----------

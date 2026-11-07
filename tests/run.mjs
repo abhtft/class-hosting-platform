@@ -104,6 +104,13 @@ await step('traces from the student kit (Node): one answer carries one trace id 
   }
 });
 
+await step('compute worker: the machine is off unless started, start and stop from the teacher page, the 15-minute watchdog stops a machine nobody asked for or past its limit, the daily start in its hour only, month minutes and cost estimate, settings validated; the template creates nothing while it is off, gives the machine no inbound access, an encrypted disk and only the worker folder, and lets only the portal and the control function start and stop that one machine', () => {
+  for (const test of ['test_worker.py', 'test_template_worker.py']) {
+    const r = spawnSync(python, [join(here, test)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
+  }
+});
+
 await step('teacher installer and updater (fake AWS CLI), kit signing: try and domain install, plan/apply bound to the shown plan, feature switches; terminal prompts; verify with a sample site; saved AWS access and editor entry updates; export, import and the transfer between accounts; custom domains; teacher MCP; the npm package', () => {
   for (const test of ['test_installer.mjs', 'test_prompts.mjs', 'test_verify.mjs', 'test_credentials.mjs', 'test_tenant.mjs', 'test_data.mjs', 'test_transfer.mjs', 'test_teacher_mcp.mjs', 'test_teacher_package.mjs', 'test_signing.mjs']) {
     const r = spawnSync('node', [join(here, test)], { encoding: 'utf8' });

@@ -22,9 +22,9 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install boto3 cfn-lint
-      # W1030 is ignored because CertificateArn is a plain string parameter on purpose
+      # W1030 and W2506 are ignored because CertificateArn and WorkerAmiId are plain string parameters on purpose
       - name: Template lint
-        run: cfn-lint -i W1030 -t template.yaml
+        run: cfn-lint -i W1030 W2506 -t template.yaml
       # Security scan of the infrastructure; the documented exceptions are in .checkov.yaml
       - name: Template security scan
         run: pip install checkov && checkov -f template.yaml --config-file .checkov.yaml

@@ -1,6 +1,6 @@
 # Compute worker plan: one small scheduled machine for heavy checks
 
-> **Status: a plan with the owner's decisions recorded (section 9). Nothing is created in AWS and no code is written.** It needs the usual shown-and-approved `plan` before any `apply`, and the benchmark (W0) comes first. It supports the quality work in [RAG_ROADMAP.md](RAG_ROADMAP.md) and reads the traces described in [TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md).
+> **Status: W1 and W2 are built and tested locally (the machine, the watchdog, the schedule, the Worker tab, the installer feature `worker`), not yet applied to any AWS account. The tasks (W3 onward) are not built.** The plan has the owner's decisions recorded (section 9). It needs the usual shown-and-approved `plan` before any `apply`, and the benchmark (W0) comes first. It supports the quality work in [RAG_ROADMAP.md](RAG_ROADMAP.md) and reads the traces described in [TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md).
 
 ## 1. The goal in one sentence
 

@@ -39,7 +39,7 @@ jobs:
         run: |
           test "${GITHUB_REF_NAME}" = "v$(tr -d '[:space:]' < VERSION)" || { echo "::error::tag ${GITHUB_REF_NAME} does not match VERSION $(cat VERSION)"; exit 1; }
       - name: Template lint
-        run: cfn-lint -i W1030 -t template.yaml
+        run: cfn-lint -i W1030 W2506 -t template.yaml
       - name: Local test suite
         run: node tests/run.mjs
       - name: Build the package and the release files

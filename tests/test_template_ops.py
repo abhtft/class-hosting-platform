@@ -84,7 +84,8 @@ single = re.findall(r"Action: \[s3:GetObject, s3:PutObject, s3:DeleteObject\]\n\
 assert sorted(single) == ["${SitesBucket.Arn}/knowledge/*"] * 3 + ["${SitesBucket.Arn}/userdata/*"], single
 for name in ("DeployFunction", "KnowledgeFunction", "KnowledgeWorkerFunction"):
     assert "${SitesBucket.Arn}/knowledge/*" in block(name), f"{name} is one of the three that may write knowledge/"
-assert template.count("s3:PutObject") == 6, "every S3 write grant is reviewed (two lists above, class storage's userdata/, three for knowledge/): extend this check for a new one"
+# the compute worker's three (its own role, the control function, the portal) write the worker/ folder only: tests/test_template_worker.py checks each
+assert template.count("s3:PutObject") == 9, "every S3 write grant is reviewed (two lists above, class storage's userdata/, three for knowledge/, three for worker/): extend this check for a new one"
 
 # ---- the kit signing key: only the account's administrators (the teacher's own credentials) can use it ----
 signing = block("KitSigningKey")
