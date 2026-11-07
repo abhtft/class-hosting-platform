@@ -22,8 +22,6 @@ import portal
 from portal import DAY, PortalError
 
 MODES = ("run", "keep")
-LEVELS = (0, 1, 2, 3)  # per student: 0 off, 1 reports, 2 platform tasks, 3 their own code (docs/COMPUTE_WORKER_PLAN.md section 11)
-LEVEL_NAMES = {0: "off", 1: "reports", 2: "platform tasks", 3: "own code"}
 DEFAULT_CAP_MINUTES, MIN_CAP_MINUTES, MAX_CAP_MINUTES = 2400, 60, 14400  # the class-wide monthly cap on machine minutes: 40 hours
 HOUR_CHOICES = tuple(range(24))
 DEFAULT_MAX_MINUTES = 60
@@ -244,64 +242,6 @@ def view(now=None):
             "last": {k: last[k] for k in ("started", "finished", "exit", "seconds", "task", "output") if k in last} if last else None,
             "month": {"minutes": minutes, "cap_minutes": settings()["monthly_cap_minutes"], "compute_usd": compute, "disk_usd": round(disk * DISK_PER_GB_MONTH, 2),
                       "note": "An estimate from list prices; the AWS bill is the truth."}}
-
-
-# ---------------------------------------------------------------- what each student may do (the teacher's per-student switch)
-ACCESS_DEFAULT = {"level": 0, "requests_per_day": 5, "minutes_per_month": 30, "job_minutes": 10, "network": False}
-ACCESS_BOUNDS = {"requests_per_day": (0, 100), "minutes_per_month": (0, 1440), "job_minutes": (1, 60)}
-
-
-def access(item):
-    """A student's worker access with every value in range (old or odd data reads as the safe default: level 0, no network)."""
-    raw = (item or {}).get("worker_access")
-    raw = raw if isinstance(raw, dict) else {}
-    out = dict(ACCESS_DEFAULT)
-    if raw.get("level") in LEVELS and not isinstance(raw.get("level"), bool):
-        out["level"] = raw["level"]
-    for key, (low, high) in ACCESS_BOUNDS.items():
-        v = raw.get(key)
-        if isinstance(v, int) and not isinstance(v, bool) and low <= v <= high:
-            out[key] = v
-    out["network"] = raw.get("network") is True and out["level"] == 3  # the internet only ever applies to a student's own code
-    return out
-
-
-def access_view(item):
-    if not available():
-        return {"available": False}
-    return {"available": True, **access(item), "level_name": LEVEL_NAMES[access(item)["level"]], "bounds": {k: list(v) for k, v in ACCESS_BOUNDS.items()}}
-
-
-def set_access(item, body):
-    """Teacher: set one student's level and quotas. Nothing here starts or reaches the machine."""
-    if not available():
-        raise PortalError(409, "The compute worker is not installed on this platform.")
-    if not isinstance(body, dict):
-        raise PortalError(400, "Send a JSON object.")
-    changes = {}
-    if "level" in body:
-        if isinstance(body["level"], bool) or body["level"] not in LEVELS:
-            raise PortalError(400, "level must be 0 (off), 1 (reports), 2 (platform tasks) or 3 (their own code).")
-        changes["level"] = body["level"]
-    for key, (low, high) in ACCESS_BOUNDS.items():
-        if key in body:
-            v = body[key]
-            if isinstance(v, bool) or not isinstance(v, int) or not low <= v <= high:
-                raise PortalError(400, f"{key} must be a whole number from {low} to {high}.")
-            changes[key] = v
-    if "network" in body:
-        if not isinstance(body["network"], bool):
-            raise PortalError(400, "network must be true or false.")
-        changes["network"] = body["network"]
-    if not changes:
-        raise PortalError(400, "Nothing to change.")
-    merged = {**access(item), **changes}
-    if "network" not in body and merged["level"] != 3:
-        merged["network"] = False  # lowering the level takes the internet away
-    if merged["network"] and merged["level"] != 3:
-        raise PortalError(400, "Internet access only applies to level 3 (a student's own code).")
-    portal.db().update(item["pk"], {"worker_access": merged})
-    return access({"worker_access": merged})
 
 
 def handler(event, context=None):

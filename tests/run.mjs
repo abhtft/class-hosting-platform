@@ -105,7 +105,7 @@ await step('traces from the student kit (Node): one answer carries one trace id 
 });
 
 await step('compute worker: the machine is off unless started, start and stop from the teacher page, the 15-minute watchdog stops a machine nobody asked for or past its limit, the daily start in its hour only, month minutes and cost estimate, settings validated; the template creates nothing while it is off, gives the machine no inbound access, an encrypted disk and only the worker folder, and lets only the portal and the control function start and stop that one machine', () => {
-  for (const test of ['test_worker.py', 'test_worker_jobs.py', 'test_template_worker.py', 'test_worker_runner.py']) {
+  for (const test of ['test_worker.py', 'test_template_worker.py', 'test_worker_runner.py']) {
     const r = spawnSync(python, [join(here, test)], { encoding: 'utf8' });
     assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
   }

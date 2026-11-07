@@ -343,7 +343,6 @@ async function uploadBooks(shelf, files) {
 
 // ---------- the worker tab: one small machine, off unless started (worker.py) ----------
 let worker = null; // the answer of GET /api/admin/worker, or { unavailable: true }
-let workerJobs = []; // the students' jobs (queue and recent), from GET /api/admin/worker/jobs
 let workerTimer = null;
 let workerBusy = '';
 const WORKER_STATES = { running: ['Running', 'active'], pending: ['Starting…', 'warn'], stopping: ['Stopping…', 'warn'], 'shutting-down': ['Stopping…', 'warn'], stopped: ['Off', 'offline'] };
@@ -352,7 +351,6 @@ async function loadWorker() {
   try {
     const out = await call('/api/admin/worker');
     worker = out.available === false ? { unavailable: true } : out;
-    if (!worker.unavailable) workerJobs = (await call('/api/admin/worker/jobs').catch(() => ({ jobs: [] }))).jobs ?? [];
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 409)) worker = { unavailable: true };
     else $('error').textContent = e.message;
@@ -410,65 +408,7 @@ function workerTab() {
       h('div', { class: 'small muted' }, `${worker.last.started} · ${worker.last.seconds} s · ${worker.last.exit === 0 ? 'finished' : `ended with code ${worker.last.exit}`}`))),
       h('div', { class: 'feature-body' }, h('pre', { class: 'small', style: 'white-space:pre-wrap;overflow-wrap:anywhere;margin:0' }, worker.last.output || '')))
     : h('div', { class: 'small muted', style: 'padding:0 16px 12px' }, 'No run yet.');
-  return [head, note, buttons, state, schedule, jobsSection(), last];
-}
-
-const JOB_STATES = { created: ['Uploading', 'warn'], queued: ['Waiting', 'warn'], running: ['Running', 'active'], done: ['Done', 'active'], failed: ['Failed', 'expired'], cancelled: ['Cancelled', 'offline'], expired: ['Expired', 'offline'] };
-
-/** The students' own-code jobs (access level 3): who is waiting, what ran. Jobs wait for the machine; only you start it. */
-function jobsSection() {
-  const open = workerJobs.filter((j) => ['created', 'queued', 'running'].includes(j.state));
-  const rows = workerJobs.length ? workerJobs.map((j) => {
-    const [label, cls] = JOB_STATES[j.state] || [j.state, 'offline'];
-    const when_ = j.finished_at || j.queued_at || j.created_at;
-    return h('div', { class: 'srow', style: 'grid-template-columns: minmax(90px,1fr) 90px minmax(120px,1.4fr) 140px 150px' },
-      h('span', {}, j.slug), h('span', {}, h('span', { class: `pill ${cls}` }, label)),
-      h('span', { class: 'small muted', title: j.message || '' }, `${j.language} · ${j.entry}${j.size ? ` · ${mb(j.size)}` : ''}${j.seconds ? ` · ${j.seconds} s` : ''}${j.network ? ' · internet' : ''}`),
-      h('span', { class: 'small muted' }, when_ ? when(when_ * 1000) : ''),
-      h('span', { class: 'btns' },
-        ['created', 'queued'].includes(j.state) ? h('button', { class: 'small', onclick: () => jobAction(j, 'cancel') }, 'Cancel') : null,
-        ['done', 'failed', 'cancelled', 'expired'].includes(j.state) ? h('button', { class: 'small danger', onclick: () => jobAction(j, 'delete') }, 'Delete') : null));
-  }) : [h('div', { class: 'small muted', style: 'padding:8px 16px' }, 'No jobs yet. A student with access level 3 sends one from their project; it waits here until you start the machine.')];
-  return h('section', { class: `feature ${open.length ? 'on' : ''}`, style: 'margin:0 16px 12px' },
-    h('div', { class: 'feature-head' }, h('div', {}, h('h3', {}, 'Students’ jobs'), h('div', { class: 'small muted' }, open.length ? `${open.length} waiting or running. They run one at a time when the machine is on` : 'Nothing is waiting'))),
-    h('div', { class: 'feature-body' }, rows));
-}
-
-async function jobAction(j, action) {
-  const ok = action === 'delete' ? await ask({ title: 'Delete this job', text: 'The job record, its uploaded files and its result are removed. This cannot be undone.', confirm: 'Delete', danger: true }) : true;
-  if (!ok) return;
-  try {
-    await call(`/api/admin/worker/jobs/${j.slug}/${j.id}${action === 'cancel' ? '/cancel' : ''}`, { method: action === 'cancel' ? 'POST' : 'DELETE', body: action === 'cancel' ? {} : undefined });
-    toast(action === 'cancel' ? 'Job cancelled' : 'Job deleted');
-  } catch (e) { toast(e.message); }
-  await loadWorker();
-  render();
-}
-
-/** What this student may do with the compute worker (a per-student switch; off by default). Setting it never starts the machine: only you do that. */
-const WORKER_LEVELS = [[0, 'Off'], [1, 'Reports: see checks of their own app'], [2, 'Platform tasks: ask for a named check of their own app'], [3, 'Own code: run their own scripts in a locked-down container']];
-function workerAccessFeature(t, live, btn) {
-  const a = t.worker_access;
-  const on = a.level > 0;
-  const hint = !on ? 'Off: the student cannot use the worker' : `Level ${a.level}: ${WORKER_LEVELS[a.level][1]}`;
-  return feature({ title: 'Compute worker', hint, on, disabled: !live, onToggle: () => act(`/api/admin/tokens/${t.id}/worker-access`, { level: on ? 0 : 1 }, on ? `The compute worker is off for ${t.slug}` : `${t.slug} may now see worker reports (level 1)`),
-    body: [h('div', { class: 'small' }, `Level: ${a.level} (${a.level_name})`),
-      a.level >= 2 ? h('div', { class: 'small' }, `At most ${a.requests_per_day} request${a.requests_per_day === 1 ? '' : 's'} a day and ${a.minutes_per_month} machine minutes a month`) : null,
-      a.level === 3 ? h('div', { class: 'small' }, `Each job may run ${a.job_minutes} minutes. Internet: ${a.network ? 'ALLOWED' : 'not allowed'}`) : null,
-      h('div', { class: 'btns' }, btn('Change…', () => editWorkerAccess(t))),
-      h('p', { class: 'privacy small muted' }, 'This only stores what the student will be allowed to do: reports, platform tasks and running their own code are not available yet, so no level has an effect today. You start and stop the machine yourself (the Worker tab); a student’s request will never start it.')] });
-}
-
-async function editWorkerAccess(t) {
-  const a = t.worker_access;
-  const b = a.bounds;
-  const num = (name, label) => ({ name, label, type: 'number', value: a[name], min: b[name][0], max: b[name][1], required: true });
-  const r = await ask({ title: `Compute worker for ${t.slug}`, text: 'What this student may do. Level 3 runs their own code on the machine, so switch it on only for students you trust with that, and keep the internet off unless the project needs it.',
-    fields: [{ name: 'level', label: 'Level', options: WORKER_LEVELS, value: a.level }, num('requests_per_day', 'Requests a day (levels 2 and 3)'), num('minutes_per_month', 'Machine minutes a month'), num('job_minutes', 'Longest single job (minutes, level 3)'),
-      { name: 'network', label: 'Internet for their jobs (level 3 only)', options: [['false', 'Not allowed'], ['true', 'Allowed']], value: String(a.network) }], confirm: 'Save' });
-  if (!r) return;
-  const level = Number(r.level);
-  act(`/api/admin/tokens/${t.id}/worker-access`, { level, requests_per_day: Number(r.requests_per_day), minutes_per_month: Number(r.minutes_per_month), job_minutes: Number(r.job_minutes), network: level === 3 && r.network === 'true' }, 'Compute worker access saved');
+  return [head, note, buttons, state, schedule, last];
 }
 
 // ---------- the traces tab: what happened in each answer, step by step (traces.py) ----------
@@ -725,7 +665,6 @@ function drawerContent(t) {
     if (t.storage?.available) features.push(storageFeature(t, live, btn));
     if (t.knowledge?.available) features.push(knowledgeFeature(t, live, btn));
     if (t.traces?.available) features.push(tracesFeature(t, live, btn));
-    if (t.worker_access?.available) features.push(workerAccessFeature(t, live, btn));
   }
 
   return h('div', { class: 'drawer-body' },

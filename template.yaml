@@ -1231,12 +1231,6 @@ Resources:
                 Action: [s3:GetObject, s3:PutObject]
                 Resource: !Sub '${SitesBucket.Arn}/worker/*'
               - !Ref AWS::NoValue
-            - !If # students' own jobs (worker_jobs.py): removing a finished job deletes its files under worker/jobs/ only
-              - UseWorker
-              - Effect: Allow
-                Action: s3:DeleteObject
-                Resource: !Sub '${SitesBucket.Arn}/worker/jobs/*'
-              - !Ref AWS::NoValue
             - Effect: Allow
               Action: [s3:GetObject, s3:PutObject, s3:DeleteObject] # never portal/: that folder holds the student kit and the portal pages, and only the teacher's own credentials publish there
               Resource:

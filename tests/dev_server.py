@@ -174,19 +174,6 @@ class DevWorkerS3:
             raise KeyError(Key)
         return {"Body": io.BytesIO(self.objects[Key])}
 
-    def generate_presigned_post(self, Bucket, Key, Fields, Conditions, ExpiresIn):
-        self.objects[Key] = b"PK" + b"0" * 2000  # the demo pretends the upload already happened
-        return {"url": "http://127.0.0.1/upload", "fields": {**Fields, "key": Key}}
-
-    def head_object(self, Bucket, Key):
-        return {"ContentLength": len(self.objects[Key])}
-
-    def delete_object(self, Bucket, Key):
-        self.objects.pop(Key, None)
-
-    def generate_presigned_url(self, op, Params, ExpiresIn):
-        return "http://127.0.0.1/download/" + Params["Key"]
-
 
 _dev_s3 = DevWorkerS3()
 _dev_s3.objects[worker.RESULTS_KEY] = json.dumps({"started": "2026-11-06T03:00:02Z", "finished_epoch": t0 - 3000, "seconds": 41, "exit": 0, "task": "runner",

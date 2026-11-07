@@ -63,7 +63,7 @@ assert "WORKER_INSTANCE_ID: !If [UseWorker, !Ref WorkerInstance, '']" in portal_
 start_stop = re.findall(r"- UseWorker\n\s+- Effect: Allow\n\s+Action: (\[ec2:StartInstances, ec2:StopInstances\])\n\s+Resource: (!Sub 'arn:[^']*instance/\$\{WorkerInstance\}')", portal_fn)
 assert len(start_stop) == 1, "the portal may start and stop only the worker machine"
 assert "ec2:RunInstances" not in portal_fn and "ec2:TerminateInstances" not in portal_fn
-assert re.search(r"- UseWorker\n\s+- Effect: Allow\n\s+Action: s3:DeleteObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/worker/jobs/\*'", portal_fn), "the portal may delete job files under worker/jobs/ only"
+assert "s3:DeleteObject" not in "".join(re.findall(r"- UseWorker\n[^\n]*\n[^\n]*Action: [^\n]*", portal_fn)), "the portal never deletes anything of the worker"
 
 # ---- nobody else is given the machine or its folder
 for name in ("KnowledgeFunction", "KnowledgeWorkerFunction", "AiProxyFunction", "StorageFunction", "GatewayFunction", "JobRunnerFunction"):

@@ -20,8 +20,6 @@ Teacher (password -> signed session, 8 h):
   POST /api/admin/tokens/{id}/knowledge  {enabled?, collections?, documents?, passages?, stored_mb?, upload_mb?, searches_limit?, searches_period?, embed_tokens?}
                                          class knowledge connector (knowledge.py); POST .../knowledge/clear removes all of the student's books
   POST /api/admin/tokens/{id}/traces     {enabled?, level? (metadata|masked|full), retention_days? (30|60|90), student_view? (off|metadata|stored), daily_limit?}   trace settings (traces.py)
-  GET|POST|DELETE /api/student/worker/jobs[/{id}[/submit|cancel|result]]  a student's own jobs at worker level 3 (worker_jobs.py);  GET /api/admin/worker/jobs, POST .../jobs/{slug}/{id}/cancel, DELETE .../jobs/{slug}/{id}  the teacher's queue
-  POST /api/admin/tokens/{id}/worker-access  {level 0-3, requests_per_day, minutes_per_month, job_minutes, network}  a student's compute worker access (worker.py; level 0 = off)
   GET /api/admin/worker  the compute worker (one small machine, off by default): state, settings, last run, month estimate;  POST .../worker/start {mode: run|keep}, .../worker/stop, .../worker/settings {daily_enabled, hour_utc, max_minutes}  (worker.py)
   POST /api/admin/tokens/{id}/traces/clear   delete a student's traces now (up to 100 per call: repeat while `more` is true)
   GET  /api/admin/traces/summary[?days]   the last days' numbers (answers, 'the books do not say', errors, tokens, cost) from the daily rollups
@@ -335,7 +333,6 @@ def view(item, now, site_url):
         "storage": storage_view(item, now),
         "knowledge": knowledge_view(item, now),
         "traces": traces_view(item),
-        "worker_access": worker_access_view(item),
     }
 
 
@@ -352,11 +349,6 @@ def ai_view(item, now):
 def storage_view(item, now):
     import storage
     return storage.view(item, now)
-
-
-def worker_access_view(item):
-    import worker
-    return worker.access_view(item)
 
 
 def traces_view(item):
@@ -480,25 +472,6 @@ def dispatch(method, path, body, event, now, site_url):
         item = student_token(event, now)
         files = storage.files_usage(item) if storage.available() and storage.settings(item).get("enabled") else None
         return reply(200, token=view(item, now, site_url), files=files)
-    if path == "/api/student/worker/jobs" or path.startswith("/api/student/worker/jobs/"):
-        import worker_jobs
-        item = student_token(event, now)
-        parts = path[len("/api/student/worker/jobs"):].strip("/").split("/") if path != "/api/student/worker/jobs" else []
-        if not parts and method == "POST":
-            return reply(201, **worker_jobs.create(item, body, now))
-        if not parts and method == "GET":
-            return reply(200, **worker_jobs.list_mine(item, now))
-        if len(parts) == 1 and method == "GET":
-            return reply(200, **worker_jobs.get_mine(item, parts[0], now))
-        if len(parts) == 1 and method == "DELETE":
-            return reply(200, **worker_jobs.delete(item, parts[0], now))
-        if len(parts) == 2 and parts[1] == "submit" and method == "POST":
-            return reply(200, **worker_jobs.submit(item, parts[0], now))
-        if len(parts) == 2 and parts[1] == "cancel" and method == "POST":
-            return reply(200, **worker_jobs.cancel(item, parts[0], now))
-        if len(parts) == 2 and parts[1] == "result" and method == "GET":
-            return reply(200, **worker_jobs.result_url(item, parts[0], now))
-        raise PortalError(404, "Unknown route.")
     if method == "GET" and (path == "/api/student/traces" or path.startswith("/api/student/traces/")):
         import traces
         item = student_token(event, now)
@@ -566,22 +539,6 @@ def dispatch(method, path, body, event, now, site_url):
             import traces
             item = get_token(trace_set.group(1))
             traces.set_settings(item, body)
-            return reply(200, token=view(db().get(item["pk"]) or item, now, site_url))
-        if path == "/api/admin/worker/jobs" and method == "GET":
-            import worker_jobs
-            return reply(200, **worker_jobs.queue_view(now))
-        wjob = re.fullmatch(r"/api/admin/worker/jobs/([a-z0-9][a-z0-9-]{0,29})/([0-9a-f]{12})(/cancel)?", path)
-        if wjob and method == "POST" and wjob.group(3):
-            import worker_jobs
-            return reply(200, **worker_jobs.teacher_cancel(wjob.group(1), wjob.group(2), now))
-        if wjob and method == "DELETE" and not wjob.group(3):
-            import worker_jobs
-            return reply(200, **worker_jobs.teacher_delete(wjob.group(1), wjob.group(2), now))
-        worker_set = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/worker-access", path)
-        if method == "POST" and worker_set:
-            import worker
-            item = get_token(worker_set.group(1))
-            worker.set_access(item, body)
             return reply(200, token=view(db().get(item["pk"]) or item, now, site_url))
         if path == "/api/admin/worker" and method == "GET":
             import worker
