@@ -16,20 +16,20 @@ import subprocess
 import sys
 import time
 
-SETUP_VERSION = 1
+SETUP_VERSION = 2  # 2: a group of packages is installed together (version 1 took only the first of 'jq, unzip, tar' and of the compilers)
 MARKER = f"/opt/worker/setup-v{SETUP_VERSION}.done"
-# (label, [packages to try in this order: the first that installs wins])
+# (label, [choices in this order: the first choice that installs wins]); a choice is a list of packages installed together
 PACKAGES = [
-    ("git", ["git"]),
-    ("jq, unzip, tar", ["jq", "unzip", "tar"]),
-    ("compilers", ["gcc", "gcc-c++", "make"]),
-    ("Node.js", ["nodejs22", "nodejs20"]),
-    ("npm", ["nodejs22-npm", "nodejs20-npm"]),
-    ("Python 3.12", ["python3.12", "python3.11"]),
-    ("pip", ["python3.12-pip", "python3.11-pip"]),
-    ("Python headers", ["python3.12-devel", "python3.11-devel"]),
+    ("git", [["git"]]),
+    ("jq, unzip, tar", [["jq", "unzip", "tar"]]),
+    ("compilers", [["gcc", "gcc-c++", "make"]]),
+    ("Node.js", [["nodejs22"], ["nodejs20"]]),
+    ("npm", [["nodejs22-npm"], ["nodejs20-npm"]]),
+    ("Python 3.12", [["python3.12"], ["python3.11"]]),
+    ("pip", [["python3.12-pip"], ["python3.11-pip"]]),
+    ("Python headers", [["python3.12-devel"], ["python3.11-devel"]]),
 ]
-TOOLS = ("git", "node", "npm", "python3.12", "python3.11", "pip3.12", "pip3.11", "jq", "gcc", "aws")
+TOOLS = ("git", "node", "npm", "python3.12", "python3.11", "pip3.12", "pip3.11", "jq", "unzip", "tar", "gcc", "make", "aws")
 
 
 def run(command, timeout=900):
@@ -51,12 +51,13 @@ def setup(runner=run, marker=MARKER, installed=lambda name: shutil.which(name)):
         return ["setup: already done"]
     lines = []
     for label, choices in PACKAGES:
-        for package in choices:
-            code, tail = runner(install_command([package]))
+        for packages in choices:
+            code, tail = runner(install_command(packages))
+            name = " ".join(packages)
             if code == 0:
-                lines.append(f"setup: {label}: installed {package}")
+                lines.append(f"setup: {label}: installed {name}")
                 break
-            lines.append(f"setup: {label}: {package} failed ({tail[-1] if tail else code})")
+            lines.append(f"setup: {label}: {name} failed ({tail[-1] if tail else code})")
         else:
             lines.append(f"setup: {label}: NOT installed")
     ok = not any("NOT installed" in line for line in lines)

@@ -15,7 +15,7 @@ def fake_run(missing=()):
     def run(command, timeout=900):
         calls.append(command)
         package = command[-1]
-        return (1, [f"No match for argument: {package}"]) if package in missing else (0, ["Complete!"])
+        return (1, [f"No match for argument: {package}"]) if any(p in missing for p in command[4:]) else (0, ["Complete!"])
     return run
 
 
@@ -26,6 +26,7 @@ with tempfile.TemporaryDirectory() as tmp:
     out = runner.setup(fake_run(), marker)
     assert os.path.exists(marker) and not [line for line in out if "NOT installed" in line], out
     assert all(c[:3] == ["dnf", "install", "-y"] for c in calls) and ["dnf", "install", "-y", "--setopt=install_weak_deps=False", "git"] in calls
+    assert ["dnf", "install", "-y", "--setopt=install_weak_deps=False", "jq", "unzip", "tar"] in calls and ["dnf", "install", "-y", "--setopt=install_weak_deps=False", "gcc", "gcc-c++", "make"] in calls, "a group is installed together"
     assert any("Node.js: installed nodejs22" in line for line in out) and any("Python 3.12: installed python3.12" in line for line in out), out
     assert not any(c[-1] == "nodejs20" for c in calls), "the fallback is not tried when the first choice works"
     first_calls = len(calls)
