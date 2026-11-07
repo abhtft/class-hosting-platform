@@ -284,3 +284,12 @@ os.environ["TRACES_ENABLED"] = "false"
 assert call("GET", "/api/student/traces", session=student)[0] == 409
 os.environ["TRACES_ENABLED"] = "true"
 print("  ok  student view: own app only, off means nothing, numbers-only hides stored text, as-stored shows it, other apps are not found")
+
+# ---------- 7. DynamoDB hands back Decimal numbers (found on the first real student-view call): every view must turn them into plain numbers ----------
+from decimal import Decimal  # noqa: E402
+
+view_row = traces._summary_view({"s": "t#alice#tr_0123456789abcdef", "slug": "alice", "day": "2026-11-07", "started": Decimal("1793986800000"), "level": "metadata",
+                                 "spans": Decimal("3"), "tokens": Decimal("1055"), "cost_micro": Decimal("277"), "errors": Decimal("0")})
+json.dumps(view_row)
+assert view_row["spans"] == 3 and view_row["started"] == 1793986800000 and view_row["trace_id"] == "tr_0123456789abcdef", view_row
+print("  ok  Decimal numbers from DynamoDB are turned into plain numbers")

@@ -219,6 +219,7 @@ def set_settings(item, body):
 
 
 def _summary_view(row):
+    row = portal._plain(row)  # DynamoDB returns Decimal numbers
     keep = ("s", "slug", "day", "started", "level", "spans", "tokens", "cost_micro", "errors")
     out = {k: (int(row[k]) if isinstance(row.get(k), (int, float)) and k != "started" else row.get(k)) for k in keep if k in row}
     out["trace_id"] = str(row["s"]).split("#", 2)[2]
