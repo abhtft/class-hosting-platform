@@ -383,7 +383,7 @@ function workerTab() {
   const lease = worker.lease;
   const head = h('div', { class: 'tiles inner' },
     tile('Machine', label, `${worker.instance_type} · ${worker.disk_gb} GB disk`),
-    tile('Hours this month', (m.minutes / 60).toFixed(1), m.compute_usd === null ? 'price unknown' : `about $${m.compute_usd.toFixed(2)} compute + $${m.disk_usd.toFixed(2)} disk`),
+    tile('Hours this month', `${(m.minutes / 60).toFixed(1)} of ${(m.cap_minutes / 60).toFixed(0)}`, m.compute_usd === null ? 'price unknown' : `about $${m.compute_usd.toFixed(2)} compute + $${m.disk_usd.toFixed(2)} disk`),
     tile('Time limit', `${s.max_minutes} min`, 'a watchdog stops it after this'));
   const note = h('p', { class: 'privacy small muted' }, 'A small machine for heavy checks that do not fit in a web request. It is off until you start it, nothing can connect to it from the internet, it can only use its own folder in the bucket, and today it runs no student code. The cost shown is an estimate from list prices; the AWS bill is the truth.');
   const buttons = h('div', { class: 'btns', style: 'padding:0 16px 12px' },
@@ -400,13 +400,41 @@ function workerTab() {
       h('label', { class: 'small' }, 'Hour ', h('select', { 'aria-label': 'Hour (UTC)', onchange: (e) => workerAct('/api/admin/worker/settings', { hour_utc: Number(e.target.value) }, 'The daily hour is saved') },
         ...hours.map(([v, text]) => h('option', { value: v, selected: v === s.hour_utc }, text)))),
       h('label', { class: 'small' }, 'Time limit ', h('select', { 'aria-label': 'Time limit', onchange: (e) => workerAct('/api/admin/worker/settings', { max_minutes: Number(e.target.value) }, 'The time limit is saved') },
-        ...[30, 60, 120, 180, 360].map((v) => h('option', { value: v, selected: v === s.max_minutes }, `${v} minutes`)))))));
+        ...[30, 60, 120, 180, 360].map((v) => h('option', { value: v, selected: v === s.max_minutes }, `${v} minutes`)))),
+      h('label', { class: 'small' }, 'Monthly cap ', h('select', { 'aria-label': 'Monthly cap on machine hours', onchange: (e) => workerAct('/api/admin/worker/settings', { monthly_cap_minutes: Number(e.target.value) * 60 }, 'The monthly cap is saved') },
+        ...[10, 20, 40, 80, 160].map((v) => h('option', { value: v, selected: v * 60 === s.monthly_cap_minutes }, `${v} hours`)))))));
   const last = worker.last
     ? h('section', { class: 'feature on', style: 'margin:0 16px 12px' }, h('div', { class: 'feature-head' }, h('div', {}, h('h3', {}, 'Last run'),
       h('div', { class: 'small muted' }, `${worker.last.started} · ${worker.last.seconds} s · ${worker.last.exit === 0 ? 'finished' : `ended with code ${worker.last.exit}`}`))),
       h('div', { class: 'feature-body' }, h('pre', { class: 'small', style: 'white-space:pre-wrap;overflow-wrap:anywhere;margin:0' }, worker.last.output || '')))
     : h('div', { class: 'small muted', style: 'padding:0 16px 12px' }, 'No run yet.');
   return [head, note, buttons, state, schedule, last];
+}
+
+/** What this student may do with the compute worker (a per-student switch; off by default). Setting it never starts the machine: only you do that. */
+const WORKER_LEVELS = [[0, 'Off'], [1, 'Reports: see checks of their own app'], [2, 'Platform tasks: ask for a named check of their own app'], [3, 'Own code: run their own scripts in a locked-down container']];
+function workerAccessFeature(t, live, btn) {
+  const a = t.worker_access;
+  const on = a.level > 0;
+  const hint = !on ? 'Off: the student cannot use the worker' : `Level ${a.level}: ${WORKER_LEVELS[a.level][1]}`;
+  return feature({ title: 'Compute worker', hint, on, disabled: !live, onToggle: () => act(`/api/admin/tokens/${t.id}/worker-access`, { level: on ? 0 : 1 }, on ? `The compute worker is off for ${t.slug}` : `${t.slug} may now see worker reports (level 1)`),
+    body: [h('div', { class: 'small' }, `Level: ${a.level} (${a.level_name})`),
+      a.level >= 2 ? h('div', { class: 'small' }, `At most ${a.requests_per_day} request${a.requests_per_day === 1 ? '' : 's'} a day and ${a.minutes_per_month} machine minutes a month`) : null,
+      a.level === 3 ? h('div', { class: 'small' }, `Each job may run ${a.job_minutes} minutes. Internet: ${a.network ? 'ALLOWED' : 'not allowed'}`) : null,
+      h('div', { class: 'btns' }, btn('Change…', () => editWorkerAccess(t))),
+      h('p', { class: 'privacy small muted' }, 'This only stores what the student will be allowed to do: reports, platform tasks and running their own code are not available yet, so no level has an effect today. You start and stop the machine yourself (the Worker tab); a student’s request will never start it.')] });
+}
+
+async function editWorkerAccess(t) {
+  const a = t.worker_access;
+  const b = a.bounds;
+  const num = (name, label) => ({ name, label, type: 'number', value: a[name], min: b[name][0], max: b[name][1], required: true });
+  const r = await ask({ title: `Compute worker for ${t.slug}`, text: 'What this student may do. Level 3 runs their own code on the machine, so switch it on only for students you trust with that, and keep the internet off unless the project needs it.',
+    fields: [{ name: 'level', label: 'Level', options: WORKER_LEVELS, value: a.level }, num('requests_per_day', 'Requests a day (levels 2 and 3)'), num('minutes_per_month', 'Machine minutes a month'), num('job_minutes', 'Longest single job (minutes, level 3)'),
+      { name: 'network', label: 'Internet for their jobs (level 3 only)', options: [['false', 'Not allowed'], ['true', 'Allowed']], value: String(a.network) }], confirm: 'Save' });
+  if (!r) return;
+  const level = Number(r.level);
+  act(`/api/admin/tokens/${t.id}/worker-access`, { level, requests_per_day: Number(r.requests_per_day), minutes_per_month: Number(r.minutes_per_month), job_minutes: Number(r.job_minutes), network: level === 3 && r.network === 'true' }, 'Compute worker access saved');
 }
 
 // ---------- the traces tab: what happened in each answer, step by step (traces.py) ----------
@@ -663,6 +691,7 @@ function drawerContent(t) {
     if (t.storage?.available) features.push(storageFeature(t, live, btn));
     if (t.knowledge?.available) features.push(knowledgeFeature(t, live, btn));
     if (t.traces?.available) features.push(tracesFeature(t, live, btn));
+    if (t.worker_access?.available) features.push(workerAccessFeature(t, live, btn));
   }
 
   return h('div', { class: 'drawer-body' },

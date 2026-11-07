@@ -235,7 +235,7 @@ Student code is untrusted, so the design assumes it is hostile and limits what a
 
 | Step | Deliverable | Done when |
 |---|---|---|
-| W3 | The per-student access level (0 to 3) and its quotas, the class monthly cap on minutes (a start is refused when the cap is reached), shown on the student card and the Worker tab | The teacher can set a level for a student and a cap for the class; the cap stops a start in a test |
+| W3 | **Built, not yet applied.** The per-student access level (0 to 3) and its quotas, the class monthly cap on minutes (a start is refused when the cap is reached), shown on the student card and the Worker tab. The setting is only stored: no level has an effect until W4 and later | The teacher can set a level for a student and a cap for the class; the cap stops a start in a test |
 | W4 | The job protocol and queue: student routes and teacher queue view; jobs stored in the bucket, quotas and caps enforced, nothing starts the machine | A student's job appears in the teacher's queue; over-quota and level 0 are refused |
 | W5 | The container job runner on the machine (level 3) with every control in section 11.5, plus tests that try to break out (read the machine's credentials, reach the network, use too much memory or time, read another student's files) | All escape attempts fail on the real machine |
 | W6 | The student kit command and results, teacher-side cancel and delete | A student sends a script from their project and reads the result |

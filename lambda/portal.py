@@ -20,6 +20,7 @@ Teacher (password -> signed session, 8 h):
   POST /api/admin/tokens/{id}/knowledge  {enabled?, collections?, documents?, passages?, stored_mb?, upload_mb?, searches_limit?, searches_period?, embed_tokens?}
                                          class knowledge connector (knowledge.py); POST .../knowledge/clear removes all of the student's books
   POST /api/admin/tokens/{id}/traces     {enabled?, level? (metadata|masked|full), retention_days? (30|60|90), student_view? (off|metadata|stored), daily_limit?}   trace settings (traces.py)
+  POST /api/admin/tokens/{id}/worker-access  {level 0-3, requests_per_day, minutes_per_month, job_minutes, network}  a student's compute worker access (worker.py; level 0 = off)
   GET /api/admin/worker  the compute worker (one small machine, off by default): state, settings, last run, month estimate;  POST .../worker/start {mode: run|keep}, .../worker/stop, .../worker/settings {daily_enabled, hour_utc, max_minutes}  (worker.py)
   POST /api/admin/tokens/{id}/traces/clear   delete a student's traces now (up to 100 per call: repeat while `more` is true)
   GET  /api/admin/traces/summary[?days]   the last days' numbers (answers, 'the books do not say', errors, tokens, cost) from the daily rollups
@@ -333,6 +334,7 @@ def view(item, now, site_url):
         "storage": storage_view(item, now),
         "knowledge": knowledge_view(item, now),
         "traces": traces_view(item),
+        "worker_access": worker_access_view(item),
     }
 
 
@@ -349,6 +351,11 @@ def ai_view(item, now):
 def storage_view(item, now):
     import storage
     return storage.view(item, now)
+
+
+def worker_access_view(item):
+    import worker
+    return worker.access_view(item)
 
 
 def traces_view(item):
@@ -539,6 +546,12 @@ def dispatch(method, path, body, event, now, site_url):
             import traces
             item = get_token(trace_set.group(1))
             traces.set_settings(item, body)
+            return reply(200, token=view(db().get(item["pk"]) or item, now, site_url))
+        worker_set = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/worker-access", path)
+        if method == "POST" and worker_set:
+            import worker
+            item = get_token(worker_set.group(1))
+            worker.set_access(item, body)
             return reply(200, token=view(db().get(item["pk"]) or item, now, site_url))
         if path == "/api/admin/worker" and method == "GET":
             import worker
