@@ -224,6 +224,9 @@ def record(item, trace_id, name, kind="other", attrs=None, ts_ms=None, dur_ms=0,
             adds["refused"] = 1  # the app's "answer" step says the books did not answer
         if kind == "llm":
             adds["llm_ms"] = max(int(dur_ms or 0), 0)
+            adds["llm_calls"] = 1
+        if kind == "retriever" and isinstance(attrs, dict) and attrs.get("confident") is False:
+            adds["unsure"] = 1  # a search the books could not answer; with no model call after it, the visitor was told "the books do not say"
         st.upsert_summary(pk, once, adds)
         return trace_id
     except Exception:  # tracing must never break an answer
@@ -249,7 +252,7 @@ def set_settings(item, body):
 
 def _summary_view(row):
     row = portal._plain(row)  # DynamoDB returns Decimal numbers
-    keep = ("s", "slug", "day", "started", "level", "spans", "tokens", "cost_micro", "errors", "refused", "llm_ms")
+    keep = ("s", "slug", "day", "started", "level", "spans", "tokens", "cost_micro", "errors", "refused", "llm_ms", "unsure", "llm_calls")
     out = {k: (int(row[k]) if isinstance(row.get(k), (int, float)) and k != "started" else row.get(k)) for k in keep if k in row}
     out["trace_id"] = str(row["s"]).split("#", 2)[2]
     out.pop("s", None)
@@ -440,7 +443,8 @@ def _blank():
 
 def _add(into, row):
     into["answers"] += 1
-    into["refused"] += 1 if int(row.get("refused", 0) or 0) else 0
+    # a refusal: the app said so, or the books were not confident and no model call followed (an agent that searches again is not a refusal)
+    into["refused"] += 1 if (int(row.get("refused", 0) or 0) or (int(row.get("unsure", 0) or 0) and not int(row.get("llm_calls", 0) or 0))) else 0
     into["errors"] += 1 if int(row.get("errors", 0) or 0) else 0
     into["tokens"] += int(row.get("tokens", 0) or 0)
     into["cost_micro"] += int(row.get("cost_micro", 0) or 0)

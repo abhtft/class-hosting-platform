@@ -487,3 +487,14 @@ os.environ["TRACES_ENABLED"] = "false"
 assert traces.daily(NOW, publish) is None and traces.daily_view(NOW) == {"available": False, "days": []}
 os.environ["TRACES_ENABLED"] = "true"
 print("  ok  daily numbers from the summaries, refusal jump and error alerts (once a day, never for small days), teacher summary, never raises")
+
+# a search the books could not answer, with no model call, is a refusal even when the app reports nothing (older kits, the cached-answer route)
+traces._store[:] = [traces.MemoryTraces()]
+unsure_id, agent_id = tc.new_trace_id(), tc.new_trace_id()
+item_now = portal.db().get(f"tok#{tid}")
+traces.record(item_now, unsure_id, "retrieval", "retriever", {"confident": False, "hit_count": 0}, now=NOW)
+traces.record(item_now, agent_id, "retrieval", "retriever", {"confident": False}, now=NOW)
+traces.record(item_now, agent_id, "llm", "llm", {"model": "m"}, now=NOW, dur_ms=500)
+today_numbers = traces.compute_day(traces.day_id(NOW))
+assert today_numbers["answers"] == 2 and today_numbers["refused"] == 1, today_numbers
+print("  ok  an unsure search with no model call counts as a refusal; an agent that searched again does not")
