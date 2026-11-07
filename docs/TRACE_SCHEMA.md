@@ -60,8 +60,8 @@ A cached answer shows the reference of the trace that made it. This needs the kn
 
 | Level | Text keys | Everything else | Use |
 |---|---|---|---|
-| **metadata** (default) | **removed**; only the length (`query_chars`) or count (`passages_count`) is kept | numbers, ids, scores, model names, short labels (up to 40 characters inside lists and objects) | normal running; nothing a visitor typed is ever stored |
-| **masked** | kept, cut at 4,000 characters, and **masked** | as above | finding bad answers; emails, Indian mobile numbers, Aadhaar-like numbers, PAN, long card-like numbers and key prefixes (`ks_`, `ga_`, `cs_`, `mds_`, `sk-`, `AKIA…`) are replaced with `[email]`, `[phone]`, `[id]`, `[pan]`, `[number]`, `[key]` |
+| **metadata** (default) | **removed**; only the length (`query_chars`) or count (`passages_count`) is kept | numbers, scores, and strings only under label keys (`name`, `model`, `provider`, `finish_reason`, `tool`, `status`, `kind`, `source`, `doc`, `collection`, `section`, `title`, `level`, `error`, `id`, up to 80 characters); any other string becomes `<key>_chars`; dictionary keys that are not plain identifiers are dropped | normal running; nothing a visitor typed is ever stored |
+| **masked** | kept, cut at 4,000 characters, and **masked** (every string of every key) | as above | finding bad answers; emails, Indian mobile numbers, Aadhaar-like numbers (Devanagari digits are read as ordinary digits), PAN, IFSC, GSTIN, passport numbers, UPI ids, IP addresses, long account and card numbers and key prefixes (`ks_`, `ga_`, `cs_`, `mds_`, `sk-`, `AKIA…`) are replaced with `[email]`, `[phone]`, `[id]`, `[pan]`, `[bank]`, `[gstin]`, `[passport]`, `[upi]`, `[ip]`, `[number]`, `[key]` |
 | **full** | kept, cut at 4,000 characters, **not masked** | as above | debugging a project with consenting users |
 
 An unknown level behaves as `metadata`. The level is chosen when a step is **written**; lowering it later does not hide older text (use delete), and the student view (section 7) can only hide, never reveal more than was stored.
@@ -91,6 +91,10 @@ The daily limit stops **recording**, never an answer. Missing or odd values read
 - `GET /api/admin/traces/status` says how many days remain until the oldest stored trace expires (`days_left`) and whether a reminder is due (`remind`: within 30 days).
 - `GET /api/admin/traces/export?from=&to=&slug=&shelf=&cursor=` returns one page (at most 150 traces or about 3 MB) of **whole traces** (summary fields plus `spans`) for a date range of at most 400 days, newest day first, with `next` to continue. The teacher page joins the pages into one gzip-compressed JSON-lines file, one trace per line, in the format of section 3 and 4. It holds exactly what was stored at each student's privacy level.
 - Once a month, when something will expire within 30 days, the daily sweep publishes one message to the alert email's topic (one message per month, counted atomically). Without the alert email nothing is sent.
+
+## 7c. Limits and deleting (T5)
+
+One trace holds at most 200 steps. An app may report at most `daily_limit` x 20 steps a day through `/v1/trace`. The teacher can delete **all traces of one student** at once (`POST /api/admin/tokens/{id}/traces/clear`, up to 100 traces a call, repeated by the teacher page until done); one trace is deleted with `DELETE /api/admin/traces/{slug}/{trace_id}`.
 
 ## 8. Guarantees the tests check
 

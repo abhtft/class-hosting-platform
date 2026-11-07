@@ -355,3 +355,67 @@ os.environ["TRACES_ENABLED"] = "false"
 assert traces.remind(NOW + 70 * DAY, publish) is None and traces.status() == {"available": False}
 os.environ["TRACES_ENABLED"] = "true"
 print("  ok  archive: status and days left, one-day and full range, per app and per shelf, paging without repeats, bad input refused; monthly reminder once, never raises")
+
+# ---------- 9. privacy hardening (T5) ----------
+leaky = {"note": "visitor typed " + MAIL, "tags": ["ravi", "private"], MAIL: 5, "nested": {"who": "someone", "score": 0.5, "doc": "d1"},
+         "model": "m", "hits": [{"doc": "d1", "section": "Cells", "extra": "free text here"}], "arguments": {"note": "secret text"}, "answer": "A" * 50}
+flat = json.dumps(tc.apply_level(leaky, "metadata"))
+for text_found in ("visitor typed", MAIL, "ravi", "private", "someone", "free text", "secret text"):
+    assert text_found not in flat, (text_found, flat)
+meta = tc.apply_level(leaky, "metadata")
+assert meta["note_chars"] == len("visitor typed " + MAIL) and meta["tags_count"] == 2 and meta["model"] == "m" and meta["nested"] == {"score": 0.5, "doc": "d1"}, meta
+assert meta["hits"] == [{"doc": "d1", "section": "Cells"}] and meta["answer_chars"] == 50 and "arguments" in meta and "secret" not in json.dumps(meta["arguments"])
+masked = json.dumps(tc.apply_level(leaky, "masked"))
+assert MAIL not in masked and "[email]" in masked, "at the masked level every string is masked, not only the text keys"
+full = tc.apply_level(leaky, "full")
+assert full["note"].endswith(MAIL), "full keeps text"
+for original, label in (("call me on +91 98765 43210", "[phone]"), ("आधार १२३४ ५६७८ ९०१२", "[id]"), ("pay ravi" + chr(64) + "okhdfc please", "[upi]"), ("IFSC HDFC0001234", "[bank]"),
+                        ("GSTIN 22AAAAA0000A1Z5", "[gstin]"), ("passport K1234567", "[passport]"), ("from 192.168.1.20", "[ip]"), ("account 123456789012", "[id]"), ("account 98765432101", "[number]")):
+    assert label in tc.mask_text(original), (original, tc.mask_text(original))
+assert tc.mask_text("page 12 of 300 in 2026 and 3.5 percent") == "page 12 of 300 in 2026 and 3.5 percent", "ordinary numbers stay"
+assert tc.apply_level({"x" * 100: 1, 5: 2, "ok": 3}, "full") == {"ok": 3}, "odd keys are dropped"
+
+# one trace cannot grow without limit, and an app's reported steps have a daily budget
+traces._store[:] = [traces.MemoryTraces()]
+call("POST", f"/api/admin/tokens/{tid}/traces", {"level": "metadata", "daily_limit": 3, "enabled": True, "student_view": "metadata"}, admin)
+traces.MAX_SPANS_PER_TRACE = 5
+big = tc.new_trace_id()
+item_now = portal.db().get(f"tok#{tid}")
+for i in range(9):
+    traces.record(item_now, big, "step", "other", {"i": i}, now=NOW + 20 * DAY)
+assert traces.get_trace(slug, big)["trace"]["spans"] == 5, "no more than the per-trace limit"
+traces.MAX_SPANS_PER_TRACE = 200
+knowledge.authenticate = lambda headers, now: portal.db().get(f"tok#{tid}")
+many = [{"name": "s", "kind": "tool"}] * 30
+sent_total = 0
+for i in range(5):
+    got = report_result = knowledge_api.handler({"rawPath": "/v1/trace", "requestContext": {"http": {"method": "POST"}}, "headers": {},
+                                                   "body": json.dumps({"trace_id": tc.new_trace_id(), "spans": many})}, now=NOW + 20 * DAY + i)
+    sent_total += json.loads(got["body"])["recorded"]
+assert sent_total < 150, ("the daily budget is 3 traces x 20 steps = 60 steps", sent_total)
+print("  ok  privacy: no stray text at the numbers-only level (even under odd keys), masked masks every string, more Indian identifiers and Devanagari digits, step limits")
+
+# deleting a student's traces
+traces._store[:] = [traces.MemoryTraces()]
+call("POST", f"/api/admin/tokens/{tid}/traces", {"daily_limit": 1000}, admin)
+for i in range(5):
+    chat(at=NOW + 200 + i)
+_, other = call("POST", "/api/admin/tokens", {"days": 30, "student_name": "Cara"}, admin)
+other_item = portal.db().get(f"tok#{other['item']['id']}")
+traces.record(other_item, None, "llm", "llm", {"model": "m"}, now=NOW + 300)
+assert len(traces.store().summaries(app=slug, limit=100)) == 5
+traces.CLEAR_BATCH = 2
+first = call("POST", f"/api/admin/tokens/{tid}/traces/clear", {}, admin)[1]
+assert first == {"removed": 2, "more": True}, first
+rounds = 0
+while True:
+    rounds += 1
+    out = call("POST", f"/api/admin/tokens/{tid}/traces/clear", {}, admin)[1]
+    if not out["more"]:
+        break
+assert rounds <= 3 and traces.store().summaries(app=slug, limit=100) == [], "all of the student's traces are gone"
+assert len(traces.store().summaries(app=other_item["slug"], limit=100)) == 1, "another student's traces are untouched"
+assert not [k for k in traces.store().rows if k[0].startswith(f"t#{slug}#")], "no step items are left behind"
+assert call("POST", f"/api/admin/tokens/{tid}/traces/clear", {})[0] == 401
+traces.CLEAR_BATCH = 100
+print("  ok  delete all of a student's traces: in batches, only that student, no steps left, teacher login needed")

@@ -78,6 +78,11 @@ def record_app_spans(item, body, now):
     if not trace_core.valid_trace_id(trace_id) or not isinstance(spans, list):
         raise ApiError(400, "bad_request", "Send {trace_id: 'tr_...', spans: [...]}.")
     kept = 0
+    if traces.available() and traces.settings(item)["enabled"]:  # a daily budget of steps an app may report, so a loop cannot fill the table
+        budget = traces.settings(item)["daily_limit"] * traces.SPANS_PER_TRACE_BUDGET
+        n = len(spans[:MAX_APP_SPANS])
+        if portal.db().counter_add(f"trd#{item['slug']}#{traces.day_id(now)}#spans", n, limit=budget, ttl=now + 2 * portal.DAY, now=now) is None:
+            return {"trace_id": trace_id, "recorded": 0}
     for span in spans[:MAX_APP_SPANS]:
         if not isinstance(span, dict):
             continue

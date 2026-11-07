@@ -18,6 +18,9 @@ import trace_core as tc
 from portal import DAY, PortalError
 
 MS = 1000
+MAX_SPANS_PER_TRACE = 200
+SPANS_PER_TRACE_BUDGET = 20  # an app may report this many steps per allowed trace a day (daily_limit x 20), counted atomically
+CLEAR_BATCH = 100  # traces removed per call of "delete all of a student's traces" (the teacher page repeats until done)
 
 
 def available():
@@ -202,10 +205,13 @@ def record(item, trace_id, name, kind="other", attrs=None, ts_ms=None, dur_ms=0,
         trace_id = tc.trace_id_or_new(trace_id)
         pk = pk_of(slug, trace_id)
         st = store()
-        if st.get(pk, "summary") is None:
+        existing = st.get(pk, "summary")
+        if existing is None:
             # a new trace: it counts against the student's daily allowance (atomic, so parallel answers cannot overshoot)
             if portal.db().counter_add(f"trd#{slug}#{day_id(now)}", 1, limit=cfg["daily_limit"], ttl=now + 2 * DAY, now=now) is None:
                 return None
+        elif int(existing.get("spans", 0)) >= MAX_SPANS_PER_TRACE:
+            return None  # one trace never grows without limit, whatever an app sends
         ts_ms = int(ts_ms if ts_ms is not None else now * MS)
         expires = now + cfg["retention_days"] * DAY
         span = tc.make_span(name, kind, source, ts_ms, dur_ms, status, attrs, cfg["level"])
@@ -402,3 +408,15 @@ def remind(now, publish):
         return st["days_left"]
     except Exception:
         return None
+
+
+def clear_student(slug, limit=None):
+    """Teacher: delete traces of one student now (for example when a project ends). Removes up to `limit` per call; `more` says to call again."""
+    if not available():
+        raise PortalError(409, "Traces are not switched on for this platform.")
+    limit = limit or CLEAR_BATCH
+    removed = 0
+    rows = store().summaries(app=slug, limit=limit)
+    for row in rows:
+        removed += 1 if store().delete_trace(row["s"]) else 0
+    return {"removed": removed, "more": len(rows) >= limit}

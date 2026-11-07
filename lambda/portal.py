@@ -20,6 +20,7 @@ Teacher (password -> signed session, 8 h):
   POST /api/admin/tokens/{id}/knowledge  {enabled?, collections?, documents?, passages?, stored_mb?, upload_mb?, searches_limit?, searches_period?, embed_tokens?}
                                          class knowledge connector (knowledge.py); POST .../knowledge/clear removes all of the student's books
   POST /api/admin/tokens/{id}/traces     {enabled?, level? (metadata|masked|full), retention_days? (30|60|90), student_view? (off|metadata|stored), daily_limit?}   trace settings (traces.py)
+  POST /api/admin/tokens/{id}/traces/clear   delete a student's traces now (up to 100 per call: repeat while `more` is true)
   GET  /api/admin/traces/status  how long until the oldest traces expire;  GET /api/admin/traces/export?from&to&slug&shelf&cursor  one page of an archive (whole traces)
   GET  /api/admin/traces[?slug&day&limit&before]   recent traces (summaries, newest first);  GET|DELETE /api/admin/traces/{slug}/{trace_id}   one trace with its steps
   GET  /api/admin/knowledge              the class library and this month's spending against the ceiling
@@ -537,6 +538,11 @@ def dispatch(method, path, body, event, now, site_url):
             item = get_token(trace_set.group(1))
             traces.set_settings(item, body)
             return reply(200, token=view(db().get(item["pk"]) or item, now, site_url))
+        trace_clear = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/traces/clear", path)
+        if method == "POST" and trace_clear:
+            import traces
+            item = get_token(trace_clear.group(1))
+            return reply(200, **traces.clear_student(item["slug"]))
         if method == "GET" and path == "/api/admin/traces":
             import traces
             q = event.get("queryStringParameters") or {}

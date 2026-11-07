@@ -32,8 +32,14 @@ _MASKS = (
     (re.compile(r"\b[A-Z]{5}[0-9]{4}[A-Z]\b"), "[pan]"),                 # Indian PAN
     (re.compile(r"(?<!\d)\d{4}[ -]?\d{4}[ -]?\d{4}(?!\d)"), "[id]"),     # Aadhaar-like, 12 digits
     (re.compile(r"(?<!\d)(?:\+?91[ -]?)?[6-9]\d{4}[ -]?\d{5}(?!\d)"), "[phone]"),
-    (re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"), "[number]"),         # card-like
+    (re.compile(r"\b[A-Z]{4}0[A-Z0-9]{6}\b"), "[bank]"),                  # IFSC code
+    (re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b"), "[gstin]"),
+    (re.compile(r"\b[A-Z][0-9]{7}\b"), "[passport]"),
+    (re.compile(r"\b[\w.-]{2,}@[a-z]{2,}\b"), "[upi]"),                  # UPI id such as name@bank (after the email rule)
+    (re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])"), "[ip]"),
+    (re.compile(r"(?<!\d)(?:\d[ -]?){9,19}(?!\d)"), "[number]"),          # card, account and other long numbers
 )
+_DIGITS = str.maketrans("०१२३४५६७८९", "0123456789")  # Devanagari digits read as ordinary digits
 
 
 def new_trace_id():
@@ -50,7 +56,7 @@ def trace_id_or_new(value):
 
 
 def mask_text(text):
-    out = str(text)
+    out = str(text).translate(_DIGITS)
     for pattern, label in _MASKS:
         out = pattern.sub(label, out)
     return out
@@ -71,35 +77,53 @@ def _apply(value, level):
     return value
 
 
+# Strings that may stay at the "metadata" level: names and labels the platform or the books make, never what a visitor typed. Any other string key is
+# reduced to its length, so even an app that notes something under a key of its own cannot leave text in a numbers-only trace.
+SAFE_STRING_KEYS = frozenset(("name", "model", "provider", "finish_reason", "tool", "status", "kind", "source", "doc", "collection", "section", "title", "level", "error", "id",
+                              "stop_reason", "reason_code"))
+SAFE_KEY_RE = re.compile(r"^[A-Za-z0-9_./:-]{1,60}$")  # a dictionary key that may stay (shelf names, ids), unlike a key made of text such as an email address
+MAX_SAFE_STRING = 80
+
+
 def apply_level(attrs, level):
-    """The attributes as they may be stored at this privacy level. Unknown levels behave as "metadata" (the safe one)."""
+    """The attributes as they may be stored at this privacy level. Unknown levels behave as "metadata" (the safe one).
+    metadata: no text anywhere (text keys become a length or count; other strings stay only under SAFE_STRING_KEYS); masked: every string is masked; full: as given (capped)."""
     if not isinstance(attrs, dict):
         return {}
     level = level if level in LEVELS else "metadata"
     out = {}
     for key in list(attrs)[:MAX_ATTR_KEYS]:
+        if not isinstance(key, str) or not SAFE_KEY_RE.match(key):
+            continue
         value = attrs[key]
-        if key in TEXT_KEYS:
-            if level == "metadata":
-                if isinstance(value, str):
+        if level == "metadata":
+            if isinstance(value, str):
+                if key in SAFE_STRING_KEYS:
+                    out[key] = value[:MAX_SAFE_STRING]
+                else:
                     out[f"{key}_chars"] = len(value)
-                elif isinstance(value, list):
-                    out[f"{key}_count"] = len(value)
-                continue
-            out[key] = _apply(value, level)
+            elif isinstance(value, list) and any(isinstance(v, str) for v in value):
+                out[f"{key}_count"] = len(value)
+                rest = [_numbers_only(v, key) for v in value[:50] if not isinstance(v, str)]
+                if rest:
+                    out[key] = rest
+            elif isinstance(value, (bool, int, float)) or value is None:
+                out[key] = value
+            elif isinstance(value, (dict, list)):
+                out[key] = _numbers_only(value, key)
         elif isinstance(value, (str, int, float, bool)) or value is None:
-            out[key] = _cap(value) if isinstance(value, str) else value
+            out[key] = _apply(value, level) if isinstance(value, str) else value
         elif isinstance(value, (dict, list)):
-            out[key] = _apply(value, level) if level != "metadata" else _numbers_only(value)
+            out[key] = _apply(value, level)
     return out
 
 
-def _numbers_only(value):
-    """Metadata keeps shape and numbers (scores, counts, ids), never strings that could hold text."""
+def _numbers_only(value, key=""):
+    """Metadata keeps shape, numbers and short labels from SAFE_STRING_KEYS (scores, counts, ids, shelf names), never other strings."""
     if isinstance(value, dict):
-        return {k: _numbers_only(v) for k, v in value.items() if not isinstance(v, str) or len(v) <= 40}
+        return {k: _numbers_only(v, k) for k, v in value.items() if isinstance(k, str) and SAFE_KEY_RE.match(k) and (not isinstance(v, str) or k in SAFE_STRING_KEYS)}
     if isinstance(value, list):
-        return [_numbers_only(v) for v in value[:50] if not isinstance(v, str) or len(v) <= 40]
+        return [_numbers_only(v, key) for v in value[:50] if not isinstance(v, str)]
     return value
 
 

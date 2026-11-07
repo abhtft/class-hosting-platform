@@ -473,8 +473,25 @@ function tracesFeature(t, live, btn) {
     body: [h('div', { class: 'small' }, `Stored: ${LEVEL_NAMES[x.level]}`), h('div', { class: 'small' }, `Kept: ${x.retention_days} days`),
       h('div', { class: 'small' }, `The student sees: ${VIEW_NAMES[x.student_view]} (in their project: npm run traces)`),
       h('div', { class: 'small' }, `At most ${x.daily_limit.toLocaleString()} new traces a day`),
-      h('div', { class: 'btns' }, btn('Change…', () => editTraces(t)), btn('See their traces', () => { closeDrawer(); traceFilter = { slug: t.slug, day: '' }; tab = 'traces'; reloadTraces(); })),
+      h('div', { class: 'btns' }, btn('Change…', () => editTraces(t)), btn('See their traces', () => { closeDrawer(); traceFilter = { slug: t.slug, day: '' }; tab = 'traces'; reloadTraces(); }),
+        btn('Delete all their traces…', () => clearTraces(t), 'danger')),
       h('p', { class: 'privacy small muted' }, 'Numbers only is the default: what visitors typed is never stored. Choose more text only for projects whose users know their questions are recorded.')] });
+}
+
+async function clearTraces(t) {
+  const r = await ask({ title: `Delete all traces of ${t.slug}`, text: 'Every recorded answer of this student is removed now (they would expire by themselves anyway). Download an archive first if you want to keep them. This cannot be undone.', confirm: 'Delete all', danger: true });
+  if (!r) return;
+  let total = 0;
+  try {
+    for (let more = true; more;) {
+      const out = await call(`/api/admin/tokens/${t.id}/traces/clear`, { method: 'POST', body: {} });
+      total += out.removed;
+      more = out.more;
+      toast(`Deleted ${total} trace${total === 1 ? '' : 's'}…`);
+    }
+  } catch (e) { toast(e.message); return; }
+  toast(`Deleted ${total} trace${total === 1 ? '' : 's'} of ${t.slug}`);
+  traceList = null;
 }
 
 async function editTraces(t) {
