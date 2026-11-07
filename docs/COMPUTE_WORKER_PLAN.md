@@ -218,6 +218,23 @@ Student code is untrusted, so the design assumes it is hostile and limits what a
 
 **Accounting:** every job counts minutes against the student's monthly allowance and against the class cap; the student sees their own use.
 
+## 11.6 The job protocol (built in W4)
+
+The platform stores and queues jobs; the machine (W5) only reads one file and writes results. The machine has no database access.
+
+| Step | Who | What | Where |
+|---|---|---|---|
+| 1. create | Student (level 3) | `POST /api/student/worker/jobs {language: python or node, entry: file name}`. Checks: level 3, requests a day, at most 3 open jobs, minutes left this month. Answers with a private upload form for **one zip of at most 5 MB** | Record `wjob#<slug>#<id>` in the tokens table; upload key `worker/jobs/<slug>/<id>/input.zip` (built from the signed-in student, never from the request) |
+| 2. submit | Student | `POST .../jobs/<id>/submit` after uploading. The platform checks the zip exists and its size, marks the job **queued**, rewrites the queue file | `worker/queue/queue.json`: queued jobs only, oldest first, each with id, slug, language, entry, input key, time limit, internet yes or no |
+| 3. run (W5) | The machine, when the teacher has started it | Takes jobs one at a time, runs each in a locked-down container, writes `status.json` (state, start, finish, seconds, exit code, log tail) and `result.zip` | `worker/jobs/<slug>/<id>/` |
+| 4. sync | The platform | Whenever a student or the teacher looks at the job, it reads `status.json`, updates the record, **adds the minutes to the student's month (once)**, and re-stages the queue | Counter `wjm#<slug>#<month>` |
+| result | Student | `GET .../jobs/<id>/result` gives a 5-minute download link to `result.zip` | |
+| cancel, delete | Student or teacher | A waiting job can be cancelled; a finished one deleted (record, input, status and result). A running job stops at its time limit | |
+| expiry | The platform | A job that waits more than 7 days for the machine expires | |
+
+Teacher routes: `GET /api/admin/worker/jobs` (queue and the 20 most recent), `POST .../jobs/<slug>/<id>/cancel`, `DELETE .../jobs/<slug>/<id>`.
+**Nothing in this protocol starts the machine.** The tests make any call to EC2 from the jobs code a failure. The portal's permission to delete job files is limited to `worker/jobs/`.
+
 ## 13. Owner decisions (2026-11-07) and the build order
 
 | Question | Decision |
@@ -236,7 +253,7 @@ Student code is untrusted, so the design assumes it is hostile and limits what a
 | Step | Deliverable | Done when |
 |---|---|---|
 | W3 | **Built, not yet applied.** The per-student access level (0 to 3) and its quotas, the class monthly cap on minutes (a start is refused when the cap is reached), shown on the student card and the Worker tab. The setting is only stored: no level has an effect until W4 and later | The teacher can set a level for a student and a cap for the class; the cap stops a start in a test |
-| W4 | The job protocol and queue: student routes and teacher queue view; jobs stored in the bucket, quotas and caps enforced, nothing starts the machine | A student's job appears in the teacher's queue; over-quota and level 0 are refused |
+| W4 | **Built, not yet applied.** The job protocol and queue (section 11.6): student routes and the teacher's queue on the Worker tab; jobs stored in the bucket, quotas and caps enforced, nothing starts the machine. Nothing runs the jobs yet (W5) | A student's job appears in the teacher's queue; over-quota and level 0 are refused |
 | W5 | The container job runner on the machine (level 3) with every control in section 11.5, plus tests that try to break out (read the machine's credentials, reach the network, use too much memory or time, read another student's files) | All escape attempts fail on the real machine |
 | W6 | The student kit command and results, teacher-side cancel and delete | A student sends a script from their project and reads the result |
 | W7 | Platform tasks (level 2) and the first teacher tasks (golden probes, judging), after the benchmark | Per the roadmap above |
