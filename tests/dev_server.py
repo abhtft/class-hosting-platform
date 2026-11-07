@@ -130,6 +130,9 @@ for _i, (_q, _a) in enumerate([("What does the book say about photosynthesis?", 
     traces.record(_alice, _id, "retrieval", "retriever", {"query": _q, "hit_count": 3 - _i, "confident": _i == 0, "hits": [{"doc": "d1", "page": 12, "score": 0.03, "vector": 0.71}]}, ts_ms=_ts + 50, dur_ms=40, tokens=12, now=t0 - 600 * (_i + 1))
     traces.record(_alice, _id, "llm", "llm", {"model": "gemini-3.5-flash-lite", "prompt_tokens": 1300, "completion_tokens": 120, "messages": [_q], "answer": _a, "finish_reason": "stop"}, ts_ms=_ts + 100, dur_ms=1500, tokens=1420, cost_micro=210, now=t0 - 600 * (_i + 1))
 
+traces.record(_alice, None, "llm", "llm", {"model": "gemini-3.5-flash-lite", "prompt_tokens": 900, "completion_tokens": 80, "messages": ["an old question"], "answer": "an old answer"},
+              ts_ms=(t0 - 80 * DAY) * 1000, dur_ms=900, tokens=980, cost_micro=150, now=t0 - 80 * DAY)  # about to expire: the banner shows
+
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"

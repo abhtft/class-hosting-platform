@@ -346,6 +346,7 @@ let traceList = null; // { available, traces } or { unavailable: true }
 let traceFilter = { slug: '', day: '' };
 let traceOpen = null; // { slug, trace_id, data } the trace being read
 let traceBusy = false;
+let traceStatus = null; // { available, oldest, days_left, remind } for the expiry banner
 
 async function loadTraces(more = false) {
   traceBusy = true;
@@ -356,6 +357,7 @@ async function loadTraces(more = false) {
     if (more && traceList?.traces?.length) q.set('before', String(traceList.traces.at(-1).started));
     const out = await call(`/api/admin/traces?${q}`);
     traceList = out.available === false ? { unavailable: true } : more ? { ...out, traces: [...traceList.traces, ...out.traces] } : out;
+    if (!more) traceStatus = await call('/api/admin/traces/status').catch(() => null);
   } catch (e) {
     $('error').textContent = e.message;
   }
@@ -386,9 +388,11 @@ function tracesTab() {
   const slugs = h('select', { 'aria-label': 'Student', onchange: (e) => { traceFilter.slug = e.target.value; reloadTraces(); } },
     h('option', { value: '' }, 'All students'), ...tokens.filter((t) => t.traces?.available).map((t) => h('option', { value: t.slug, selected: t.slug === traceFilter.slug }, `${t.student_name} (${t.slug})`)));
   const day = h('input', { type: 'date', value: traceFilter.day, 'aria-label': 'Day', onchange: (e) => { traceFilter.day = e.target.value; reloadTraces(); } });
-  const bar = h('div', { class: 'btns', style: 'padding:12px 16px' }, slugs, day, h('button', { class: 'small', onclick: reloadTraces }, 'Refresh'), traceBusy ? h('span', { class: 'small muted' }, 'Loading…') : null);
+  const bar = h('div', { class: 'btns', style: 'padding:12px 16px' }, slugs, day, h('button', { class: 'small', onclick: reloadTraces }, 'Refresh'), h('button', { class: 'small', onclick: downloadArchive }, 'Download archive…'), traceBusy ? h('span', { class: 'small muted' }, 'Loading…') : null);
+  const banner = traceStatus?.remind ? h('div', { class: 'privacy small', role: 'status', style: 'margin:12px 16px;padding:10px 12px;border:1px solid var(--warn, #c90);border-radius:8px' },
+    `Traces from ${traceStatus.oldest.day} will be deleted automatically in ${traceStatus.days_left} day${traceStatus.days_left === 1 ? '' : 's'}. To keep them, use “Download archive…”. The file may contain personal text: keep it safe.`) : null;
   const note = h('p', { class: 'privacy small muted' }, 'One row is one answer. Open it to see each step: the search, the AI call and the app’s own steps. By default no text is stored, only sizes, scores and costs; set how much text is kept for each student on their card. Every trace is deleted automatically after the student’s retention (30, 60 or 90 days).');
-  if (!traceList.traces.length) return [bar, note, h('div', { class: 'empty' }, 'No traces for this filter yet. They appear when a student’s app uses the class AI or the books.')];
+  if (!traceList.traces.length) return [banner, bar, note, h('div', { class: 'empty' }, 'No traces for this filter yet. They appear when a student’s app uses the class AI or the books.')];
   const rows = traceList.traces.flatMap((t) => {
     const opened = traceOpen?.trace_id === t.trace_id;
     const row = h('div', { class: 'srow', style: 'grid-template-columns: 150px minmax(110px,1fr) 70px 80px 90px 60px; cursor:pointer', role: 'button', tabindex: 0,
@@ -399,7 +403,43 @@ function tracesTab() {
     return opened ? [row, traceDetail()] : [row];
   });
   const more = traceList.traces.length >= 50 ? [h('div', { class: 'btns', style: 'padding:12px 16px' }, h('button', { class: 'small', onclick: async () => { await loadTraces(true); render(); } }, 'Older…'))] : [];
-  return [bar, note, ...rows, ...more];
+  return [banner, bar, note, ...rows, ...more];
+}
+
+const isoDay = (d) => d.toISOString().slice(0, 10);
+
+/** One file for everything: pages are fetched until the range is done, joined as JSON lines and compressed in the browser. */
+async function downloadArchive() {
+  const today = new Date();
+  const r = await ask({ title: 'Download an archive of traces', text: 'One file (JSON lines, compressed) with whole traces for the dates you choose. It holds what was stored: text appears only for students whose setting stores text. Once the file leaves the platform it is yours to protect.',
+    fields: [{ name: 'slug', label: 'Student', options: [['', 'All students'], ...tokens.filter((t) => t.traces?.available).map((t) => [t.slug, `${t.student_name} (${t.slug})`])], value: traceFilter.slug },
+      { name: 'shelf', label: 'Only answers that searched this shelf (optional, for example science or library/science)', value: '' },
+      { name: 'from', label: 'From', type: 'date', value: isoDay(new Date(today - 90 * 86400000)), required: true },
+      { name: 'to', label: 'To', type: 'date', value: isoDay(today), required: true }], confirm: 'Download' });
+  if (!r) return;
+  const lines = [];
+  let cursor = null;
+  try {
+    do {
+      const q = new URLSearchParams({ from: r.from, to: r.to });
+      if (r.slug) q.set('slug', r.slug);
+      if (r.shelf.trim()) q.set('shelf', r.shelf.trim());
+      if (cursor) q.set('cursor', JSON.stringify(cursor));
+      const page = await call(`/api/admin/traces/export?${q}`);
+      for (const rec of page.records) lines.push(JSON.stringify(rec));
+      cursor = page.next;
+      toast(`Collected ${lines.length} trace${lines.length === 1 ? '' : 's'}…`);
+    } while (cursor);
+  } catch (e) { toast(e.message); return; }
+  if (!lines.length) { toast('No traces in that range.'); return; }
+  const raw = new Blob([`${lines.join('\n')}\n`]);
+  const zipped = typeof CompressionStream === 'function';
+  const blob = zipped ? await new Response(raw.stream().pipeThrough(new CompressionStream('gzip'))).blob() : raw;
+  const link = h('a', { href: URL.createObjectURL(blob), download: `traces-${r.from}-to-${r.to}${r.slug ? `-${r.slug}` : ''}.jsonl${zipped ? '.gz' : ''}` });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  toast(`Archive downloaded: ${lines.length} trace${lines.length === 1 ? '' : 's'}`);
 }
 
 async function reloadTraces() { traceOpen = null; render(); await loadTraces(); render(); }

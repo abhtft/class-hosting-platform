@@ -235,9 +235,26 @@ def sweep(event, context):
     portal.archive_site = archive_site
     result = portal.sweep()
     print(json.dumps(result))
+    remind_about_traces()
     if result["failed"]:
         raise RuntimeError(f"{len(result['failed'])} site(s) could not be archived: {result['failed']}")
     return result
+
+
+def remind_about_traces():
+    """Once a month, when traces are about to expire, tell the teacher through the alert email (a no-op without the alert email or traces). Never fails the sweep."""
+    topic = os.environ.get("ALERTS_TOPIC_ARN")
+    if not topic:
+        return
+    try:
+        import traces
+        import boto3
+        sns = boto3.client("sns")
+        sent = traces.remind(time.time(), lambda subject, message: sns.publish(TopicArn=topic, Subject=subject, Message=message))
+        if sent is not None:
+            print(json.dumps({"traces_reminder_sent": sent}))
+    except Exception as error:
+        print(json.dumps({"traces_reminder_failed": type(error).__name__}))
 
 
 def site_entries(archive):

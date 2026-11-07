@@ -20,6 +20,7 @@ Teacher (password -> signed session, 8 h):
   POST /api/admin/tokens/{id}/knowledge  {enabled?, collections?, documents?, passages?, stored_mb?, upload_mb?, searches_limit?, searches_period?, embed_tokens?}
                                          class knowledge connector (knowledge.py); POST .../knowledge/clear removes all of the student's books
   POST /api/admin/tokens/{id}/traces     {enabled?, level? (metadata|masked|full), retention_days? (30|60|90), student_view? (off|metadata|stored), daily_limit?}   trace settings (traces.py)
+  GET  /api/admin/traces/status  how long until the oldest traces expire;  GET /api/admin/traces/export?from&to&slug&shelf&cursor  one page of an archive (whole traces)
   GET  /api/admin/traces[?slug&day&limit&before]   recent traces (summaries, newest first);  GET|DELETE /api/admin/traces/{slug}/{trace_id}   one trace with its steps
   GET  /api/admin/knowledge              the class library and this month's spending against the ceiling
   POST|DELETE /api/admin/knowledge/library/collections[/{name}[/documents[/{id}[/start]]]]   the teacher's class library (knowledge.py admin_route)
@@ -541,6 +542,19 @@ def dispatch(method, path, body, event, now, site_url):
             q = event.get("queryStringParameters") or {}
             before = int(q["before"]) if str(q.get("before", "")).isdigit() else None
             return reply(200, **traces.list_traces(q.get("slug") or None, q.get("day") or None, q.get("limit") or 50, before))
+        if method == "GET" and path == "/api/admin/traces/status":
+            import traces
+            return reply(200, **traces.status(now))
+        if method == "GET" and path == "/api/admin/traces/export":
+            import traces
+            q = event.get("queryStringParameters") or {}
+            cursor = None
+            if q.get("cursor"):
+                try:
+                    cursor = json.loads(q["cursor"])
+                except ValueError:
+                    raise PortalError(400, "That cursor is not valid.")
+            return reply(200, **traces.export_page(q.get("slug") or None, q.get("shelf") or None, q.get("from") or None, q.get("to") or None, cursor))
         trace_one = re.fullmatch(r"/api/admin/traces/([a-z0-9][a-z0-9-]{0,29})/(tr_[0-9a-f]{16})", path)
         if method == "GET" and trace_one:
             import traces

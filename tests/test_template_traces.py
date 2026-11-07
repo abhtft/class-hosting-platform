@@ -37,5 +37,10 @@ portal = template[template.index("\n  DeployFunction:\n"):]
 portal = portal[:portal.index("\n  # ")] if "\n  # " in portal[10:] else portal
 m = re.search(r"- UseTraces\n\s+- Effect: Allow\n\s+Action: (\[[^\]]*\])\n\s+Resource: \[!GetAtt TracesTable\.Arn, !Sub '\$\{TracesTable\.Arn\}/index/\*'\]", template)
 assert m and "dynamodb:PutItem" not in m.group(1) and "dynamodb:UpdateItem" not in m.group(1) and "Scan" not in m.group(1), "the portal reads and deletes; it never writes steps"
-assert template.count("TracesTable.Arn") == 4, "two writers and the portal (table and indexes): no one else is given the table"
+assert template.count("TracesTable.Arn") == 5, "two writers, the portal (table and indexes) and the daily sweeper (one index, one query): no one else is given the table"
+sweeper = block("SweeperFunction")
+assert re.search(r"- UseTraces\n\s+- Effect: Allow\n\s+Action: dynamodb:Query\n\s+Resource: !Sub '\$\{TracesTable\.Arn\}/index/by-day'", sweeper), "the sweeper may only query the day index, to find the oldest trace"
+assert re.search(r"- UseAlertsAndTraces\n\s+- Effect: Allow\n\s+Action: sns:Publish\n\s+Resource: !Ref AlertsTopic", sweeper), "and publish to the one alert topic"
+assert "ALERTS_TOPIC_ARN: !If [UseAlertsAndTraces, !Ref AlertsTopic, '']" in sweeper
+assert "UseAlertsAndTraces: !And [!Condition UseAlerts, !Condition UseTraces]" in template
 print("ok")

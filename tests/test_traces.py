@@ -293,3 +293,65 @@ view_row = traces._summary_view({"s": "t#alice#tr_0123456789abcdef", "slug": "al
 json.dumps(view_row)
 assert view_row["spans"] == 3 and view_row["started"] == 1793986800000 and view_row["trace_id"] == "tr_0123456789abcdef", view_row
 print("  ok  Decimal numbers from DynamoDB are turned into plain numbers")
+
+# ---------- 8. archive, download and the monthly reminder (T7) ----------
+traces._store[:] = [traces.MemoryTraces()]
+call("POST", f"/api/admin/tokens/{tid}/traces", {"level": "masked", "student_view": "metadata", "enabled": True, "daily_limit": 1000, "retention_days": 90}, admin)
+assert call("GET", "/api/admin/traces/status", session=admin)[1] == {"available": True, "oldest": None}
+T0 = NOW - 80 * DAY  # a trace written 80 days ago, so it expires in about 10 days
+old = chat(at=T0)[2]["x-trace-id"]
+for i in range(3):
+    chat(at=NOW - i * 3600)
+st = call("GET", "/api/admin/traces/status", session=admin)[1]
+assert st["available"] and st["remind"] is True and 9 <= st["days_left"] <= 11 and st["oldest"]["day"] == traces.day_id(T0), st
+assert call("GET", "/api/admin/traces/status")[0] == 401
+
+page = call("GET", "/api/admin/traces/export", session=admin, query={"from": traces.day_id(NOW - 90 * DAY), "to": traces.day_id(NOW)})[1]
+assert page["next"] is None and len(page["records"]) == 4, page
+rec = page["records"][0]
+assert rec["app"] == slug and rec["spans"] and rec["spans"][0]["name"] == "llm" and "trace_id" in rec and "ttl" not in json.dumps(rec), rec
+json.dumps(page)
+assert len(call("GET", "/api/admin/traces/export", session=admin, query={"from": traces.day_id(T0), "to": traces.day_id(T0)})[1]["records"]) == 1, "a one-day range"
+assert call("GET", "/api/admin/traces/export", session=admin, query={"slug": "nobody"})[1]["records"] == []
+assert len(call("GET", "/api/admin/traces/export", session=admin, query={"slug": slug})[1]["records"]) == 4
+for bad in ({"from": "yesterday"}, {"from": "2026-12-01", "to": "2026-01-01"}, {"from": "2020-01-01", "to": "2026-11-07"}):
+    assert call("GET", "/api/admin/traces/export", session=admin, query=bad)[0] == 400, bad
+assert call("GET", "/api/admin/traces/export", session=admin, query={"cursor": "{not json"})[0] == 400
+assert call("GET", "/api/admin/traces/export")[0] == 401
+
+# paging: a small page size walks the whole range once, nothing twice
+traces.EXPORT_MAX_TRACES = 2
+seen_ids, cursor = [], None
+for _ in range(10):
+    q = {"from": traces.day_id(NOW - 90 * DAY), "to": traces.day_id(NOW)}
+    if cursor:
+        q["cursor"] = json.dumps(cursor)
+    got = call("GET", "/api/admin/traces/export", session=admin, query=q)[1]
+    seen_ids += [r["trace_id"] for r in got["records"]]
+    cursor = got["next"]
+    if not cursor:
+        break
+assert len(seen_ids) == 4 and len(set(seen_ids)) == 4, seen_ids
+traces.EXPORT_MAX_TRACES = 150
+
+# a shelf filter keeps traces whose search used that shelf
+fake_hits = lambda item, body, now: {"hits": [], "confident": False, "collections": {"library/bio": {"confident": False, "version": 1, "documents": 1}}, "tokens": 0}
+knowledge.search = fake_hits
+shelf_id = tc.new_trace_id()
+knowledge_api.handler({"rawPath": "/v1/search", "requestContext": {"http": {"method": "POST"}}, "headers": {"x-trace-id": shelf_id}, "body": json.dumps({"query": "cells"})}, now=NOW + 5)
+only = call("GET", "/api/admin/traces/export", session=admin, query={"shelf": "library/bio"})[1]["records"]
+assert [r["trace_id"] for r in only] == [shelf_id] and call("GET", "/api/admin/traces/export", session=admin, query={"shelf": "science"})[1]["records"] == []
+
+# the reminder: once a month, only when something is about to expire
+sent = []
+publish = lambda subject, message: sent.append((subject, message))
+assert traces.remind(NOW, publish) == st["days_left"] and len(sent) == 1 and "Download archive" in sent[0][1] and MAIL not in sent[0][1], sent
+assert traces.remind(NOW + DAY, publish) is None and len(sent) == 1, "not twice in the same month"
+traces._store[:] = [traces.MemoryTraces()]
+chat(at=NOW + 40 * DAY)
+assert traces.remind(NOW + 40 * DAY + 3600, publish) is None, "nothing is about to expire (the new trace has 90 days)"
+assert traces.remind(NOW, lambda s, m: 1 / 0) is None, "a failing email never raises"
+os.environ["TRACES_ENABLED"] = "false"
+assert traces.remind(NOW + 70 * DAY, publish) is None and traces.status() == {"available": False}
+os.environ["TRACES_ENABLED"] = "true"
+print("  ok  archive: status and days left, one-day and full range, per app and per shelf, paging without repeats, bad input refused; monthly reminder once, never raises")

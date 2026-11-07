@@ -86,6 +86,12 @@ The daily limit stops **recording**, never an answer. Missing or odd values read
 | Student (T4) | only their **own** app's traces (`GET /api/student/traces`, `/api/student/traces/{trace_id}`; in the project `npm run traces` and `npm run traces -- tr_...`), and only as `student_view` allows: `off` nothing (HTTP 403 with a plain message); `metadata` the numbers only, even if text was stored; `stored` what was stored. The trace is looked up under the signed-in student's own slug, so another app's id is simply not found |
 | Visitors | nothing; they may be shown the short trace reference (T2) |
 
+## 7b. Archive and reminder (T7)
+
+- `GET /api/admin/traces/status` says how many days remain until the oldest stored trace expires (`days_left`) and whether a reminder is due (`remind`: within 30 days).
+- `GET /api/admin/traces/export?from=&to=&slug=&shelf=&cursor=` returns one page (at most 150 traces or about 3 MB) of **whole traces** (summary fields plus `spans`) for a date range of at most 400 days, newest day first, with `next` to continue. The teacher page joins the pages into one gzip-compressed JSON-lines file, one trace per line, in the format of section 3 and 4. It holds exactly what was stored at each student's privacy level.
+- Once a month, when something will expire within 30 days, the daily sweep publishes one message to the alert email's topic (one message per month, counted atomically). Without the alert email nothing is sent.
+
 ## 8. Guarantees the tests check
 
 - With the feature off, answers, headers and storage are exactly as before.

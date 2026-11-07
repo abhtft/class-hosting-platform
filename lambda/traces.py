@@ -8,6 +8,7 @@ Every item expires by itself (DynamoDB TTL) after the student's retention (30, 6
 
 Per-student settings live on the token item (item["traces"]): enabled, level (metadata | masked | full), retention_days, student_view, daily_limit.
 """
+import json
 import os
 import threading
 import time
@@ -77,6 +78,12 @@ class MemoryTraces:
         rows.sort(key=lambda r: -r.get("started", 0))
         return rows[:limit]
 
+    def oldest(self, first_day, last_day):
+        """The summary that started first, looking day by day from first_day (YYYY-MM-DD) to last_day. None when there is none."""
+        with self.lock:
+            rows = [dict(r) for (p, sk), r in self.rows.items() if sk == "summary" and first_day <= r.get("day", "") <= last_day]
+        return min(rows, key=lambda r: r.get("started", 0)) if rows else None
+
     def delete_trace(self, pk):
         with self.lock:
             gone = [k for k in self.rows if k[0] == pk]
@@ -144,6 +151,18 @@ class DynamoTraces:
                 break
             kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
         return rows[:limit]
+
+    def oldest(self, first_day, last_day):
+        import datetime
+        from boto3.dynamodb.conditions import Key
+        day = datetime.date.fromisoformat(first_day)
+        end = datetime.date.fromisoformat(last_day)
+        while day <= end:  # one small query per day, oldest first: the first day that has anything holds the oldest trace
+            page = self.table.query(IndexName="by-day", KeyConditionExpression=Key("day").eq(day.isoformat()), ScanIndexForward=True, Limit=1)
+            if page.get("Items"):
+                return page["Items"][0]
+            day += datetime.timedelta(days=1)
+        return None
 
     def delete_trace(self, pk):
         from boto3.dynamodb.conditions import Key
@@ -281,3 +300,105 @@ def student_get(item, trace_id):
     spans = [tc.strip_for_student(s, mode) for s in data["spans"]]
     trace = {k: v for k, v in data["trace"].items() if k != "slug"}
     return {"view": mode, "trace": trace, "spans": spans}
+
+
+# ---------------------------------------------------------------- archive, reminder and download (T7)
+REMIND_DAYS = 30
+EXPORT_MAX_TRACES, EXPORT_MAX_BYTES = 150, 3_000_000  # one page of a download: far below the 6 MB limit of a function answer
+
+
+def status(now=None):
+    """For the teacher's banner and the reminder: how many days until the oldest stored trace expires by itself."""
+    if not available():
+        return {"available": False}
+    now = int(now if now is not None else time.time())
+    first = store().oldest(day_id(now - 100 * DAY), day_id(now))
+    if not first:
+        return {"available": True, "oldest": None}
+    expires = int(first["ttl"])
+    return {"available": True, "oldest": {"started": int(first["started"]), "day": first["day"], "slug": first.get("slug")}, "expires_at": expires,
+            "days_left": max(0, (expires - now) // DAY), "remind": expires - now <= REMIND_DAYS * DAY}
+
+
+def _days(first, last):
+    import datetime
+    day, end = datetime.date.fromisoformat(first), datetime.date.fromisoformat(last)
+    while day <= end:
+        yield day.isoformat()
+        day += datetime.timedelta(days=1)
+
+
+def _valid_day(value, what):
+    import datetime
+    try:
+        return datetime.date.fromisoformat(str(value)).isoformat()
+    except ValueError:
+        raise PortalError(400, f"{what} must be a date like 2026-11-07.")
+
+
+def _shelf_match(spans, shelf):
+    """True when a step searched this shelf (a name like science or library/science)."""
+    for sp in spans:
+        found = (sp.get("attrs") or {}).get("collections")
+        if isinstance(found, dict) and shelf in found:
+            return True
+    return False
+
+
+def export_page(slug=None, shelf=None, first=None, last=None, cursor=None):
+    """One page of an archive: whole traces (summary and steps) for a date range, optionally one app and/or one shelf, newest day first.
+    `cursor` {"day", "before"} continues where the last page stopped; `next` is None at the end. What is in the traces is what was stored at the student's level."""
+    if not available():
+        raise PortalError(409, "Traces are not switched on for this platform.")
+    today = day_id(int(time.time()))
+    last = _valid_day(last or today, "to")
+    first = _valid_day(first or day_id(int(time.time()) - 90 * DAY), "from")
+    if first > last or (len(list(_days(first, last))) > 400):
+        raise PortalError(400, "Choose a range of at most 400 days, with from before to.")
+    cursor = cursor if isinstance(cursor, dict) else {}
+    days = [d for d in _days(first, last)][::-1]
+    start = days.index(cursor["day"]) if cursor.get("day") in days else 0
+    before = cursor.get("before") if isinstance(cursor.get("before"), int) and cursor.get("day") in days else None
+    records, size, nxt = [], 0, None
+    for i in range(start, len(days)):
+        day = days[i]
+        while True:
+            rows = store().summaries(day=day, limit=50, before=before)
+            for row in rows:
+                if slug and row.get("app") != slug:
+                    before = int(row.get("started", 0))
+                    continue
+                pk = row["s"]
+                spans = [{k: portal._plain(v) for k, v in sp.items() if k not in ("s", "slug", "ttl")} for sp in store().spans(pk)]
+                before = int(row.get("started", 0))
+                if shelf and not _shelf_match(spans, shelf):
+                    continue
+                rec = {**_summary_view(row), "app": row.get("app"), "spans": spans}
+                size += len(json.dumps(rec, default=str))
+                records.append(rec)
+                if len(records) >= EXPORT_MAX_TRACES or size >= EXPORT_MAX_BYTES:
+                    return {"records": records, "next": {"day": day, "before": before}}
+            if len(rows) < 50:
+                break
+        before = None
+    return {"records": records, "next": nxt}
+
+
+def remind(now, publish):
+    """Once a month, when traces will expire within REMIND_DAYS: tell the teacher through the alert email. `publish(subject, message)` sends it. Never raises."""
+    try:
+        if not available():
+            return None
+        now = int(now)
+        st = status(now)
+        if not st.get("remind"):
+            return None
+        month = time.strftime("%Y-%m", time.gmtime(now))
+        if portal.db().counter_add(f"trremind#{month}", 1, limit=1, ttl=now + 40 * DAY, now=now) is None:
+            return None  # already sent this month
+        publish("Student platform: traces will expire soon",
+                f"The oldest stored answer traces (from {st['oldest']['day']}) expire in {st['days_left']} days. Traces are deleted automatically after 30, 60 or 90 days. "
+                "If you want to keep them, open the teacher page, go to the Traces tab and choose Download archive. The file may contain personal text, so keep it safe.")
+        return st["days_left"]
+    except Exception:
+        return None

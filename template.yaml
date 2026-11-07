@@ -163,6 +163,7 @@ Conditions:
   UseAlertsAndBackend: !And [!Condition UseAlerts, !Condition UseBackend]
   UseAlertsAndStorage: !And [!Condition UseAlerts, !Condition UseStorage]
   UseAlertsAndKnowledge: !And [!Condition UseAlerts, !Condition UseKnowledge]
+  UseAlertsAndTraces: !And [!Condition UseAlerts, !Condition UseTraces]
 
 Globals:
   Function:
@@ -1143,8 +1144,23 @@ Resources:
       Architectures: [arm64]
       MemorySize: 512
       Timeout: 300
+      Environment:
+        Variables:
+          ALERTS_TOPIC_ARN: !If [UseAlertsAndTraces, !Ref AlertsTopic, '']
       Policies:
         - Statement:
+            - !If # traces: once a month, when traces are about to expire, find the oldest one (a query on the day index) and send one alert email
+              - UseTraces
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource: !Sub '${TracesTable.Arn}/index/by-day'
+              - !Ref AWS::NoValue
+            - !If
+              - UseAlertsAndTraces
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref AlertsTopic
+              - !Ref AWS::NoValue
             - Effect: Allow
               Action: [s3:GetObject, s3:PutObject, s3:DeleteObject] # never portal/ (the kit and portal pages)
               Resource:
