@@ -123,12 +123,14 @@ Parameters:
   WorkerAmiId:
     Type: String
     Default: ''
-    Description: Set by the installer (the current Amazon Linux 2023 ARM image, chosen once so a later image release never replaces the machine). Leave empty.
+    Description: Set by the installer (the current Amazon Linux 2023 image for the machine's architecture, chosen once so a later image release never replaces the machine). Leave empty.
   WorkerInstanceType:
     Type: String
-    Default: c7g.xlarge
-    AllowedValues: [c7g.large, c7g.xlarge, c7g.2xlarge, t4g.medium, t4g.large]
-    Description: The machine size (ARM, like the platform's functions). c7g.xlarge has 4 vCPUs and 8 GB of memory.
+    Default: m7i-flex.large
+    AllowedValues: [m7i-flex.large, c7i-flex.large, t3.small, t4g.small, c7g.large, c7g.xlarge, c7g.2xlarge]
+    Description: >
+      The machine size. The default (2 vCPUs, 8 GB, x86) is one a Free plan account may use; the c7g sizes (ARM) need a paid-plan account. The
+      installer picks the matching image (x86 or ARM) once.
   WorkerDiskGb:
     Type: Number
     Default: 30

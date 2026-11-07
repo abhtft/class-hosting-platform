@@ -26,7 +26,7 @@ HOUR_CHOICES = tuple(range(24))
 DEFAULT_MAX_MINUTES = 60
 MAX_MINUTES = 360
 # On-demand price per hour in us-east-1 (an ESTIMATE shown to the teacher; the AWS bill is the truth) and the disk per GB-month.
-PRICES = {"c7g.large": 0.0725, "c7g.xlarge": 0.145, "c7g.2xlarge": 0.29, "t4g.medium": 0.0336, "t4g.large": 0.0672}
+PRICES = {"m7i-flex.large": 0.0958, "c7i-flex.large": 0.0848, "t3.small": 0.0208, "t4g.small": 0.0168, "c7g.large": 0.0725, "c7g.xlarge": 0.145, "c7g.2xlarge": 0.29}
 DISK_PER_GB_MONTH = 0.08
 RESULTS_KEY = "worker/results/latest.json"
 MODE_KEY = "worker/control/mode.json"

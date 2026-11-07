@@ -270,7 +270,13 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   const ctx = { stack: 'student-hosting', repo, dryRun: false, would: [], aws: (args) => { asked.push(args.join(' ')); if (args[0] === 'cloudformation' && args[1] === 'describe-stacks') throw new Error('no stack yet'); return 'ami-0123456789abcdef0\n'; } };
   const on = engine.deployArgs(ctx, '/tmp/t.yaml', ['WorkerEnabled=true']);
   assert.ok(on.includes('WorkerAmiId=ami-0123456789abcdef0'), 'the current image is looked up once when the worker is on');
-  assert.ok(asked.some((a) => a.startsWith('ssm get-parameter') && a.includes(engine.WORKER_AMI_PARAMETER)));
+  assert.ok(asked.some((a) => a.startsWith('ssm get-parameter') && a.includes('al2023-ami-kernel-default-x86_64')), 'the default machine is x86, so is its image');
+  assert.equal(engine.workerAmiParameter('c7g.xlarge').endsWith('arm64'), true);
+  assert.equal(engine.workerAmiParameter('t4g.small').endsWith('arm64'), true);
+  assert.equal(engine.workerAmiParameter('m7i-flex.large').endsWith('x86_64'), true);
+  const arm = [];
+  engine.deployArgs({ ...ctx, aws: (args) => { arm.push(args.join(' ')); if (args[0] === 'cloudformation') throw new Error('no stack'); return 'ami-arm\n'; } }, '/tmp/t.yaml', ['WorkerEnabled=true', 'WorkerInstanceType=c7g.xlarge']);
+  assert.ok(arm.some((a) => a.includes('al2023-ami-kernel-default-arm64')), 'an ARM machine gets the ARM image');
   const kept = { stack: 'student-hosting', repo, dryRun: false, would: [], aws: (args) => (args[0] === 'cloudformation' ? JSON.stringify({ Stacks: [{ StackId: 'x', StackStatus: 'UPDATE_COMPLETE', Parameters: [{ ParameterKey: 'WorkerAmiId', ParameterValue: 'ami-keepme' }] }] }) : 'ami-newer') };
   assert.ok(engine.deployArgs(kept, '/tmp/t.yaml', ['WorkerEnabled=true']).includes('WorkerAmiId=ami-keepme'), 'the stack keeps its own image: a new release never replaces the machine');
   assert.ok(!engine.deployArgs(kept, '/tmp/t.yaml', ['WorkerEnabled=false']).some((a) => a.startsWith('WorkerAmiId')), 'nothing is added while the worker is off');

@@ -19,7 +19,7 @@ A **single small server that is off by default**, that the teacher can **switch 
 
 | Item | Choice |
 |---|---|
-| Type | **c7g.xlarge** (4 ARM vCPUs, 8 GB). ARM matches the Lambda functions. Fallback `c7i.xlarge` only if a tool has no ARM build |
+| Type | **m7i-flex.large** (2 x86 vCPUs, 8 GB). Chosen because the account is on the AWS **Free plan**, which allows only free-tier instance types (found when the first apply of `c7g.xlarge` was refused and rolled back). On a paid-plan account the ARM sizes (`c7g.xlarge`, 4 vCPUs, 8 GB) can be chosen instead. The image (x86 or ARM) follows the type |
 | Disk | **30 GB gp3, encrypted**. Kept while the instance is stopped (about $2.40 a month) |
 | Buying | **On-demand**, no reservation (a reservation is 1 to 3 years and bills while stopped) |
 | Network | **No inbound port at all.** No SSH. The teacher's terminal reaches it through AWS Systems Manager. A public IPv4 address only while it runs (about $0.005 an hour) so it can reach package servers and AI providers |
@@ -58,10 +58,10 @@ How it works underneath (all in your account):
 
 | Part | Estimate |
 |---|---|
-| Compute, 30 minutes a day (about 15 hours a month) at about $0.145 an hour | about $2 to $3 |
+| Compute, 30 minutes a day (about 15 hours a month) at about $0.096 an hour (m7i-flex.large) | about $1.50 |
 | Disk, 30 GB gp3 | about $2.40 |
 | Public IPv4 while running | under $0.10 |
-| **Machine total** | **about $5 a month** |
+| **Machine total** | **about $4 a month** |
 | Model calls made by the tasks (judge, embeddings) | separate, capped per task; a few dollars |
 
 Prices are from memory of AWS's list: **verify them in the AWS pricing page before the apply.** The 30 GB disk is only free if the account is still inside the 12-month free-tier terms; with the trial credits it is covered either way.
@@ -97,7 +97,7 @@ Tasks 1 and 2 are the daily ones. 3 and 4 and 5 use the longer limit. Anything t
 | Tasks first | **1 (daily golden probes) and 2 (judging flagged answers)**; the weekly attack tests and the Hindi comparison come after |
 | Judge model | **Bedrock**, so the trial credits pay for it (model, price and credit cover verified first) |
 | Spot or on-demand | Not asked: **on-demand** for the daily runs; Spot only if the long weekly run is added |
-| Machine | c7g.xlarge, 30 GB gp3, us-east-1 (as section 3) |
+| Machine | **m7i-flex.large** (changed 2026-11-07 from c7g.xlarge because the Free plan refused it; owner chose this), 30 GB gp3, us-east-1 |
 
 Still to confirm before W1: the AWS free-plan limits of the account (some free-plan accounts restrict services until upgraded), the credit expiry date, and the current prices.
 

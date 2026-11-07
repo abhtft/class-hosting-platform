@@ -17,7 +17,7 @@ def block(name):
 params = template[template.index("\nParameters:"):template.index("\nConditions:")]
 assert re.search(r"  WorkerEnabled:\n    Type: String\n    Default: 'false'\n    AllowedValues: \['false', 'true'\]", params), "the worker is off unless asked for"
 assert re.search(r"  WorkerAmiId:\n    Type: String\n    Default: ''", params), "the image is chosen by the installer, once"
-assert re.search(r"  WorkerInstanceType:\n    Type: String\n    Default: c7g.xlarge\n    AllowedValues: \[c7g.large, c7g.xlarge, c7g.2xlarge, t4g.medium, t4g.large\]", params)
+assert re.search(r"  WorkerInstanceType:\n    Type: String\n    Default: m7i-flex.large\n    AllowedValues: \[m7i-flex.large, c7i-flex.large, t3.small, t4g.small, c7g.large, c7g.xlarge, c7g.2xlarge\]", params), "the default is a type a Free plan account may use"
 assert re.search(r"  WorkerDiskGb:\n    Type: Number\n    Default: 30\n    MinValue: 20\n    MaxValue: 200", params)
 assert re.search(r"  WorkerMaxMinutes:\n    Type: Number\n    Default: 60\n    MinValue: 15\n    MaxValue: 360", params)
 assert "UseWorker: !Equals [!Ref WorkerEnabled, 'true']" in template

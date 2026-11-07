@@ -192,14 +192,17 @@ export function packageTemplate(ctx, bucket) {
   return out;
 }
 
-/** The machine image of the compute worker is chosen ONCE (the stack's own value when it has one, else the current Amazon Linux 2023 ARM image) and then carried on
+/** The machine image of the compute worker is chosen ONCE (the stack's own value when it has one, else the current Amazon Linux 2023 image for the machine's architecture) and then carried on
  *  every update, so a new image release never makes CloudFormation replace the machine. Nothing is added while the worker is off. */
-export const WORKER_AMI_PARAMETER = '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64';
+export const WORKER_DEFAULT_TYPE = 'm7i-flex.large'; // a type a Free plan account may use (2 vCPUs, 8 GB, x86); keep in step with the WorkerInstanceType default in template.yaml
+const WORKER_ARM = /^(a1|c6g|c7g|c8g|m6g|m7g|m8g|r6g|r7g|t4g)\./;
+export const workerAmiParameter = (type = WORKER_DEFAULT_TYPE) => `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-${WORKER_ARM.test(type) ? 'arm64' : 'x86_64'}`;
 function withWorkerImage(ctx, params) {
   if (!params.includes('WorkerEnabled=true') || params.some((p) => p.startsWith('WorkerAmiId='))) return params;
   let ami = '';
   try { ami = stackOutputs(ctx).parameters.WorkerAmiId || ''; } catch { /* a first install has no stack yet */ }
-  if (!ami) ami = String(call(ctx, ['ssm', 'get-parameter', '--name', WORKER_AMI_PARAMETER, '--query', 'Parameter.Value', '--output', 'text'])).trim();
+  const type = params.find((p) => p.startsWith('WorkerInstanceType='))?.split('=')[1] || WORKER_DEFAULT_TYPE;
+  if (!ami) ami = String(call(ctx, ['ssm', 'get-parameter', '--name', workerAmiParameter(type), '--query', 'Parameter.Value', '--output', 'text'])).trim();
   return ami ? [...params, `WorkerAmiId=${ami}`] : params;
 }
 
