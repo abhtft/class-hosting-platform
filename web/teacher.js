@@ -385,7 +385,7 @@ function workerTab() {
     tile('Machine', label, `${worker.instance_type} · ${worker.disk_gb} GB disk`),
     tile('Hours this month', (m.minutes / 60).toFixed(1), m.compute_usd === null ? 'price unknown' : `about $${m.compute_usd.toFixed(2)} compute + $${m.disk_usd.toFixed(2)} disk`),
     tile('Time limit', `${s.max_minutes} min`, 'a watchdog stops it after this'));
-  const note = h('p', { class: 'privacy small muted' }, 'A small machine for heavy checks that do not fit in a web request. It is off until you start it, nothing can connect to it from the internet, it can only use its own folder in the bucket, and it never runs student code. The cost shown is an estimate from list prices; the AWS bill is the truth.');
+  const note = h('p', { class: 'privacy small muted' }, 'A small machine for heavy checks that do not fit in a web request. It is off until you start it, nothing can connect to it from the internet, it can only use its own folder in the bucket, and today it runs no student code. The cost shown is an estimate from list prices; the AWS bill is the truth.');
   const buttons = h('div', { class: 'btns', style: 'padding:0 16px 12px' },
     h('button', { class: 'primary small', disabled: on || Boolean(workerBusy), onclick: () => workerAct('/api/admin/worker/start', { mode: 'run' }, 'Starting the machine: it runs the checks, writes a report and shuts itself down') }, 'Start now'),
     h('button', { class: 'small', disabled: on || Boolean(workerBusy), onclick: () => workerAct('/api/admin/worker/start', { mode: 'keep' }, 'Starting the machine and keeping it on until the time limit') }, 'Start and keep on'),

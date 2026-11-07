@@ -26,7 +26,7 @@ A **single small server that is off by default**, that the teacher can **switch 
 | Security settings | IMDSv2 only, encrypted disk, no key pair, a security group with no inbound rules |
 | Software | Amazon Linux 2023 (ARM) from the public image parameter; Python 3.12, Node 22, and the test tools installed once from a start-up script kept in this repository |
 
-**Rule: only platform-owned code runs on this machine. Student code never does.** The machine reads class data that students must not see, so it must never execute anything a student wrote.
+**Rule: the machine's own runner and tasks are platform-owned code. Student code runs only at access level 3, only for a student the teacher switched on, only in a locked-down container, and the machine holds no secrets or database access (section 11.5).** Today nothing of a student's runs there: level 3 is designed but not built.
 
 ## 4. The toggle on the teacher page
 
@@ -104,7 +104,7 @@ Still to confirm before W1: the AWS free-plan limits of the account (some free-p
 ## 10. What we will not do
 
 - No always-on server, no reservation, no open ports, no key pair.
-- No student code on this machine, and no student data copied out of the account.
+- No student code outside a locked-down container (section 11.5), no secrets or database access on the machine, and no student data copied out of the account.
 - No task without a cost cap, and no apply without a shown and approved plan.
 
 ## 11. Modularity: four independent layers
@@ -130,14 +130,14 @@ The worker is built so each layer can be switched off or replaced without touchi
 
 ### 11.2 Layer D: student availability, controlled by the teacher for each app (your point 2) (proposed, not built)
 
-**Today students have no access at all.** The machine is platform-only: there is no student route to it, and no student code ever runs there. This section is what could be added, one level at a time, always chosen by the teacher for each student (each student has one app).
+**Today students have no access at all.** The machine is platform-only: there is no student route to it, and no student code runs there. This section is what could be added, one level at a time, always chosen by the teacher for each student (each student has one app).
 
 | Level | What the student gets | Risk | Proposed |
 |---|---|---|---|
 | **0. Off (default)** | Nothing. The Worker does not exist for them | None | **Yes: the default for everyone** |
 | **1. Reports** | They can read the results of platform checks run on **their own app** (for example "your answers: 12 refusals, 3 unsupported claims, cost per answer"), next to their traces | Low: it is their own data, shown the way traces are | **Yes** |
 | **2. Ask for a platform task** | They can request a **named, platform-owned task** for their own app, for example "evaluate my shelf with the class benchmark" or "re-check my last 50 answers". The platform's code runs; the student only supplies a shelf or app name | Medium: uses machine minutes and model money | **Yes, with limits (below)** |
-| **3. Run their own code** | Their own scripts run on the machine | **High: untrusted code on a machine that can read class data** | **No.** It would need a separate, isolated, credential-free sandbox, decided later and separately |
+| **3. Run their own code** | Their own scripts (Python or Node) run on the machine, in a locked-down container, with their input files and a place for results | **High: untrusted code.** Made acceptable by section 11.5 (no credentials on the machine, no network by default, strict limits, a fresh container each time) | **Yes (owner decision 2026-11-07), per student, off by default** |
 
 **Limits for level 2** (set by the teacher, with safe defaults):
 
@@ -190,10 +190,53 @@ The worker is built so each layer can be switched off or replaced without touchi
 | Alert email for caps and failures | existing alert email | Used if the platform has one | Teacher | No | Planned |
 | One-run-per-machine mode (no disk kept) | `WorkerEnabled` variant | Off | Teacher, in the terminal | Yes | Planned |
 
-## 13. Questions for the owner before any task is built
+## 11.5 Level 3: a student's own code, made safe enough (design)
 
-1. **Student levels.** Are levels 0 (off), 1 (reports) and 2 (platform tasks) the right set, with level 3 (their own code) ruled out for now?
-2. **Level 2 defaults.** Safe starting numbers: 5 requests a day and 30 minutes a month for each student, and a class cap of 40 hours a month?
-3. **Start on request.** May a student's request start a stopped machine (within the class cap), or only wait for the teacher's next start or the daily schedule? Recommended: wait, until the cost pattern is known.
-4. **Disk or no disk.** Keep stop and start (tools stay installed, disk about $2.40 a month) or add the launch-and-delete mode as an option later? Recommended: keep the current mode now, add the option later if wanted.
-5. **First tasks.** Still golden probes and judging flagged answers, teacher-only (level 0 for students) in the first release?
+Student code is untrusted, so the design assumes it is hostile and limits what a hostile program could reach. **The machine holds nothing worth stealing**, and each job runs in a container that can reach almost nothing.
+
+**The machine (the same one) never holds secrets or database access.** Its role reaches the `worker/` folder of the bucket and, later, `bedrock:InvokeModel` for the judge tasks (no keys at all). It has **no** database, no Secrets Manager and no other bucket folders. Anything a trusted task needs from the platform (a student's traces, a shelf's questions) is **staged by the platform into `worker/inputs/` before the run**, and anything it produces is **read back by the platform** from `worker/outputs/`. So even a complete break-out of a student container finds no credentials of value.
+
+**Each job runs in a fresh container** (Docker on the machine):
+
+| Control | Setting |
+|---|---|
+| Identity | A non-root user, no extra Linux capabilities, `no-new-privileges`, a read-only system, a small writable scratch folder |
+| AWS credentials | **Not reachable**: the machine requires the newer metadata protocol with a hop limit of 1, which a container cannot pass, and the container network also blocks the metadata address |
+| Network | **None by default** (no outbound). A per-student teacher switch may allow outbound internet for a project that needs to download data |
+| Limits | CPU, memory, number of processes, disk and a hard **time limit** (default 10 minutes, set by the teacher), enforced by the container, plus the machine's own watchdog |
+| Input | Only the files the student submitted for this job, copied into a fresh folder |
+| Output | A results folder (size-capped) returned to that student, plus the job's log tail |
+| Lifetime | The container and its folders are deleted when the job ends; nothing carries over to the next job or the next student |
+| Languages | Python 3.12 and Node 22 (the machine's installed runtimes) |
+| Packages | No installs by default; the teacher may allow outbound network for a student so their job can install packages |
+
+**Accepted residual risk, stated plainly:** a container is not a perfect wall. A kernel flaw could let hostile code break out of it. The design limits the damage (the machine has no secrets and little permission, the machine is only on while a job or task runs, jobs of different students never run at the same time, and the machine is stopped afterwards) but cannot reduce it to zero. If this ever matters more (an outside class, sensitive data), the answer is a separate machine for student code, which the same template could create.
+
+**One job at a time, in a queue:** jobs wait until the machine is running; the teacher starts and stops the machine (decision 3), so a student request **never** starts it. A job that finds the machine on runs in turn; a queued job older than a limit (default 7 days) is dropped with a message.
+
+**How a student sends a job (decision from the owner):** from their project. A kit command (for example `npm run worker -- script.py`) uploads the script and its input files, shows the queue state, and fetches results and log when done. Teacher-side: a queue view with each job's student, size, state, time used, and a delete or cancel button.
+
+**Accounting:** every job counts minutes against the student's monthly allowance and against the class cap; the student sees their own use.
+
+## 13. Owner decisions (2026-11-07) and the build order
+
+| Question | Decision |
+|---|---|
+| Student levels | **All four levels, each a per-student toggle, off by default:** 0 off, 1 reports, 2 platform tasks, 3 their own code (design in section 11.5) |
+| Level 2 defaults | 5 requests a day and 30 minutes a month for each student; a class cap of 40 hours a month on machine minutes |
+| Start on request | **No.** The machine is started and stopped only by the teacher (the button or the daily schedule); a student request never starts it |
+| Disk | Keep stop and start; the launch-and-delete mode may come later as an option |
+| First tasks | Golden probes and judging flagged answers, teacher-only |
+| Level 3 isolation | **The same machine with strict containers** (the second machine stays a later option) |
+| Level 3 network | **None unless the teacher allows it for that student** |
+| How jobs are sent | **From the student's project** with a kit command |
+
+**Build order (each step works alone and is applied only after a shown plan):**
+
+| Step | Deliverable | Done when |
+|---|---|---|
+| W3 | The per-student access level (0 to 3) and its quotas, the class monthly cap on minutes (a start is refused when the cap is reached), shown on the student card and the Worker tab | The teacher can set a level for a student and a cap for the class; the cap stops a start in a test |
+| W4 | The job protocol and queue: student routes and teacher queue view; jobs stored in the bucket, quotas and caps enforced, nothing starts the machine | A student's job appears in the teacher's queue; over-quota and level 0 are refused |
+| W5 | The container job runner on the machine (level 3) with every control in section 11.5, plus tests that try to break out (read the machine's credentials, reach the network, use too much memory or time, read another student's files) | All escape attempts fail on the real machine |
+| W6 | The student kit command and results, teacher-side cancel and delete | A student sends a script from their project and reads the result |
+| W7 | Platform tasks (level 2) and the first teacher tasks (golden probes, judging), after the benchmark | Per the roadmap above |
