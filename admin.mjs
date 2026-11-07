@@ -98,6 +98,8 @@ if (command === 'add') {
   for (const key of listed.filter((k) => !files.includes(k.slice('portal/'.length)) && !/^portal\/class-platform-mcp-[\w.-]+\.tgz$/.test(k))) aws('s3', 'rm', `s3://${outputs.BucketName}/${key}`);
   aws('cloudfront', 'create-invalidation', '--distribution-id', outputs.PortalDistributionId, '--paths', '/*');
   rmSync(kitTemp, { recursive: true, force: true });
+  // The compute worker's runner (platform-owned code; the machine downloads it at every start). Only when the stack has the worker.
+  if (outputs.WorkerInstanceId) aws('s3', 'cp', join(root, 'worker', 'runner.py'), `s3://${outputs.BucketName}/worker/runner.py`, '--content-type', 'text/x-python', '--cache-control', 'no-cache');
   console.log(`Published ${files.length} files (including the ${built.signed ? 'signed ' : ''}student kit ${kit.version} and class-platform-mcp ${built.mcpVersion}). Portal: ${outputs.PortalUrl}`);
 } else if (command === 'verify-cleanup') {
   // Remove what `setup.mjs verify` left behind: the throwaway student's token rows and its sample site. Only names that verify itself makes.
