@@ -220,6 +220,10 @@ def record(item, trace_id, name, kind="other", attrs=None, ts_ms=None, dur_ms=0,
         adds = {"spans": 1, "tokens": int(tokens or 0), "cost_micro": int(cost_micro or 0)}
         if status == "error":
             adds["errors"] = 1
+        if isinstance(attrs, dict) and attrs.get("refused") is True:
+            adds["refused"] = 1  # the app's "answer" step says the books did not answer
+        if kind == "llm":
+            adds["llm_ms"] = max(int(dur_ms or 0), 0)
         st.upsert_summary(pk, once, adds)
         return trace_id
     except Exception:  # tracing must never break an answer
@@ -245,7 +249,7 @@ def set_settings(item, body):
 
 def _summary_view(row):
     row = portal._plain(row)  # DynamoDB returns Decimal numbers
-    keep = ("s", "slug", "day", "started", "level", "spans", "tokens", "cost_micro", "errors")
+    keep = ("s", "slug", "day", "started", "level", "spans", "tokens", "cost_micro", "errors", "refused", "llm_ms")
     out = {k: (int(row[k]) if isinstance(row.get(k), (int, float)) and k != "started" else row.get(k)) for k in keep if k in row}
     out["trace_id"] = str(row["s"]).split("#", 2)[2]
     out.pop("s", None)
@@ -420,3 +424,122 @@ def clear_student(slug, limit=None):
     for row in rows:
         removed += 1 if store().delete_trace(row["s"]) else 0
     return {"removed": removed, "more": len(rows) >= limit}
+
+
+# ---------------------------------------------------------------- daily summaries and drift alerts (T6)
+ROLLUP_KEEP_DAYS = 400
+DRIFT_MIN_ANSWERS = 20        # a rate over fewer answers than this says nothing
+DRIFT_REFUSAL_JUMP = 0.15     # alert when the share of "the books do not say" is this much above the last week's
+DRIFT_ERROR_RATE = 0.20       # or when this share of answers had an error
+BASELINE_DAYS = 7
+
+
+def _blank():
+    return {"answers": 0, "refused": 0, "errors": 0, "tokens": 0, "cost_micro": 0, "llm_ms": 0}
+
+
+def _add(into, row):
+    into["answers"] += 1
+    into["refused"] += 1 if int(row.get("refused", 0) or 0) else 0
+    into["errors"] += 1 if int(row.get("errors", 0) or 0) else 0
+    into["tokens"] += int(row.get("tokens", 0) or 0)
+    into["cost_micro"] += int(row.get("cost_micro", 0) or 0)
+    into["llm_ms"] += int(row.get("llm_ms", 0) or 0)
+
+
+def compute_day(day):
+    """The numbers of one day from the trace summaries alone (one index query per 100 answers): totals and per student."""
+    total, apps, before = _blank(), {}, None
+    while True:
+        rows = store().summaries(day=day, limit=100, before=before)
+        for row in rows:
+            row = portal._plain(row)
+            _add(total, row)
+            _add(apps.setdefault(row.get("app") or "?", _blank()), row)
+            before = int(row.get("started", 0))
+        if len(rows) < 100:
+            break
+    return {"day": day, **total, "apps": apps}
+
+
+def save_day(day, data, now):
+    store().put(f"r#{day}", "all", {**data, "ttl": int(now) + ROLLUP_KEEP_DAYS * DAY})
+
+
+def stored_day(day):
+    row = store().get(f"r#{day}", "all")
+    return portal._plain({k: v for k, v in row.items() if k not in ("s", "id", "ttl")}) if row else None
+
+
+def daily_view(now=None, days=14):
+    """For the teacher: the last `days` days (newest first), from the stored rollups, with today computed live. A missing day is computed when it is asked for."""
+    if not available():
+        return {"available": False, "days": []}
+    now = int(now if now is not None else time.time())
+    out = []
+    for i in range(max(1, min(int(days or 14), 60))):
+        day = day_id(now - i * DAY)
+        data = None if i == 0 else stored_day(day)
+        data = data or compute_day(day)
+        if data["answers"] or i == 0:
+            out.append(data)
+    return {"available": True, "days": out}
+
+
+def check_drift(day, data, baseline, publish, now):
+    """Compare one day with the week before and say what looks wrong (the class, and each student with enough answers). One alert email a day at most."""
+    problems = []
+
+    def judge(label, d, base):
+        if d["answers"] < DRIFT_MIN_ANSWERS:
+            return
+        rate = d["refused"] / d["answers"]
+        was = (base["refused"] / base["answers"]) if base["answers"] >= DRIFT_MIN_ANSWERS else None
+        if was is not None and rate - was >= DRIFT_REFUSAL_JUMP:
+            problems.append(f"{label}: {round(rate * 100)}% of answers said the books do not say (the week before: {round(was * 100)}%), over {d['answers']} answers")
+        if d["errors"] / d["answers"] >= DRIFT_ERROR_RATE:
+            problems.append(f"{label}: {round(d['errors'] / d['answers'] * 100)}% of answers had an error, over {d['answers']} answers")
+
+    judge("The whole class", data, baseline["total"])
+    for slug, d in data["apps"].items():
+        judge(slug, d, baseline["apps"].get(slug, _blank()))
+    if not problems:
+        return None
+    if portal.db().counter_add(f"trdrift#{day}", 1, limit=1, ttl=int(now) + 10 * DAY, now=int(now)) is None:
+        return None
+    publish("Student platform: answers changed on " + day, "\n".join(problems) + "\n\nOpen the Traces tab to see the answers of that day. A jump in refusals often means a book changed, a limit was lowered or the AI model behaves differently.")
+    return problems
+
+
+def daily(now, publish):
+    """The daily job: write yesterday's numbers (and any of the last 3 days missing), then look for a change. Never raises."""
+    try:
+        if not available():
+            return None
+        now = int(now)
+        made = []
+        for i in (3, 2, 1):
+            day = day_id(now - i * DAY)
+            if stored_day(day) is None:
+                data = compute_day(day)
+                save_day(day, data, now)
+                made.append(day)
+        day = day_id(now - DAY)
+        data = stored_day(day)
+        if not data or not data["answers"]:
+            return made
+        baseline_total, baseline_apps = _blank(), {}
+        for i in range(2, 2 + BASELINE_DAYS):
+            old = stored_day(day_id(now - i * DAY))
+            if not old:
+                continue
+            for k in baseline_total:
+                baseline_total[k] += old.get(k, 0)
+            for slug, d in (old.get("apps") or {}).items():
+                into = baseline_apps.setdefault(slug, _blank())
+                for k in into:
+                    into[k] += d.get(k, 0)
+        check_drift(day, data, {"total": baseline_total, "apps": baseline_apps}, publish, now)
+        return made
+    except Exception:
+        return None

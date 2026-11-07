@@ -96,6 +96,10 @@ The daily limit stops **recording**, never an answer. Missing or odd values read
 
 One trace holds at most 200 steps. An app may report at most `daily_limit` x 20 steps a day through `/v1/trace`. The teacher can delete **all traces of one student** at once (`POST /api/admin/tokens/{id}/traces/clear`, up to 100 traces a call, repeated by the teacher page until done); one trace is deleted with `DELETE /api/admin/traces/{slug}/{trace_id}`.
 
+## 7d. Daily numbers and alerts (T6)
+
+Each trace summary also counts `refused` (the app's `answer` step said the books do not say) and `llm_ms` (model time). A nightly job reads the day's summaries (index query, no step reads) and writes one item `r#<day>` / `all` (kept 400 days) with `answers`, `refused`, `errors`, `tokens`, `cost_micro`, `llm_ms` and the same per student under `apps`. `GET /api/admin/traces/summary?days=14` returns the last days (today computed live). The alert (alert email only, at most one a day) fires when, with at least 20 answers, the refusal share is 15 points above the previous 7 days' share, or 20% of answers had an error; it is checked for the whole class and for each student.
+
 ## 8. Guarantees the tests check
 
 - With the feature off, answers, headers and storage are exactly as before.

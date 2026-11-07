@@ -1155,6 +1155,15 @@ Resources:
                 Action: dynamodb:Query
                 Resource: !Sub '${TracesTable.Arn}/index/by-day'
               - !Ref AWS::NoValue
+            - !If # traces: the daily numbers (answers, refusals, errors, cost) are written as small items under their own prefix and read back
+              - UseTraces
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem]
+                Resource: !GetAtt TracesTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: ['r#*']
+              - !Ref AWS::NoValue
             - !If
               - UseAlertsAndTraces
               - Effect: Allow

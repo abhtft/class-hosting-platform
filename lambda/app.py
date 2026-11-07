@@ -242,19 +242,24 @@ def sweep(event, context):
 
 
 def remind_about_traces():
-    """Once a month, when traces are about to expire, tell the teacher through the alert email (a no-op without the alert email or traces). Never fails the sweep."""
-    topic = os.environ.get("ALERTS_TOPIC_ARN")
-    if not topic:
-        return
+    """The daily trace jobs: write yesterday's numbers (always, when traces are on), and, with the alert email, once a month remind about expiry and warn when answers changed.
+    Never fails the sweep."""
     try:
         import traces
-        import boto3
-        sns = boto3.client("sns")
-        sent = traces.remind(time.time(), lambda subject, message: sns.publish(TopicArn=topic, Subject=subject, Message=message))
-        if sent is not None:
-            print(json.dumps({"traces_reminder_sent": sent}))
+        if not traces.available():
+            return
+        topic = os.environ.get("ALERTS_TOPIC_ARN")
+        if topic:
+            import boto3
+            sns = boto3.client("sns")
+            publish = lambda subject, message: sns.publish(TopicArn=topic, Subject=subject[:99], Message=message)  # noqa: E731
+        else:
+            publish = lambda subject, message: None  # noqa: E731
+        made = traces.daily(time.time(), publish)
+        sent = traces.remind(time.time(), publish) if topic else None
+        print(json.dumps({"traces_days_summarised": made, "traces_reminder_sent": sent}))
     except Exception as error:
-        print(json.dumps({"traces_reminder_failed": type(error).__name__}))
+        print(json.dumps({"traces_daily_failed": type(error).__name__}))
 
 
 def site_entries(archive):

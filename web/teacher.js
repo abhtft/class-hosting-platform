@@ -347,6 +347,7 @@ let traceFilter = { slug: '', day: '' };
 let traceOpen = null; // { slug, trace_id, data } the trace being read
 let traceBusy = false;
 let traceStatus = null; // { available, oldest, days_left, remind } for the expiry banner
+let traceDaily = null; // { days: [{ day, answers, refused, errors, tokens, cost_micro, llm_ms }] } the last days, newest first
 
 async function loadTraces(more = false) {
   traceBusy = true;
@@ -357,7 +358,10 @@ async function loadTraces(more = false) {
     if (more && traceList?.traces?.length) q.set('before', String(traceList.traces.at(-1).started));
     const out = await call(`/api/admin/traces?${q}`);
     traceList = out.available === false ? { unavailable: true } : more ? { ...out, traces: [...traceList.traces, ...out.traces] } : out;
-    if (!more) traceStatus = await call('/api/admin/traces/status').catch(() => null);
+    if (!more) {
+      traceStatus = await call('/api/admin/traces/status').catch(() => null);
+      traceDaily = await call('/api/admin/traces/summary?days=14').catch(() => null);
+    }
   } catch (e) {
     $('error').textContent = e.message;
   }
@@ -392,7 +396,8 @@ function tracesTab() {
   const banner = traceStatus?.remind ? h('div', { class: 'privacy small', role: 'status', style: 'margin:12px 16px;padding:10px 12px;border:1px solid var(--warn, #c90);border-radius:8px' },
     `Traces from ${traceStatus.oldest.day} will be deleted automatically in ${traceStatus.days_left} day${traceStatus.days_left === 1 ? '' : 's'}. To keep them, use “Download archive…”. The file may contain personal text: keep it safe.`) : null;
   const note = h('p', { class: 'privacy small muted' }, 'One row is one answer. Open it to see each step: the search, the AI call and the app’s own steps. By default no text is stored, only sizes, scores and costs; set how much text is kept for each student on their card. Every trace is deleted automatically after the student’s retention (30, 60 or 90 days).');
-  if (!traceList.traces.length) return [banner, bar, note, h('div', { class: 'empty' }, 'No traces for this filter yet. They appear when a student’s app uses the class AI or the books.')];
+  const daily = dailyTable();
+  if (!traceList.traces.length) return [banner, daily, bar, note, h('div', { class: 'empty' }, 'No traces for this filter yet. They appear when a student’s app uses the class AI or the books.')];
   const rows = traceList.traces.flatMap((t) => {
     const opened = traceOpen?.trace_id === t.trace_id;
     const row = h('div', { class: 'srow', style: 'grid-template-columns: 150px minmax(110px,1fr) 70px 80px 90px 60px; cursor:pointer', role: 'button', tabindex: 0,
@@ -403,7 +408,7 @@ function tracesTab() {
     return opened ? [row, traceDetail()] : [row];
   });
   const more = traceList.traces.length >= 50 ? [h('div', { class: 'btns', style: 'padding:12px 16px' }, h('button', { class: 'small', onclick: async () => { await loadTraces(true); render(); } }, 'Older…'))] : [];
-  return [banner, bar, note, ...rows, ...more];
+  return [banner, daily, bar, note, ...rows, ...more];
 }
 
 const isoDay = (d) => d.toISOString().slice(0, 10);
@@ -440,6 +445,18 @@ async function downloadArchive() {
   link.click();
   link.remove();
   toast(`Archive downloaded: ${lines.length} trace${lines.length === 1 ? '' : 's'}`);
+}
+
+/** The last days at a glance: a rising “books do not say” share or a rising error share is the first sign that something changed. */
+function dailyTable() {
+  const days = traceDaily?.days || [];
+  if (!days.length) return null;
+  const pct = (n, of) => (of ? `${Math.round((n / of) * 100)}%` : '–');
+  const head = h('div', { class: 'srow small muted', style: 'grid-template-columns: 110px 70px 110px 70px 90px 80px' }, h('span', {}, 'Day'), h('span', {}, 'Answers'), h('span', {}, '“Books do not say”'), h('span', {}, 'Errors'), h('span', {}, 'Tokens'), h('span', {}, 'Cost'));
+  const rows = days.map((d) => h('div', { class: 'srow small', style: 'grid-template-columns: 110px 70px 110px 70px 90px 80px' }, h('span', {}, d.day), h('span', {}, d.answers.toLocaleString()), h('span', {}, pct(d.refused, d.answers)),
+    h('span', {}, pct(d.errors, d.answers)), h('span', {}, (d.tokens || 0).toLocaleString()), h('span', {}, micro(d.cost_micro))));
+  return h('details', { style: 'margin:8px 16px' }, h('summary', { class: 'small' }, `Last ${days.length} day${days.length === 1 ? '' : 's'}: answers, refusals, errors and cost`), head, ...rows,
+    h('p', { class: 'small muted' }, 'You get an email (when alert email is set up) if the share of “books do not say” jumps by 15 points over the week before, or 20% of answers have an error. Today’s row is live; earlier days are written each night.'));
 }
 
 async function reloadTraces() { traceOpen = null; render(); await loadTraces(); render(); }

@@ -419,3 +419,71 @@ assert not [k for k in traces.store().rows if k[0].startswith(f"t#{slug}#")], "n
 assert call("POST", f"/api/admin/tokens/{tid}/traces/clear", {})[0] == 401
 traces.CLEAR_BATCH = 100
 print("  ok  delete all of a student's traces: in batches, only that student, no steps left, teacher login needed")
+
+# ---------- 10. daily summaries and drift alerts (T6) ----------
+traces._store[:] = [traces.MemoryTraces()]
+call("POST", f"/api/admin/tokens/{tid}/traces", {"level": "metadata", "daily_limit": 100000, "enabled": True}, admin)
+item_now = portal.db().get(f"tok#{tid}")
+
+
+def answers(day_offset, total, refused, errors=0, start=0):
+    """total answers on one day (an app step with refused true or false, and a model step), some refused, some with an error."""
+    at = NOW - day_offset * DAY
+    for i in range(total):
+        tid_ = tc.new_trace_id()
+        traces.record(item_now, tid_, "answer", "chain", {"question": "q", "refused": i < refused}, now=at + start + i, dur_ms=100)
+        traces.record(item_now, tid_, "llm", "llm", {"model": "m"}, now=at + start + i, dur_ms=800, tokens=100, cost_micro=10, status="error" if i < errors else "ok")
+
+
+for back in range(2, 9):  # the week before: 5 of 25 refused every day (20%)
+    answers(back, 25, 5)
+answers(1, 25, 14)         # yesterday: 14 of 25 refused (56%): a jump
+sent = []
+publish = lambda subject, message: sent.append((subject, message))
+made = traces.daily(NOW, publish)
+assert made == [traces.day_id(NOW - 3 * DAY), traces.day_id(NOW - 2 * DAY), traces.day_id(NOW - DAY)], made
+yesterday = traces.stored_day(traces.day_id(NOW - DAY))
+assert yesterday["answers"] == 25 and yesterday["refused"] == 14 and yesterday["tokens"] == 25 * 100 and yesterday["llm_ms"] == 25 * 800 and yesterday["apps"][slug]["answers"] == 25, yesterday
+json.dumps(yesterday)
+assert len(sent) == 1 and "56%" in sent[0][1] and "20%" in sent[0][1] and slug in sent[0][1] and MAIL not in sent[0][1], sent
+assert traces.daily(NOW + 60, publish) == [] and len(sent) == 1, "the same day is not summarised or announced twice"
+
+# no alert for a calm day, a small day, or when there is no alert email (publish does nothing)
+sent.clear()
+traces._store[:] = [traces.MemoryTraces()]
+portal.db().items.pop(f"trdrift#{traces.day_id(NOW - DAY)}", None)
+portal.db().items.pop(f"trdrift#{traces.day_id(NOW - DAY)}", None)
+for back in range(2, 9):
+    answers(back, 25, 5)
+answers(1, 25, 6)
+traces.daily(NOW, publish)
+assert traces.stored_day(traces.day_id(NOW - DAY))["answers"] == 25 and sent == [], "a small change (20% to 24%) is not an alert"
+traces._store[:] = [traces.MemoryTraces()]
+for back in range(2, 9):
+    answers(back, 25, 5)
+answers(1, 6, 6)  # too few answers to say anything
+portal.db().items.pop(f"trdrift#{traces.day_id(NOW - DAY)}", None)
+traces.daily(NOW, publish)
+assert traces.stored_day(traces.day_id(NOW - DAY))["answers"] == 6 and sent == [], "fewer than 20 answers say nothing"
+traces._store[:] = [traces.MemoryTraces()]
+answers(1, 30, 0, errors=12)  # 40% errors
+portal.db().items.pop(f"trdrift#{traces.day_id(NOW - DAY)}", None)
+traces.daily(NOW, publish)
+assert len(sent) == 1 and "error" in sent[0][1], sent
+
+# the teacher's summary
+traces._store[:] = [traces.MemoryTraces()]
+answers(1, 25, 14)
+answers(0, 3, 1)
+traces.daily(NOW, publish)
+view = call("GET", "/api/admin/traces/summary", session=admin, query={"days": "5"})[1]
+assert view["available"] and [d["answers"] for d in view["days"]] == [3, 25] and view["days"][1]["refused"] == 14, view
+assert call("GET", "/api/admin/traces/summary")[0] == 401
+assert traces.daily_view(NOW, 5)["days"][0]["answers"] == 3, "today is computed live"
+traces._store[:] = [Broken()]
+assert traces.daily(NOW, publish) is None, "a failing job never raises"
+traces._store[:] = [traces.MemoryTraces()]
+os.environ["TRACES_ENABLED"] = "false"
+assert traces.daily(NOW, publish) is None and traces.daily_view(NOW) == {"available": False, "days": []}
+os.environ["TRACES_ENABLED"] = "true"
+print("  ok  daily numbers from the summaries, refusal jump and error alerts (once a day, never for small days), teacher summary, never raises")

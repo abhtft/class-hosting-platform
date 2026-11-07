@@ -21,6 +21,7 @@ Teacher (password -> signed session, 8 h):
                                          class knowledge connector (knowledge.py); POST .../knowledge/clear removes all of the student's books
   POST /api/admin/tokens/{id}/traces     {enabled?, level? (metadata|masked|full), retention_days? (30|60|90), student_view? (off|metadata|stored), daily_limit?}   trace settings (traces.py)
   POST /api/admin/tokens/{id}/traces/clear   delete a student's traces now (up to 100 per call: repeat while `more` is true)
+  GET  /api/admin/traces/summary[?days]   the last days' numbers (answers, 'the books do not say', errors, tokens, cost) from the daily rollups
   GET  /api/admin/traces/status  how long until the oldest traces expire;  GET /api/admin/traces/export?from&to&slug&shelf&cursor  one page of an archive (whole traces)
   GET  /api/admin/traces[?slug&day&limit&before]   recent traces (summaries, newest first);  GET|DELETE /api/admin/traces/{slug}/{trace_id}   one trace with its steps
   GET  /api/admin/knowledge              the class library and this month's spending against the ceiling
@@ -548,6 +549,10 @@ def dispatch(method, path, body, event, now, site_url):
             q = event.get("queryStringParameters") or {}
             before = int(q["before"]) if str(q.get("before", "")).isdigit() else None
             return reply(200, **traces.list_traces(q.get("slug") or None, q.get("day") or None, q.get("limit") or 50, before))
+        if method == "GET" and path == "/api/admin/traces/summary":
+            import traces
+            qs = event.get("queryStringParameters") or {}
+            return reply(200, **traces.daily_view(now, int(qs["days"]) if str(qs.get("days", "")).isdigit() else 14))
         if method == "GET" and path == "/api/admin/traces/status":
             import traces
             return reply(200, **traces.status(now))
