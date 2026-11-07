@@ -65,6 +65,7 @@ Start here if you want to understand the whole project. The first half is a one-
 | [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
 | [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
 | [RAG_ROADMAP.md](RAG_ROADMAP.md) | The agreed plan for a generic, trustworthy RAG and agent platform: decisions, risk tiers, the layered guards, the four evaluation sets, the review table, drift and stability, and the phased roadmap with gates and targets (not built yet) |
+| [CONFIGURATION_PLAN.md](CONFIGURATION_PLAN.md) | **Plan (not built):** every setting of every feature in one place: a project file for the student, a small file per book shelf, the teacher's ranges that always win, and a view for the teacher; the inventory of where settings live today |
 | [COMPUTE_WORKER.md](COMPUTE_WORKER.md) | **Built, closed:** the optional compute worker, one small machine that is off until the teacher starts it (Start, Stop, daily schedule, time limit, monthly cap), for heavy checks later; install and remove, cost, protection, what the runner does, how to add work, what is proven |
 | [COMPUTE_WORKER_PLAN.md](COMPUTE_WORKER_PLAN.md) | The history and decisions behind the compute worker, including what was built and then removed (student access, a job queue) |
 | [TRACE_SCHEMA.md](TRACE_SCHEMA.md) | **Built (T0, T1):** the trace format, the storage layout, what each privacy level keeps, a sample trace |
