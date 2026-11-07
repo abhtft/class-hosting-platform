@@ -1,6 +1,6 @@
 {
   "kit": "class-platform-starter",
-  "kitVersion": "2.3.0",
+  "kitVersion": "2.3.1",
   "minKit": "1.0.0",
   "portal": "https://deploy.example.edu",
   "frontend": "frontend",
@@ -16,6 +16,7 @@
     "mcp-config",
     "logs",
     "knowledge",
+    "traces",
     "eval",
     "deploy"
   ],

@@ -241,6 +241,30 @@ async function logs() {
   if (truncated) console.log('(There were more lines than could be read; only the newest are shown. Use --minutes with a smaller number.)');
 }
 
+/** `traces`: how your app answered. `traces` lists your newest answers; `traces tr_...` shows every step of one. Only your own app, and only as your teacher allows. */
+async function tracesCommand() {
+  const saved = readToken();
+  if (!saved) fail(NO_TOKEN());
+  const { session } = await signIn(saved);
+  const wanted = args[1];
+  if (wanted && !/^tr_[0-9a-f]{16}$/.test(wanted)) fail('A trace reference looks like tr_0123456789abcdef (the "Reference" under an answer). Run  npm run traces  to list your newest answers.');
+  const when = (ms) => new Date(ms).toLocaleString();
+  if (!wanted) {
+    const { traces, view } = await api('GET', `/api/student/traces?limit=${option('--limit') || 20}`, { session });
+    if (!traces.length) return console.log('No answers recorded yet. Ask your app a question (it must use the class AI or the books), then run this again.');
+    for (const t of traces) console.log(`${t.trace_id}  ${when(t.started)}  ${t.spans} step${t.spans === 1 ? '' : 's'}  ${t.tokens || 0} tokens${t.errors ? '  ERROR' : ''}`);
+    console.log(view === 'stored' ? 'Run  npm run traces -- <reference>  to see every step, including the text that was stored.' : 'Run  npm run traces -- <reference>  to see every step (numbers only: your teacher has chosen not to show the text).');
+    return;
+  }
+  const { trace, spans, view } = await api('GET', `/api/student/traces/${wanted}`, { session });
+  console.log(`${trace.trace_id}  ${when(trace.started)}  ${trace.spans} step${trace.spans === 1 ? "" : "s"}  ${trace.tokens || 0} tokens  (${view === 'stored' ? 'as stored' : 'numbers only'})`);
+  for (const span of spans) {
+    console.log(`
+${span.name}  [${span.status}]  ${span.source}  ${span.dur_ms} ms`);
+    for (const [key, value] of Object.entries(span.attrs || {})) if (value !== null && value !== undefined) console.log(`  ${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`);
+  }
+}
+
 /** `login`: ask for the token, check it with the portal, save it to .env.local. The token is never printed. */
 async function login(given) {
   if (flag('--global')) fail('Saving one token for the whole computer was removed: it let two windows share one student by accident. Run  npm run login  inside each project instead (it saves the token in that project\'s .env.local).');
@@ -456,6 +480,7 @@ async function main() {
   if (args[0] === 'status') return status();
   if (args[0] === 'logs') return logs();
   if (args[0] === 'knowledge') return knowledgeCommand();
+  if (args[0] === 'traces') return tracesCommand();
   const only = option('--only');
   if (only && !['frontend', 'backend'].includes(only)) fail('--only must be "frontend" or "backend".');
   const frontendDir = option('--frontend', 'frontend');

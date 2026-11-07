@@ -431,7 +431,7 @@ function tracesFeature(t, live, btn) {
   return feature({ title: 'Traces', hint: x.enabled ? `${LEVEL_NAMES[x.level]} · kept ${x.retention_days} days` : 'Not recording this student’s answers', on: x.enabled, disabled: !live,
     onToggle: () => act(`/api/admin/tokens/${t.id}/traces`, { enabled: !x.enabled }, x.enabled ? `Traces switched off for ${t.slug}` : `Traces switched on for ${t.slug}`),
     body: [h('div', { class: 'small' }, `Stored: ${LEVEL_NAMES[x.level]}`), h('div', { class: 'small' }, `Kept: ${x.retention_days} days`),
-      h('div', { class: 'small' }, `The student sees: ${VIEW_NAMES[x.student_view]} (the student view comes later)`),
+      h('div', { class: 'small' }, `The student sees: ${VIEW_NAMES[x.student_view]} (in their project: npm run traces)`),
       h('div', { class: 'small' }, `At most ${x.daily_limit.toLocaleString()} new traces a day`),
       h('div', { class: 'btns' }, btn('Change…', () => editTraces(t)), btn('See their traces', () => { closeDrawer(); traceFilter = { slug: t.slug, day: '' }; tab = 'traces'; reloadTraces(); })),
       h('p', { class: 'privacy small muted' }, 'Numbers only is the default: what visitors typed is never stored. Choose more text only for projects whose users know their questions are recorded.')] });

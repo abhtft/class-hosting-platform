@@ -13,6 +13,7 @@
     "trust": "node tools/platform.mjs trust",
     "build": "npm --prefix frontend run build",
     "logs": "node portal-deploy.mjs logs",
+    "traces": "node portal-deploy.mjs traces",
     "knowledge": "node portal-deploy.mjs knowledge",
     "eval": "node tools/eval.mjs",
     "deploy": "node portal-deploy.mjs"

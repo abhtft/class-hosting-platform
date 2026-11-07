@@ -252,3 +252,31 @@ def delete_trace(slug, trace_id):
     if not tc.valid_trace_id(trace_id):
         raise PortalError(400, "That is not a trace id.")
     return {"removed": store().delete_trace(pk_of(slug, trace_id))}
+
+
+# ---------------------------------------------------------------- the student's side (their own app only, as the teacher allows)
+def _student_mode(item):
+    """What this student may see: None (nothing), "metadata" (numbers only) or "stored" (what was stored). The teacher decides per student."""
+    if not available():
+        raise PortalError(409, "Traces are not switched on for this platform.")
+    mode = settings(item)["student_view"]
+    if mode == "off":
+        raise PortalError(403, "Your teacher has not switched on trace viewing for you. Ask your teacher if you would like to see how your app answers.")
+    return mode
+
+
+def student_list(item, limit=20, before=None):
+    mode = _student_mode(item)
+    rows = store().summaries(app=item["slug"], limit=max(1, min(int(limit or 20), 50)), before=before)
+    return {"view": mode, "traces": [{k: v for k, v in _summary_view(r).items() if k != "slug"} for r in rows]}
+
+
+def student_get(item, trace_id):
+    """One trace of the student's OWN app: the partition is built from the signed-in student's slug, so another app's id is simply not found."""
+    mode = _student_mode(item)
+    if not tc.valid_trace_id(trace_id):
+        raise PortalError(404, "No such trace (it may have expired).")
+    data = get_trace(item["slug"], trace_id)
+    spans = [tc.strip_for_student(s, mode) for s in data["spans"]]
+    trace = {k: v for k, v in data["trace"].items() if k != "slug"}
+    return {"view": mode, "trace": trace, "spans": spans}

@@ -34,6 +34,7 @@ Student (the token itself is the login -> signed session, 12 h):
   GET .../backend/logs?minutes=&limit=&errors=1                     the newest log lines of the student's backend (see backends.py)
   GET  /api/student/ai                   refresh the AI usage numbers (ai.py)
   GET  /api/student/storage              storage usage including the file count and size (storage.py)
+  GET  /api/student/traces[?limit&before]  /{trace_id}   the student's own app's traces, only as the teacher allows (traces.py)
   GET|POST|DELETE /api/student/knowledge[/collections|/{shelf}/documents[/{id}[/start]]]   the student's own book shelf for the kit's folder sync (knowledge.py student_route)
 
 A token is active until expires_at, "expired" (read-only) for GRACE_DAYS, then "offline".
@@ -467,6 +468,13 @@ def dispatch(method, path, body, event, now, site_url):
         item = student_token(event, now)
         files = storage.files_usage(item) if storage.available() and storage.settings(item).get("enabled") else None
         return reply(200, token=view(item, now, site_url), files=files)
+    if method == "GET" and (path == "/api/student/traces" or path.startswith("/api/student/traces/")):
+        import traces
+        item = student_token(event, now)
+        if path == "/api/student/traces":
+            q = event.get("queryStringParameters") or {}
+            return reply(200, **traces.student_list(item, q.get("limit") or 20, int(q["before"]) if str(q.get("before", "")).isdigit() else None))
+        return reply(200, **traces.student_get(item, path.rsplit("/", 1)[1]))
     if path == "/api/student/knowledge" or path.startswith("/api/student/knowledge/"):
         import knowledge
         routed = knowledge.student_route(student_token(event, now), method, path, body, now)

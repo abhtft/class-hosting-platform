@@ -97,9 +97,11 @@ await step('traces: the format and three privacy levels (metadata, masked, full)
   }
 });
 
-await step('traces from the student kit (Node): one answer carries one trace id to the search and the AI call, the helper own steps are sent once, an agent run sends a step per tool call and keeps its trace across approval, an unreachable trace service changes nothing', () => {
-  const r = spawnSync('node', [join(here, 'test_class_trace.mjs')], { encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr || r.stdout);
+await step('traces from the student kit (Node): one answer carries one trace id to the search and the AI call, the helper own steps are sent once, an agent run sends a step per tool call and keeps its trace across approval, an unreachable trace service changes nothing; npm run traces lists and shows the own answers of a student in both views', () => {
+  for (const test of ['test_class_trace.mjs', 'test_traces_cli.mjs']) {
+    const r = spawnSync('node', [join(here, test)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
+  }
 });
 
 await step('teacher installer and updater (fake AWS CLI), kit signing: try and domain install, plan/apply bound to the shown plan, feature switches; terminal prompts; verify with a sample site; saved AWS access and editor entry updates; export, import and the transfer between accounts; custom domains; teacher MCP; the npm package', () => {

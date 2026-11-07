@@ -83,7 +83,7 @@ The daily limit stops **recording**, never an answer. Missing or odd values read
 | Who | Reads |
 |---|---|
 | Teacher | every trace, at the stored level (`GET /api/admin/traces`, `/api/admin/traces/{slug}/{trace_id}`; delete with `DELETE`) |
-| Student (T4, not built yet) | only their **own** app's traces, and only as `student_view` allows: `off` nothing; `metadata` the numbers only, even if text was stored; `stored` what was stored |
+| Student (T4) | only their **own** app's traces (`GET /api/student/traces`, `/api/student/traces/{trace_id}`; in the project `npm run traces` and `npm run traces -- tr_...`), and only as `student_view` allows: `off` nothing (HTTP 403 with a plain message); `metadata` the numbers only, even if text was stored; `stored` what was stored. The trace is looked up under the signed-in student's own slug, so another app's id is simply not found |
 | Visitors | nothing; they may be shown the short trace reference (T2) |
 
 ## 8. Guarantees the tests check

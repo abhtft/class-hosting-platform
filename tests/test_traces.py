@@ -251,3 +251,36 @@ os.environ["TRACES_ENABLED"] = "false"
 assert report({"trace_id": app_id, "spans": [{"name": "answer"}]}) == (200, {"trace_id": app_id, "recorded": 0}), "traces off: accepted and ignored, the app never sees an error"
 os.environ["TRACES_ENABLED"] = "true"
 print("  ok  app steps: joined by trace id, source=app, slug from the key, masked, unknown values made safe, bad input refused, off means ignored")
+
+# ---------- 6. the student's own view (as the teacher allows) ----------
+traces._store[:] = [traces.MemoryTraces()]
+call("POST", f"/api/admin/tokens/{tid}/traces", {"level": "full", "student_view": "metadata", "enabled": True, "daily_limit": 100}, admin)
+mine_id = chat(at=NOW + 20)[2]["x-trace-id"]
+_, bob = call("POST", "/api/admin/tokens", {"days": 30, "student_name": "Bob"}, admin)
+bob_item = portal.db().get(f"tok#{bob['item']['id']}")
+call("POST", f"/api/admin/tokens/{bob['item']['id']}/traces", {"level": "full", "student_view": "stored"}, admin)
+bob_session = call("POST", "/api/student/login", {"token": bob["token"]})[1]["session"]
+traces.record(portal.db().get(f"tok#{bob['item']['id']}"), None, "llm", "llm", {"answer": "bob private answer", "model": "m"}, now=NOW + 21)
+bob_trace = traces.list_traces(bob_item["slug"])["traces"][0]["trace_id"]
+
+status, listing = call("GET", "/api/student/traces", session=student)
+assert status == 200 and listing["view"] == "metadata" and [t["trace_id"] for t in listing["traces"]] == [mine_id], listing
+assert all("slug" not in t for t in listing["traces"])
+status, one = call("GET", f"/api/student/traces/{mine_id}", session=student)
+assert status == 200 and one["view"] == "metadata" and one["spans"][0]["attrs"]["model"] == "gemini-3.5-flash-lite", one
+flat = json.dumps(one)
+assert MAIL not in flat and "glucose" not in flat, "even though full text was stored, the student sees numbers only at the default view"
+assert call("GET", f"/api/student/traces/{bob_trace}", session=student)[0] == 404, "another app's trace is simply not found"
+assert call("GET", f"/api/student/traces/{mine_id}", session=bob_session)[0] == 404
+assert call("GET", "/api/student/traces/bad", session=student)[0] == 404
+assert call("GET", "/api/student/traces")[0] == 401
+status, bobs = call("GET", f"/api/student/traces/{bob_trace}", session=bob_session)
+assert status == 200 and bobs["view"] == "stored" and bobs["spans"][0]["attrs"]["answer"] == "bob private answer", "'as stored' shows the stored text to its own student"
+call("POST", f"/api/admin/tokens/{tid}/traces", {"student_view": "off"}, admin)
+status, body = call("GET", "/api/student/traces", session=student)
+assert status == 403 and "teacher" in body["error"], body
+assert call("GET", f"/api/student/traces/{mine_id}", session=student)[0] == 403
+os.environ["TRACES_ENABLED"] = "false"
+assert call("GET", "/api/student/traces", session=student)[0] == 409
+os.environ["TRACES_ENABLED"] = "true"
+print("  ok  student view: own app only, off means nothing, numbers-only hides stored text, as-stored shows it, other apps are not found")
