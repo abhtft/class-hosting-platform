@@ -1,4 +1,4 @@
-"""Traces: what happened in an answer, step by step (docs/TRACEABILITY_PLAN.md). Storage, settings and the recording hook.
+"""Traces: what happened in an answer, step by step (docs/TRACE_SCHEMA.md). Storage, settings and the recording hook.
 
 A trace is a summary item plus one small item per step (span), all in the traces table under one partition `t#<slug>#<trace_id>`:
   sort key "summary"                 one per trace: who, when, totals (tokens, cost, spans), expiry; the only item with index attributes

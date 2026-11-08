@@ -487,7 +487,7 @@ def overview(now):
 
 def clear(item, scope, now):
     """Delete a student's stored data, files, or both. Counters go back to zero. The key, the switch and the caps stay as they are.
-    Files live in a versioned bucket, so a deleted file can still be restored by the owner for 30 days (docs/END_TO_END.md, 4.5b)."""
+    Files live in a versioned bucket, so a deleted file can still be restored by the owner for 30 days (docs/TEACHER_SETUP.md, recovering a file)."""
     if not available():
         raise PortalError(503, "The class storage connector is not set up on this server.")
     if scope not in ("data", "files", "all"):

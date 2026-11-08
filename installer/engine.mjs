@@ -2,7 +2,7 @@
 // Nothing here prompts or prints on its own (the context's `say` and `ask` do), so the same code serves a wizard, an editor tool and tests.
 //
 // What it needs on the teacher's computer: Node, the AWS CLI with working credentials, and an AWS account. No SAM CLI (the Lambda code is plain
-// Python in one folder, so `aws cloudformation package` + `deploy` is enough; see docs/NEW_ACCOUNT_AND_TRANSFER.md section 4).
+// Python in one folder, so `aws cloudformation package` + `deploy` is enough).
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

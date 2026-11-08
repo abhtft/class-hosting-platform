@@ -18,6 +18,7 @@ This guide is for teachers. How it is built is in [TEACHER_ARCHITECTURE.md](TEAC
 11. [Back up, and move to another AWS account](#11-back-up-and-move-to-another-aws-account)
 12. [Start over or remove everything](#12-start-over-or-remove-everything)
 13. [If something goes wrong](#13-if-something-goes-wrong)
+13a. [Alerts, cost and recovering a file](#13a-alerts-cost-and-recovering-a-file)
 14. [All commands](#14-all-commands)
 15. [What the tool will never do](#15-what-the-tool-will-never-do)
 
@@ -32,7 +33,7 @@ After the install you have, in your AWS account:
 | **Teacher page** (`https://deploy.<your domain>/teacher.html`) | create student tokens, switch features on per student, see usage (the **Usage** tab shows runs and AI spend for the whole class, the most the AI can cost, and who is near a limit) |
 | **Student sites** (`https://<student>.<your domain>/`) | each student publishes their website; it is served from S3 through CloudFront |
 | **Student kit and editor tools** | what a student downloads or connects to, served from your own portal |
-| **Optional features**, each off for every student until you switch it on for that student | a small backend, class AI (OpenRouter or Google Gemini), class storage, the student's own domain |
+| **Optional features**, each off for every student until you switch it on for that student | a small backend, class AI (OpenRouter or Google Gemini), class storage, class knowledge (books to answer from), background jobs, the student's own domain, and traces (a record of each answer) |
 
 **Cost.** An idle platform costs close to nothing (S3, DynamoDB on demand, CloudFront and Lambda only when used). The cost drivers are student traffic, AI use (capped per student by you) and stored data. Choose **pay-as-you-go** for CloudFront (the "Switch to a plan" banner in the AWS console is an optional monthly bundle; a class does not need it) and add an **AWS Budget** with an email alert in the AWS console. Student custom domains use CloudFront multi-tenant tenants: check their price in your AWS billing console. The key that **signs the student kit** (see section 9) is an AWS KMS key and costs about **$1 per month**.
 
@@ -134,23 +135,31 @@ Every feature is **installed**; **nothing is on for a student until you switch i
 | **Class AI** | a capped, revocable AI key their backend uses (their code needs no key of its own): OpenRouter, or Google **Gemini** (`gemini-3.5-flash-lite`); you set the spending cap and period per student | your own AI keys, saved once (below) |
 | **Class storage** | a small private database and file area for their backend, with hard size caps | nothing extra |
 | **Background jobs** | work that takes longer than a request (a chain of AI calls, a report): the page starts a job and asks for the result later | nothing extra; the student needs the backend |
+| **Class knowledge** | books (PDF, text, Markdown, HTML) their app answers from, with page and source, and "The books do not say." when the books do not answer; plus a **class library** you build once and every student can search | the Google key saved once (below); it reads the books |
+| **Traces** | a step-by-step record of each answer their app gives (the question, which passages were found, the AI call, the cost) | nothing extra; the student needs the backend |
 | **Custom domain** | their own domain for their site | see section 7 |
 
 **Background jobs, in a few words.** A web request stops after 10 seconds (25 with the class AI). With jobs on for a student, the same code also runs as a second function with a longer limit, and the site can start a job (`POST /api/_jobs/<name>`) and poll for the result. You switch it on in the student's panel (the **Background jobs** card under Backend) and set three limits: **jobs a day** (default 20), **at the same time** (default 1) and **minutes per job** (default 5, at most 15). It is off for every student until you switch it on. Cost: a job is billed like any function run, about **a fraction of a cent for a 5-minute job** (a 40-second test job cost about two hundredths of a cent), and the daily limit and the time limit bound it; the platform also runs at most **2 jobs at once in total** (a new AWS account may have only 10 concurrent Lambda executions). A job never shows a visitor the student's own error text (it may contain a secret): the student reads it with `npm run logs` (job lines are marked `[job]`). Results are kept one day, and a job result may be at most 100 KB. After you switch jobs on, the student publishes their backend once more so the job function gets their latest code.
+
+**Class knowledge, in a few words.** Switch it on in the student's panel (the **Class knowledge** card). Their app searches its own shelves and the class library; they can also put books in a `knowledge/<shelf>/` folder of their project and run `npm run knowledge` (a deploy does it too). Reading a textbook costs a few US cents once; the class-wide ceiling for adding books is **$3 a month** by default, and searching keeps working when it is reached. Default limits per student: 5 shelves, 20 books, 5,000 passages, 50 MB, 500 searches a day, 25 MB per file. Build the **class library** on the **Library** tab (only add books you may share). Scanned pages without text are skipped. The platform never shows you what a student's shelf contains, only counts and sizes.
+
+**Traces, in a few words.** Open the **Traces** tab to see answers newest first and open one to see each step. A student's **Traces** card sets what is stored: **numbers only** (the default: no question or answer text is stored), **masked** text (emails, phone numbers and identifiers hidden) or **full** text; how long it is kept (30, 60 or 90 days, default 90, then deleted automatically); a daily limit; and whether the student can see their own app's traces (`npm run traces` in their project). **Download archive** produces one compressed file for all students or one, and a banner reminds you before traces expire. A daily table on the Traces tab counts answers, refusals, errors and cost; with the alert email set (section 13a) you get an email when refusals jump. Only store text for students whose users know their questions are recorded; the file you download may contain personal text.
+
+**The compute worker (optional).** A small machine for heavy checks, off until you start it, teacher-only, about $4 a month. It is not part of a normal install and has no tasks yet. See [COMPUTE_WORKER.md](COMPUTE_WORKER.md) and install it only if you need it: `<package> plan --enable worker`.
 
 **Saving your AI keys** (hidden prompts, stored in AWS Secrets Manager, never in a file):
 ```bash
 <package> secrets
 ```
-Paste the OpenRouter management key and/or the Google Gemini key (press Enter to skip one). Until the keys are saved, switching AI on for a student answers with a plain message ("the key is not set up yet... use the secrets command"), not an error.
+Paste the OpenRouter management key and/or the Google Gemini key (press Enter to skip one). The Google key is also what reads books for class knowledge. Until the keys are saved, switching AI on for a student answers with a plain message ("the key is not set up yet... use the secrets command"), not an error.
 
-**Choosing which features the platform has.** The default installs all of them. To install fewer, use `install --features backend,storage` (or `--features none`). To change later:
+**Choosing which features the platform has.** The default installs all of them except the compute worker. To install fewer, use `install --features backend,storage` (or `--features none`). To change later:
 ```bash
 <package> plan --enable ai,gemini          # shows the change and a plan id (also adds what they depend on)
 <package> apply <plan id>                  # runs exactly that plan
 <package> plan --disable storage           # and the same for removing one
 ```
-Dependencies: `ai` needs `backend`; `gemini` needs `ai`; `storage` needs `backend`; custom domains need `backend`.
+Dependencies: `ai`, `storage`, `knowledge` and `traces` need `backend`; `gemini` needs `ai`; custom domains need `backend`. The feature names are `backend`, `ai`, `gemini`, `storage`, `knowledge`, `traces`, `customdomains` and `worker`; **`worker` is never part of the default** (it costs money while it exists): ask for it with `plan --enable worker`.
 
 ## 7. Custom domains for students
 
@@ -338,6 +347,30 @@ First it shows what it will remove (students, distributions, buckets, functions,
 | A student's site does not update | Ask the student to publish again; CloudFront refreshes within a minute. If a student reaches the old version, check their token has not expired. |
 
 Open an issue on the repository with the version (`version`) and the exact message (never paste passwords, tokens or keys).
+
+## 13a. Alerts, cost and recovering a file
+
+**Cost watch (do this once).** The install does **not** create a budget or alerts. In the AWS console create an **AWS Budget** for the account with an email alert (for example at $10 and $25 a month). The cost drivers are student traffic (there is no per-site traffic cap), AI use (capped per student by you) and stored data. Look at the **Usage** tab now and then.
+
+**Error alerts (not available from the installer yet).** The platform can email one address when something is wrong (a crashed function, throttling, many server errors from student backends, the daily sweeper failing, and, with traces on, a jump in refusals). The address is read from an AWS Systems Manager String parameter whose **name** is passed to the stack as `AlertEmailParameter`; the installer has no option for it yet (tracked in [CRITICAL_ISSUES.md](CRITICAL_ISSUES.md)). Until it has, the alerts exist only on a platform whose stack was given that parameter by hand. Do not rely on alert emails for a class: check the teacher page, and keep the AWS Budget.
+
+| Alert | Fires when | What to do |
+|---|---|---|
+| `lambda-concurrency-near-limit`, `lambda-throttles` | account-wide function concurrency is near the limit, or invocations were throttled | other apps in the account can be throttled; use **Backend: off** for the busiest student |
+| `portal-function-errors`, `backend-gateway-errors` | platform code crashed | read that function's CloudWatch logs |
+| `sweeper-errors` | the daily sweeper failed on a site or domain (it retries next day) | read the sweeper logs |
+| `backend-5xx` | 20 or more server errors from student backends in 5 minutes | read the logs of the busiest `sd-*` function |
+
+**Recovering a file (S3 versioning).** The site bucket keeps old versions: an overwritten or deleted site file is recoverable for **30 days**. Uploaded zips (`uploads/`) are removed after 1 day. The bucket name is the physical id of `SitesBucket` in the stack.
+```bash
+aws s3api list-object-versions --bucket <bucket> --prefix sites/alice/index.html --profile <name>
+aws s3api copy-object --bucket <bucket> --key sites/alice/index.html --copy-source "<bucket>/sites/alice/index.html?versionId=<VersionId>" --profile <name>
+# if the file was deleted: remove its DeleteMarker, which brings the previous version back
+aws s3api delete-object --bucket <bucket> --key sites/alice/index.html --version-id <DeleteMarker VersionId> --profile <name>
+```
+Pages cached by CloudFront show the restored file after the cache expires or an invalidation.
+
+**What a backup (`export`) contains, and what it does not.** It contains tokens and settings, the teacher login, stored student data and the published sites and files. It does **not** contain class knowledge (books, the class library) or traces: after an `import` those start empty and students add their books again. (This gap is listed in [CRITICAL_ISSUES.md](CRITICAL_ISSUES.md).)
 
 ## 14. All commands
 

@@ -21,7 +21,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 // what goes into the package: whole folders (tracked files only) and single files
 const FOLDERS = ['lambda', 'web', 'starter', 'student', 'installer', 'custom-domain', 'worker'];
-const FILES = ['template.yaml', 'admin.mjs', 'setup.mjs', 'portal-downloads.json', 'VERSION', 'CHANGELOG.md', 'docs/TEACHER_SETUP.md', 'docs/NEW_ACCOUNT_AND_TRANSFER.md'];
+const FILES = ['template.yaml', 'admin.mjs', 'setup.mjs', 'portal-downloads.json', 'VERSION', 'CHANGELOG.md', 'docs/TEACHER_SETUP.md'];
 const SKIP = [/^starter\/eval\//, /(^|\/)__pycache__\//, /\.pyc$/, /\.local$/, /(^|\/)test_/];
 const MCP = ['server.mjs', 'setup.mjs', 'jsonc.mjs']; // from teacher-mcp/, placed in mcp/
 

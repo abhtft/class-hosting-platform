@@ -2,7 +2,7 @@
 
 > **Companion document.** The source of truth for this release is [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md); if the two disagree, the specification wins. This document goes deeper on the class AI connector: flows, data map, threat model and runbook.
 
-An optional feature. The teacher can give a student's **backend** an AI key that is capped, revocable and metered by OpenRouter, so students need no key of their own and none can overspend. Companion to [END_TO_END.md](END_TO_END.md) (section 3.3a), [API_REFERENCE.md](API_REFERENCE.md) and [../student/BACKEND.md](../student/BACKEND.md).
+An optional feature. The teacher can give a student's **backend** an AI key that is capped, revocable and metered by OpenRouter, so students need no key of their own and none can overspend. Companion to [TEACHER_SETUP.md](TEACHER_SETUP.md), [API_REFERENCE.md](API_REFERENCE.md) and [../student/BACKEND.md](../student/BACKEND.md).
 
 Diagrams use [Mermaid](https://mermaid.js.org/) (GitHub draws them; each is followed by the same steps in words).
 
@@ -77,7 +77,7 @@ flowchart TD
 </details>
 <!-- /diagram -->
 
-Full steps: [END_TO_END.md section 4.5c](END_TO_END.md). Never paste the management key into chat, files or the repository (a test fails if a key-like string is committed).
+Full steps: [TEACHER_SETUP.md](TEACHER_SETUP.md), section 6 (saving your AI keys). Never paste the management key into chat, files or the repository (a test fails if a key-like string is committed).
 
 ### 4.2 Teacher switches AI on for a student
 

@@ -4,7 +4,7 @@
 
 A generic starter project that a student opens in their AI editor (Antigravity, Cursor, VS Code with Copilot, Claude Code, Windsurf, ...). It makes the AI build **within the platform's architecture**, and every push deploys itself. The teacher hands out one thing: **a token**.
 
-Companion to [END_TO_END.md](END_TO_END.md), [AI_CONNECTOR.md](AI_CONNECTOR.md) and [../student/CICD.md](../student/CICD.md). Code: [`../starter/`](../starter/).
+Companion to [AI_CONNECTOR.md](AI_CONNECTOR.md) and [../student/CICD.md](../student/CICD.md). Code: [`../starter/`](../starter/).
 
 ## 1. The student's journey
 

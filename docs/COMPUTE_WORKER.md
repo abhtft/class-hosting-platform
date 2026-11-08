@@ -1,6 +1,6 @@
 # Compute worker: one small machine, off until you start it
 
-> **Status: complete for its purpose (closed 2026-11-07).** It gives the teacher a private machine for heavy checks that do not fit in a web request, ready for future work. It is **optional, off by default, and has no tasks yet** (by decision, see section 9). The history of the design, including what was built and then removed, is in [COMPUTE_WORKER_PLAN.md](COMPUTE_WORKER_PLAN.md).
+> **Status: complete for its purpose (closed 2026-11-07).** It gives the teacher a private machine for heavy checks that do not fit in a web request, ready for future work. It is **optional, off by default, and has no tasks yet** (by decision, see section 9). Section 9 records what was built and then removed.
 
 ## 1. What it is, in plain words
 
@@ -96,7 +96,7 @@ Nothing needs to change in the platform to give the machine real work. The exten
 - A task is a function added to `worker/runner.py` (or a file it imports from the repository's `worker/` folder). Its output is printed and becomes the report.
 - A task that needs data from the platform should have the platform **stage it into `worker/inputs/`** before the run and read results back from `worker/outputs/` afterwards. That keeps the rule that the machine holds **no secrets and no database access**.
 - A task that calls a model should use Amazon Bedrock with the machine's role (a narrow `bedrock:InvokeModel` grant, added by a shown plan), so the machine carries no keys, and the task must have its own time and cost cap.
-- Before a task is added that runs **on a schedule**, add the simple tick-box mechanism described in [COMPUTE_WORKER_PLAN.md](COMPUTE_WORKER_PLAN.md) section 12 (one file per task, a tick-box per task on the Worker tab, one result per task, an alert email on failure). It was left out on purpose until there is a task to tick.
+- Before a task is added that runs **on a schedule**, add a simple tick-box mechanism: one small file per task in `worker/tasks/` with a name, description, time limit and cost cap; a tick-box per task on the Worker tab (a task that is not ticked never runs, and a task shipped in a release never runs by itself); one result per task; an alert email on a failed or alarming result. It was left out on purpose until there is a task to tick.
 
 The planned first uses are in [RAG_ROADMAP.md](RAG_ROADMAP.md): a **benchmark** of the book answers (its document list needs the owner's approval before any download), **daily golden probes** (fixed questions through the real answer path, an alert when quality drops), and **judging flagged answers**.
 

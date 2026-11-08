@@ -1,81 +1,91 @@
 # Class Hosting Platform
 
-**Let every student publish their own website, and optionally a small backend with class AI and storage, straight from their AI editor, on infrastructure you own.**
+**Let every student publish their own website, and optionally a small backend with class AI, storage and books to answer from, straight from their AI editor, on infrastructure you own.**
 
 You run it in **your own AWS account** with one command. Students get a token, not AWS access. You decide, per student, which features are on and how much they may spend.
 
-> **Status: public beta (2.0.x).** The install, update, student deploy, custom domains, backup/restore and the editor tools were tested end to end on real AWS accounts by the author. Not yet proven: moving a class to another account (`transfer`), classes of more than a few dozen students, regions other than `us-east-1`, and use by anyone but the author. Please read [Known limitations](#known-limitations) and tell us what breaks.
+> **Status: public beta (2.3.1).** Install, update, student deploy, custom domains, backup and restore and the editor tools were tested end to end on real AWS by the author. **Not yet proven:** use by anyone but the author, classes of more than a few dozen students, regions other than `us-east-1`, and moving a class to another account. Read [Known limitations](#known-limitations) and [docs/STATUS.md](docs/STATUS.md), and tell us what breaks.
 
 ## What you get
 
 | For the teacher | For the student |
 |---|---|
 | One command installs everything in your AWS account (about 15 minutes, mostly CloudFront) | A personal address `https://<name>.<your domain>/` (or a free `cloudfront.net` address) |
-| A teacher page: create tokens, extend, take a site offline, switch features per student | A starter project made for AI editors, with rules the editor follows |
-| Optional per student, **off until you switch them on**: a small backend, class AI with a dollar cap, class storage, the student's own domain | One command to publish; the site can also be uploaded from the browser as a zip |
-| Updates by plan and apply, backup and restore, a clean `destroy` | The student's kit stays in step with your version automatically |
+| A teacher page: tokens, extend, take a site offline, switch features per student, see usage | A starter project made for AI editors, with rules the editor follows; one command to publish |
+| Updates by plan and apply, backup and restore, a clean `destroy` | A kit that keeps itself in step with your version |
+
+**Optional features, each off for every student until you switch it on for that student:**
+
+| Feature | What the student's app gets |
+|---|---|
+| **Backend** | One small Python or Node function behind the site (`/api/...`) with a monthly allowance of runs |
+| **Class AI** | A capped, revocable AI key (OpenRouter or Google Gemini); you set the spending cap |
+| **Class storage** | A small private database and file area with hard caps |
+| **Class knowledge** | Books (PDF, text) the app answers from, with page and source, and "The books do not say." when unsure; plus a class library you maintain |
+| **Background jobs** | Work longer than a web request (up to 15 minutes) |
+| **Custom domain** | The student's own domain for their site |
+| **Traces** | A step-by-step record of every answer (question, passages found, model call, cost), numbers only by default; you control how much text is kept |
+
+An **optional compute worker** (one small machine, off until you start it, teacher-only) is available for heavy checks later: [docs/COMPUTE_WORKER.md](docs/COMPUTE_WORKER.md).
 
 ## Install (teachers)
 
-You need an AWS account, and either **AWS CloudShell** (nothing to install: open it in the AWS console and paste the two lines below) or Node 20+ and the AWS CLI on your own computer.
+You need an AWS account and either **AWS CloudShell** (nothing to install) or Node 20+ and the AWS CLI on your computer.
 
 ```bash
 PKG="https://github.com/abhtft/class-hosting-platform/releases/latest/download/class-platform-teacher.tgz?v=$(date +%s)"
 npx -y "$PKG" install
 ```
 
-(The `?v=` makes `npx` fetch the newest release; a PowerShell version and pinned versions are in the guide.) The install asks for your teacher login and whether you want your own domain, then builds the platform and checks that a sample site really goes live.
+(The `?v=` makes `npx` fetch the newest release. A PowerShell version and pinned versions are in the guide.) The install asks for your teacher login and whether you want your own domain, builds the platform and checks that a sample site goes live.
 
-**Before you start, read these four things:**
+**Read these four things first:**
 
-1. **New AWS accounts:** AWS may refuse your first CloudFront distribution until it has verified the account, which can take **days**. If you are starting from a brand-new account, open the AWS Support case first.
-2. **Access:** the installer needs broad AWS permissions (AdministratorAccess). Use a dedicated account or user, turn on MFA, and delete the access key when you are done. CloudShell avoids keeping a key on your computer.
-3. **Cost:** an idle platform costs close to nothing; the cost drivers are student traffic, AI use (capped per student by you) and stored data. Add an AWS Budget with an email alert in the AWS console.
-4. **Student content:** sites are served from **your** domain. You are responsible for what students publish. You can take any site offline from the teacher page.
+1. **New AWS accounts:** AWS may refuse your first CloudFront distribution until it verifies the account, which can take **days**. Open the AWS Support case first.
+2. **Access:** the installer needs broad AWS permissions (AdministratorAccess). Use a dedicated account, turn on MFA, delete the access key when done. CloudShell avoids keeping a key.
+3. **Cost and alerts:** an idle platform costs close to nothing. The cost drivers are student traffic, AI use (capped per student) and stored data. **Set up the alert email and an AWS Budget** (see the guide); the install does not create alerts for you.
+4. **Student content:** sites are served from **your** domain and you are responsible for what students publish. You can take any site offline from the teacher page.
 
-Everything else is in the **[teacher guide](docs/TEACHER_SETUP.md)**: first class, features, custom domains, updates, backups, destroy and troubleshooting.
+Everything else is in the **[teacher guide](docs/TEACHER_SETUP.md)**.
 
 ## Students
 
-Students need a token from you and your portal address. The fastest route is the **Start here** card on the student page, which gives one command that connects an AI editor (VS Code or Antigravity) and sets up a project; they then run `npm run login` once **in each project** and ask the editor to publish. Needed on the student's computer: Node 22 and git, and an AI editor. With no setup at all, a student can also drag a built site (a folder or a zip) onto the student page.
+A student needs a token from you and your portal address. The **Start here** card on the student page gives one command that connects an AI editor (VS Code or Antigravity) and sets up a project; they run `npm run login` once in each project and ask the editor to publish. They need Node 22, git and an AI editor. Without any setup a student can also drag a built site (folder or zip) onto the student page.
 
-Student guide: [docs/STUDENT_KIT.md](docs/STUDENT_KIT.md) and [student/README.md](student/README.md).
+Student guide: [student/README.md](student/README.md) and [docs/STUDENT_KIT.md](docs/STUDENT_KIT.md).
 
 ## Known limitations
 
-- **Built for classes of a few dozen.** There are no bulk actions: tokens are created one at a time and each feature is switched on per student. No class-wide defaults yet.
-- **One teacher login** per platform; no co-teachers or audit log.
-- **No notifications:** regeneration requests and expiries show only when you open the teacher page.
-- **Student backends are small by design:** one Python 3.12 or Node 22 function, standard library only (no package installs), 10 seconds per request, no SQL database (class storage is a key-value and file store with hard caps).
-- **One class per platform.** Do not import a backup into a platform that already has students: it replaces the teacher login and can overwrite sites. See the guide.
-- **`transfer`** (moving a class to another AWS account) has only been rehearsed with simulated accounts: treat it as experimental and keep your old account until the new one is verified.
+- **Built for classes of a few dozen.** Tokens are created one at a time and features are switched on per student; there are no class-wide defaults.
+- **Backend capacity is small by design:** at most 3 student backend requests run at once on the whole platform (2 per student) and the backend API allows about 10 requests a second, because a new AWS account may allow only 10 concurrent function executions. A class using the AI at the same moment will see "busy" answers. See [docs/STATUS.md](docs/STATUS.md).
+- **One teacher login** per platform; no co-teachers and no audit log.
+- **Alerts are optional and not set up by the installer** (see the guide).
+- **Student backends:** one Python 3.12 or Node 22 function, standard library only, 10 seconds per request (25 with the class AI), no SQL database.
+- **One class per platform.** Do not import a backup into a platform that already has students. **A backup does not yet include class knowledge (books) or traces.**
+- **`transfer`** (moving a class to another AWS account) was only rehearsed with simulated accounts: experimental.
 - **No third-party security review** has been done.
 
 ## Security and privacy
 
-- Report vulnerabilities **privately** through GitHub's "Report a vulnerability" on the Security tab. See [SECURITY.md](SECURITY.md), which also shows how to verify that a release is the one built by this project's CI (signed with Sigstore) and lists the automated security checks that run on every push.
-- Nothing is sent to the maintainers: your data stays in your AWS account. If you switch class AI on, student prompts go to the AI provider you configure (OpenRouter or Google Gemini).
+- Report vulnerabilities **privately** via GitHub's "Report a vulnerability" (Security tab). [SECURITY.md](SECURITY.md) also shows how to verify a release (signed with Sigstore) and lists the automated checks.
+- Nothing is sent to the maintainers. Your data stays in your AWS account. If class AI is on, student prompts go to the provider you configure (OpenRouter or Google).
 - Students never receive AWS credentials; tokens are random values stored only as hashes; destructive actions (delete, passwords, AI keys) are terminal-only and never available to an AI editor.
 
 ## Documentation
 
-Not sure where to start? The **[documentation map](docs/README.md)** has a one-page overview of how the project fits together and says which documents are current and which are history.
+The **[documentation map](docs/README.md)** has a one-page overview and says what to read for what. The main ones:
 
-| Read this | For |
+| Read | For |
 |---|---|
-| [Teacher guide](docs/TEACHER_SETUP.md) | Install, run a class, update, back up, remove |
-| [Student kit](docs/STUDENT_KIT.md) | The starter project, rules for AI editors, how the kit stays in sync |
+| [Teacher guide](docs/TEACHER_SETUP.md) | Install, run a class, features, alerts, update, back up, remove |
+| [Student guide](student/README.md) and [Student kit](docs/STUDENT_KIT.md) | What students do; how the kit works |
+| [Project status](docs/STATUS.md), [Critical issues](docs/CRITICAL_ISSUES.md), [Roadmap](docs/ROADMAP.md) | Where the project stands, what blocks a wider release, what comes next |
 | [Technical specification](docs/TECHNICAL_SPECIFICATION.md) | The source of truth: architecture, data model, limits, security |
-| [Teacher architecture](docs/TEACHER_ARCHITECTURE.md) | How the installer, updater and teacher tools are built |
-| [MCP](docs/MCP.md) | The editor tools and how tokens and updates are handled |
-| [AI connector](docs/AI_CONNECTOR.md), [Storage connector](docs/STORAGE_CONNECTOR.md), [Background jobs](docs/BACKGROUND_JOBS.md) | The optional per-student features |
-| [API reference](docs/API_REFERENCE.md), [End to end](docs/END_TO_END.md) | Every route; the whole workflow |
-| [AWS learnings](docs/AWS_LEARNINGS.md), [New account and transfer](docs/NEW_ACCOUNT_AND_TRANSFER.md) | Background and a worked account move |
-| [Legacy manual setup](docs/LEGACY_MANUAL_SETUP.md) | The original SAM and deploy-key route, kept for reference |
+| [API reference](docs/API_REFERENCE.md) | Every route |
 
 ## Contributing and testing wanted
 
-Issues and pull requests are welcome. Have an idea? Fork the repository, work on a branch of your fork, and open a pull request against `main`; a maintainer reviews it before anything is merged. The steps are in [CONTRIBUTING.md](CONTRIBUTING.md). If you teach and have an AWS account, running the install and telling us what worked and what stopped you is the most useful thing you can do: open an issue using the **"I tried the install"** template.
+Issues and pull requests are welcome; the steps are in [CONTRIBUTING.md](CONTRIBUTING.md). If you teach and have an AWS account, running the install and telling us what worked and what stopped you is the most useful thing you can do: open an issue with the **"I tried the install"** template.
 
 ## License
 

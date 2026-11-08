@@ -55,7 +55,7 @@ Parameters:
     Default: 'false'
     AllowedValues: ['false', 'true']
     Description: >
-      Student backends (docs/backend_wire.md): the Backend API, the gateway function and the /api/* route on the student distribution.
+      Student backends (docs/TECHNICAL_SPECIFICATION.md): the Backend API, the gateway function and the /api/* route on the student distribution.
       Keep 'false' until the pilot is ready. The sandbox role below is always created but only lets a function write its own logs.
   AiEnabled:
     Type: String
@@ -110,7 +110,7 @@ Parameters:
     Description: >
       Traces: a step-by-step record of every answer (the question, which book passages were found, what the AI was asked and answered, the cost),
       stored per student in its own table and deleted automatically after 30, 60 or 90 days. The teacher sets how much text is stored (nothing by
-      default). Needs BackendEnabled='true'. Off by default; with it off nothing changes. See docs/TRACEABILITY_PLAN.md.
+      default). Needs BackendEnabled='true'. Off by default; with it off nothing changes. See docs/TRACE_SCHEMA.md.
   WorkerEnabled:
     Type: String
     Default: 'false'
@@ -119,7 +119,7 @@ Parameters:
       Compute worker: one small EC2 machine that is OFF by default. The teacher starts and stops it from the teacher page (and may let it start once a
       day), it runs platform-owned checks (never student code), writes a report to S3 and shuts itself down; a watchdog stops it if it ever runs too
       long. Costs a few dollars a month at 30 minutes a day (the machine only while it runs, the disk always). Off by default: with it off nothing
-      is created. See docs/COMPUTE_WORKER_PLAN.md.
+      is created. See docs/COMPUTE_WORKER.md.
   WorkerAmiId:
     Type: String
     Default: ''
@@ -285,7 +285,7 @@ Resources:
             AllowedHeaders: ['*']
             AllowedOrigins: ['*']
             MaxAge: 3600
-      # Versioning is the undo button: an overwritten or deleted site file stays recoverable for 30 days (see docs/END_TO_END.md,
+      # Versioning is the undo button: an overwritten or deleted site file stays recoverable for 30 days (see docs/TEACHER_SETUP.md,
       # "Recovering a file"). CloudFront and the Lambdas only ever see the current version, so nothing else changes.
       VersioningConfiguration:
         Status: Enabled
@@ -739,7 +739,7 @@ Resources:
             ReferrerPolicy: strict-origin-when-cross-origin
             Override: false
 
-  # ---------- Student backends (docs/backend_wire.md) ----------
+  # ---------- Student backends (docs/TECHNICAL_SPECIFICATION.md) ----------
   # <slug>.<RootDomain>/api/x  ->  CloudFront  ->  Backend API  ANY /b/{slug}/{proxy+}  ->  gateway Lambda  ->  student function sd-<slug>
   BackendRouteFunction:
     Type: AWS::CloudFront::Function
@@ -1462,7 +1462,7 @@ Resources:
     Condition: UseAlerts
     Properties:
       AlarmName: !Sub '${AWS::StackName}-lambda-concurrency-near-limit'
-      AlarmDescription: Account-wide Lambda concurrency is near the limit; other apps can be throttled. See docs/END_TO_END.md, Alerts.
+      AlarmDescription: Account-wide Lambda concurrency is near the limit; other apps can be throttled. See docs/TEACHER_SETUP.md, Alerts.
       Namespace: AWS/Lambda
       MetricName: ConcurrentExecutions
       Statistic: Maximum
@@ -1478,7 +1478,7 @@ Resources:
     Condition: UseAlerts
     Properties:
       AlarmName: !Sub '${AWS::StackName}-lambda-throttles'
-      AlarmDescription: Lambda invocations were throttled account-wide (the concurrency limit was hit). See docs/END_TO_END.md, Alerts.
+      AlarmDescription: Lambda invocations were throttled account-wide (the concurrency limit was hit). See docs/TEACHER_SETUP.md, Alerts.
       Namespace: AWS/Lambda
       MetricName: Throttles
       Statistic: Sum

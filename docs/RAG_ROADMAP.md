@@ -17,7 +17,7 @@
 | Regulation | No special rules stated yet; **Tier C** (regulated) is designed in anyway |
 | Languages | **English and Hindi** (including Hinglish attacks and questions) |
 | Which error is worse | **Answering wrongly** is worse than refusing. Thresholds and judges lean toward refusing |
-| Logging | **Traces** ([TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md)): by default **metadata only** (numbers, ids, decisions, never the text); the teacher can store masked or full text per student; **90 days for everything** |
+| Logging | **Traces** ([TRACE_SCHEMA.md](TRACE_SCHEMA.md)): by default **metadata only** (numbers, ids, decisions, never the text); the teacher can store masked or full text per student; **90 days for everything** |
 | Managed guard | **Amazon Bedrock Guardrails is allowed as an option to test** |
 | Latency and cost | **Fine** for guard overhead (targets in section 6 stay as limits) |
 | Flagged answers | Marked in **one place**: the trace store. The Review tab is a filtered view of it (section 5) |
@@ -76,7 +76,7 @@ The tier lives in the shelf settings file (phase 1) and switches the guards on.
 
 ## 5. The review table (a filtered view of the trace store)
 
-*Changed after the owner's traceability decisions (2026-11-06): there is **no separate review table**. Every answer already has a trace ([TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md)), so a flagged answer is a trace with a flag and a status, and the Review tab is a filtered view of the Traces tab.*
+*Changed after the owner's traceability decisions (2026-11-06): there is **no separate review table**. Every answer already has a trace ([TRACE_SCHEMA.md](TRACE_SCHEMA.md)), so a flagged answer is a trace with a flag and a status, and the Review tab is a filtered view of the Traces tab.*
 
 | Item | Decision |
 |---|---|
@@ -119,7 +119,7 @@ Each phase is a separate release step: tests first, then `plan` and `apply` for 
 
 | Phase | Deliverable | Gate to pass |
 |---|---|---|
-| **T0 and T1. Traces first** | (parallel track, started 2026-11-06) The trace format, the trace store, platform steps from the AI proxy and the knowledge API; then T2 helper steps, T3 Traces tab, T4 student view ([TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md) section 9) | Every search and AI call has a trace; deletion and expiry tests pass |
+| **T0 and T1. Traces first** | (parallel track, started 2026-11-06) The trace format, the trace store, platform steps from the AI proxy and the knowledge API; then T2 helper steps, T3 Traces tab, T4 student view ([TRACE_SCHEMA.md](TRACE_SCHEMA.md) section 9) | Every search and AI call has a trace; deletion and expiry tests pass |
 | **0. Foundation and baseline** | The **benchmark pack** (about 15 to 20 openly licensed documents in English and Hindi, varied types, including one with an old non-Unicode font), the question and attack sets, a runner and a report; a **baseline on the current version** | The owner approves the document list (sources, sizes, licences) **before** any download |
 | **1. Shelf settings** | A per-shelf settings file and teacher screen: tier, thresholds, `k`, passage size, notes, with safe ranges for students; the evaluation numbers shown next to the settings | Changing a threshold visibly moves the benchmark |
 | **2. Deterministic guards and the Review tab** | Ingest scan, input flags, passage scan, citation and number checks, secret and personal-data rules (including common Indian identifiers), the guard decisions **as steps in the trace**, the **Review tab (a filtered view of the Traces tab)** | Attack success under 5%; overhead small |

@@ -1,5 +1,5 @@
 """Compute worker: one small EC2 machine that is OFF by default, started and stopped from the teacher page, and optionally started once a day.
-See docs/COMPUTE_WORKER_PLAN.md.
+See docs/COMPUTE_WORKER.md.
 
   start(mode)   mode "run": the machine boots, runs the task runner, writes a report to S3 and shuts itself down.
                 mode "keep": it stays on (for the teacher to look around through Systems Manager) until the time limit.

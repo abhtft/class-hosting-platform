@@ -1,4 +1,4 @@
-"""The compute worker's runner. It runs as root on the worker machine every time the machine starts (docs/COMPUTE_WORKER_PLAN.md).
+"""The compute worker's runner. It runs as root on the worker machine every time the machine starts (docs/COMPUTE_WORKER.md).
 
 It is published to s3://<bucket>/worker/runner.py by `portal-publish` (so `apply` keeps it current) and downloaded by the machine's boot script, which then uploads
 what this prints as the report and shuts the machine down. Only platform-owned code lives here. It never runs student code.

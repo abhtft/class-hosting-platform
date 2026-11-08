@@ -1,36 +1,35 @@
-# Documentation map and one-page overview
+# Documentation map
 
-Start here if you want to understand the whole project. The first half is a one-page overview; the second half tells you which document to read for what, and which ones are current and which are history.
+Start here. The first half is a one-page overview; the second half says which document to read for what.
 
 ## 1. The project in one page
 
-**What it is.** A teacher installs a class hosting platform in **their own AWS account** with one command. Each student gets a **token** (not AWS access) and publishes their own website, and optionally a small backend with class AI and class storage, mostly from an AI editor. The teacher decides, per student, which features are on and how much they may spend.
+**What it is.** A teacher installs a class hosting platform in **their own AWS account** with one command. Each student gets a **token** (not AWS access) and publishes a website, and optionally a small backend with class AI, storage and books to answer from.
 
 **The three parts**
 
 | Part | What it is | Where it lives |
 |---|---|---|
-| **The platform** | Everything that runs in the teacher's AWS account: the student sites (S3 behind CloudFront), the web portal (teacher page and student page), the API and its functions (Lambda), the data (DynamoDB), the optional connectors (student backends, class AI, class storage) and custom domains (CloudFront multi-tenant). | `template.yaml`, `lambda/`, `web/` |
-| **The teacher tooling** | What a teacher runs from their own computer or AWS CloudShell: install, plan and apply updates, verify, export and import, destroy, and the editor tools that let an AI editor do the safe parts. Distributed as one package from a GitHub release. | `setup.mjs`, `installer/`, `teacher-mcp/`, `teacher-package/` |
-| **The student kit** | A starter project with rules for AI editors, a one-command deploy, the class AI and storage helpers, and a small tool server for the editor (`class-platform-mcp`). It comes from the teacher's portal and keeps itself in line with the teacher's version. | `starter/`, `student/` |
+| **The platform** | What runs in the teacher's AWS account: student sites (S3 behind CloudFront), the web portal (teacher and student pages), the API functions (Lambda), data (DynamoDB), and the optional features | `template.yaml`, `lambda/`, `web/` |
+| **The teacher tooling** | What the teacher runs from their computer or AWS CloudShell: install, plan and apply updates, verify, export and import, destroy, and editor tools. Shipped as one package on GitHub Releases | `setup.mjs`, `installer/`, `teacher-mcp/` |
+| **The student kit** | A starter project with rules for AI editors, a one-command deploy, the helpers (class AI, storage, knowledge, agent, quality) and a small editor tool server. It comes from the teacher's portal and keeps itself in line with the teacher's version | `starter/`, `student/` |
 
-**One version.** The platform, the student kit and the editor package share one version number (the `VERSION` file) and one tag. The teacher's portal is the only authority on versions: students never choose one.
+**One version.** The platform, the student kit and the editor package share one number (`VERSION`) and one tag. The teacher's portal is the only authority on versions: students never choose one.
 
 **The words you will meet**
 
 | Word | Meaning |
 |---|---|
-| **Token** | A student's login (`mds_...`), shown once when the teacher creates it. Only its hash is stored. It expires; a student can request regeneration. In a student's project it lives in `.env.local`. |
-| **Portal** | The web pages and API at `deploy.<your domain>` (or a `cloudfront.net` address): the teacher page and the student page. |
-| **Slug** | A student's site name, which gives `https://<slug>.<your domain>/`. |
-| **Stack** | The set of AWS resources the installer creates (a CloudFormation stack, `student-hosting` by default). |
-| **Feature** | Backend, class AI, class storage or custom domain: each is installed, and **off for every student** until the teacher switches it on for that student. The server enforces it. |
-| **Plan and apply** | An update is first a plan (what would change; nothing is changed), then an apply bound to that plan. Anything that would replace or remove data is refused. |
-| **Kit and sync** | The kit's own files (rules, `tools/`, the deploy script, the helpers) are brought in line with the teacher's portal before a deploy; the old copies go to `.kit-backup/`. The student's own code is never touched. |
-| **Export and import** | A backup of everything a class made, and restoring it into a **freshly installed** platform (one platform, one class). |
-| **Teacher tools and student tools** | Two separate tool servers for AI editors. The teacher's are all named `platform_...`; the student's are `init_project`, `check_project`, `deploy`, `status`, `update_kit`. |
+| **Token** | A student's login (`mds_...`), shown once. Only its hash is stored. It expires; a student can request a new one |
+| **Portal** | The web pages and API at `deploy.<your domain>`: the teacher page and the student page |
+| **Slug** | A student's site name, giving `https://<slug>.<your domain>/` |
+| **Stack** | The AWS resources the installer creates (one CloudFormation stack, `student-hosting` by default) |
+| **Feature** | Backend, class AI, class storage, class knowledge, background jobs, custom domain, traces. Installed once; **off for every student** until the teacher switches it on for that student. The server enforces it |
+| **Plan and apply** | An update is first a plan (what would change; nothing changes), then an apply bound to that plan. A change that would replace or remove data is refused |
+| **Kit and sync** | The kit's own files are brought in line with the teacher's portal before a deploy; the old copies go to `.kit-backup/`. The student's own code is never touched |
+| **Export and import** | A backup of what a class made and a restore into a **freshly installed** platform (see the known gaps in [STATUS.md](STATUS.md)) |
 
-**How a deploy flows.** The student runs `npm run deploy` (or asks the editor). The project first syncs its kit files with the portal, then signs in with the project's token, then publishes the backend (if the teacher enabled it) and the website: the files go to S3 through a short-lived upload address, the portal validates and publishes them, and CloudFront serves the site. A backend request travels CloudFront, then the gateway (which checks the student's allowance), then that student's own function.
+**How a deploy flows.** The student runs `npm run deploy` (or asks the editor). The project syncs its kit with the portal, signs in with its token, publishes the backend (if the teacher enabled it) and the website. The portal checks the files, uploads them to S3 and refreshes the CDN.
 
 **Who can do what**
 
@@ -44,58 +43,60 @@ Start here if you want to understand the whole project. The first half is a one-
 
 ## 2. Which document for what
 
-### Read these first
+### Start here
 
 | Document | Audience | What it is |
 |---|---|---|
-| [../README.md](../README.md) | everyone | what it is, the quickstart, known limitations, security and privacy |
-| [TEACHER_SETUP.md](TEACHER_SETUP.md) | teachers | the complete guide: install, first class, features, custom domains, updates, backups, destroy, troubleshooting |
-| [../student/README.md](../student/README.md) | students | the student guide |
-| [STATE.md](STATE.md) | owner, maintainers | an honest assessment: strengths, gaps by priority, when to ship |
-| [../HANDOFF.md](../HANDOFF.md) | maintainers | state, how to work, release procedure, rules, what is next |
+| [../README.md](../README.md) | everyone | What it is, the quickstart, known limitations |
+| [TEACHER_SETUP.md](TEACHER_SETUP.md) | teachers | The complete guide: install, first class, features, alerts, updates, backups, destroy, troubleshooting |
+| [../student/README.md](../student/README.md) | students | The student guide |
+| [STATUS.md](STATUS.md) | owner, maintainers | **Where the project stands**: what is proven, what is not, the shape of the whole |
+| [CRITICAL_ISSUES.md](CRITICAL_ISSUES.md) | owner, maintainers | **What blocks a wider release**, ranked, with evidence and fixes |
+| [ROADMAP.md](ROADMAP.md) | owner, maintainers | **The way forward** and the plan for shipping as open source |
+| [../HANDOFF.md](../HANDOFF.md) | maintainers | How to work on the project, the release procedure, gotchas |
 
 ### Reference (kept current)
 
 | Document | What it is |
 |---|---|
-| [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md) | **The source of truth:** scope, architecture, data model, state machines, every feature, limits, security. Its facts are checked by tests. If another document disagrees, this one wins. |
-| [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md) | How the teacher side is built (installer engine, plan and apply, verify, destroy, export and import, transfer, the editor tools) |
-| [STUDENT_KIT.md](STUDENT_KIT.md) | The student kit in depth: journey, enforcement layers, the checker, publishing, how it stays in sync |
-| [MCP.md](MCP.md) | The student tool server and the `class-platform-mcp` package: tools, setup, tokens, updates, security |
-| [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
-| [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
-| [RAG_ROADMAP.md](RAG_ROADMAP.md) | The agreed plan for a generic, trustworthy RAG and agent platform: decisions, risk tiers, the layered guards, the four evaluation sets, the review table, drift and stability, and the phased roadmap with gates and targets (not built yet) |
-| [CONFIGURATION_PLAN.md](CONFIGURATION_PLAN.md) | **Plan (not built):** every setting of every feature in one place: a project file for the student, a small file per book shelf, the teacher's ranges that always win, and a view for the teacher; the inventory of where settings live today |
-| [COMPUTE_WORKER.md](COMPUTE_WORKER.md) | **Built, closed:** the optional compute worker, one small machine that is off until the teacher starts it (Start, Stop, daily schedule, time limit, monthly cap), for heavy checks later; install and remove, cost, protection, what the runner does, how to add work, what is proven |
-| [COMPUTE_WORKER_PLAN.md](COMPUTE_WORKER_PLAN.md) | The history and decisions behind the compute worker, including what was built and then removed (student access, a job queue) |
-| [TRACE_SCHEMA.md](TRACE_SCHEMA.md) | **Built (T0, T1):** the trace format, the storage layout, what each privacy level keeps, a sample trace |
-| [TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md) | **Plan (T0 and T1 built, the rest not):** seeing exactly what happened in every answer: our own small trace format shaped like OpenTelemetry, five modules, privacy levels, cost under $5 a month, the Traces tab, the roadmap T0 to T6 |
-| [AGENT_GUIDE.md](AGENT_GUIDE.md) | How the student agent works: the approaches considered and chosen, the architecture and one run step by step (diagrams), the guardrails, human approval, **where every setting lives**, time and cost, security, what real tests taught, what is not built |
-| [RAG_GUIDE.md](RAG_GUIDE.md) | How class knowledge works end to end in plain words: shelf vs class library vs the `knowledge/` folder, the three workflows with diagrams, every setting (what you can change today and what is built in), a tuning playbook, domain notes (school, medical, finance, legal), cost, failure modes |
-| [KNOWLEDGE_CONNECTOR.md](KNOWLEDGE_CONNECTOR.md) | Class knowledge: books and a class library a student's app answers from (PDF reading, search, the "books do not say" rule, limits, cost, permissions, helpers) |
-| [BACKGROUND_JOBS.md](BACKGROUND_JOBS.md) | Background jobs: work longer than a request. The parts, a job's life and states, the data model, limits, security model, failures, cost, local development, tests, design decisions |
+| [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md) | The source of truth: scope, architecture, data model, state machines, every feature, limits, security. Its facts are checked by tests; if another document disagrees, this one wins |
 | [API_REFERENCE.md](API_REFERENCE.md) | Every HTTP route, request, response and error code |
-| [END_TO_END.md](END_TO_END.md) | The whole workflow and day-to-day operation; section 4 describes the manual (SAM) route |
-| [../SECURITY.md](../SECURITY.md) | Reporting a problem, the security model, how to verify a release |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | How to contribute |
-| [../CHANGELOG.md](../CHANGELOG.md) | What changed in each release |
-| [../student/BACKEND.md](../student/BACKEND.md), [../student/CICD.md](../student/CICD.md) | Writing a student backend; deploying from GitHub |
+| [TEACHER_ARCHITECTURE.md](TEACHER_ARCHITECTURE.md) | How the teacher side is built: installer, plan and apply, verify, destroy, export and import, the editor tools |
+| [STUDENT_KIT.md](STUDENT_KIT.md) | The kit in depth: journey, enforcement layers, the checker, publishing, sync |
+| [MCP.md](MCP.md) | The student tool server and the `class-platform-mcp` package |
 
-### Background and history (read for understanding, not instructions)
+### The features
 
 | Document | What it is |
 |---|---|
-| [AWS_LEARNINGS.md](AWS_LEARNINGS.md) | A learning guide to the AWS ideas in this project |
-| [NEW_ACCOUNT_AND_TRANSFER.md](NEW_ACCOUNT_AND_TRANSFER.md) | A worked example of moving to a new AWS account (what a new account needs, including CloudFront verification) |
-| [learning.md](learning.md) | Lessons learned: mistakes and how they were fixed |
-| [backend_wire.md](backend_wire.md) | The design reasoning for student backends (a historical plan) |
-| [implement.md](implement.md) | The original step-by-step manual setup, Parts 1 to 4 |
-| [LEGACY_MANUAL_SETUP.md](LEGACY_MANUAL_SETUP.md) | The original SAM and deploy-key route, superseded by the installer |
-| [../student/LEGACY_DEPLOY_KEY.md](../student/LEGACY_DEPLOY_KEY.md) | The original per-student deploy-key instructions |
+| [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
+| [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
+| [KNOWLEDGE_CONNECTOR.md](KNOWLEDGE_CONNECTOR.md) | Class knowledge: books and a class library to answer from; limits, cost, permissions |
+| [RAG_GUIDE.md](RAG_GUIDE.md) | How class knowledge works end to end in plain words, every setting, a tuning playbook |
+| [AGENT_GUIDE.md](AGENT_GUIDE.md) | How the student agent works: one run step by step, guardrails, approval, settings, cost |
+| [BACKGROUND_JOBS.md](BACKGROUND_JOBS.md) | Work longer than a request: parts, states, limits, security, cost |
+| [TRACE_SCHEMA.md](TRACE_SCHEMA.md) | Traces: the format, privacy levels, retention, who sees what, the archive |
+| [COMPUTE_WORKER.md](COMPUTE_WORKER.md) | The optional teacher-only machine for heavy checks: install, controls, cost, protection |
+
+### Plans (not built)
+
+| Document | What it is |
+|---|---|
+| [ROADMAP.md](ROADMAP.md) | The overall plan |
+| [RAG_ROADMAP.md](RAG_ROADMAP.md) | The plan for trustworthy, measured answers: benchmark, guards, Hindi, drift |
+| [CONFIGURATION_PLAN.md](CONFIGURATION_PLAN.md) | One place for every setting: per-shelf files, a project file, teacher ranges |
+
+### Background
+
+| Document | What it is |
+|---|---|
+| [AWS_LEARNINGS.md](AWS_LEARNINGS.md) | A learning guide to the AWS ideas in this project (not instructions) |
+| [../SECURITY.md](../SECURITY.md), [../CONTRIBUTING.md](../CONTRIBUTING.md), [../CHANGELOG.md](../CHANGELOG.md) | Reporting a problem and verifying a release; how to contribute; what changed |
+| [../student/BACKEND.md](../student/BACKEND.md), [../student/CICD.md](../student/CICD.md) | Writing a student backend; deploying from GitHub |
 
 ## 3. Suggested reading order
 
-- **I am a teacher:** the README, then `TEACHER_SETUP.md`, then `../student/README.md` so you know what your students will see.
-- **I want to understand how it works:** this page, then `TECHNICAL_SPECIFICATION.md` sections 1 to 4, then `TEACHER_ARCHITECTURE.md` and `STUDENT_KIT.md`.
-- **I want to contribute or maintain:** `../HANDOFF.md`, `STATE.md`, `../CONTRIBUTING.md`, then the specification section for the area you will change.
-- **I want to learn the AWS side:** `AWS_LEARNINGS.md`, then `learning.md`.
+- **I am a teacher:** the README, then `TEACHER_SETUP.md`, then `../student/README.md`.
+- **I want to understand how it works:** this page, then `STATUS.md`, `TECHNICAL_SPECIFICATION.md` sections 1 to 4, then `TEACHER_ARCHITECTURE.md` and `STUDENT_KIT.md`.
+- **I want to contribute or maintain:** `../HANDOFF.md`, `STATUS.md`, `CRITICAL_ISSUES.md`, `ROADMAP.md`, `../CONTRIBUTING.md`.
+- **I want to learn the AWS side:** `AWS_LEARNINGS.md`.

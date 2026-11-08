@@ -1,6 +1,6 @@
 # Trace schema (T0)
 
-What a trace looks like, how it is stored, what each privacy level keeps, and a sample. The plan and the reasons are in [TRACEABILITY_PLAN.md](TRACEABILITY_PLAN.md); the code is `lambda/trace_core.py` (format and privacy rules, no AWS) and `lambda/traces.py` (store, settings, recording).
+What a trace looks like, how it is stored, what each privacy level keeps, and a sample. The reasons are in section 11; the code is `lambda/trace_core.py` (format and privacy rules, no AWS) and `lambda/traces.py` (store, settings, recording).
 
 ## 1. The idea in four lines
 
@@ -136,3 +136,16 @@ At the **masked** level the same trace also holds `query`, `passages`, `messages
 ## 10. Changing this document
 
 The format is versioned by the code that writes it. A change that removes or renames a field needs a note in the changelog and, once exports exist (T7), a version number in the export file.
+
+## 11. Why it is built this way (decisions)
+
+| Decision | Reason |
+|---|---|
+| **Our own small trace format shaped like OpenTelemetry and OpenInference**, not a hosted tracing product | A tracing server running all month costs roughly $10 to $30 and is one more thing to operate; this costs well under $5 a month at 100,000 answers, stays in the teacher's account, and maps one to one onto Phoenix, Langfuse or LangSmith if they are wanted later |
+| **One small item per step**, a summary item per trace, every item expiring by itself | A single growing item would be rewritten on every step and could reach the size limit; small items are cheap and deleted automatically |
+| **Metadata only by default**, text only when the teacher chooses masked or full for a student | What a visitor typed is personal data; the safe default stores none |
+| **90 days for everything**, shortened per student to 30 or 60; a banner and a monthly email before anything expires; one download for all apps | Long enough to investigate a complaint, short enough to limit stored text; nothing disappears unannounced |
+| **The student may see their own app's traces** if the teacher allows it (off, numbers only, as stored) | Students are developers; a trace shows why their app answered wrongly. The lookup uses the signed-in student's own name, so another app's trace is simply not found |
+| **Tracing never breaks or slows an answer**; a daily limit and a per-trace step limit bound it | Observability is secondary to the answer |
+| **Not built, on purpose:** replay of stored questions with new settings, a converted file for Phoenix, a student web-page panel | Low value until the quality work (RAG_ROADMAP.md) needs them |
+

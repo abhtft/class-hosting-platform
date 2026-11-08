@@ -6,7 +6,7 @@ Checks, in order (each failure is a small JSON error, and only a run that passes
   1 origin secret (direct calls to the API URL are refused)      2 path and slug            3 body size
   4 student backend exists and the token's lifecycle allows it   5 teacher toggle (ON/OFF)  6 per-visitor-IP rate limit
   7 in-flight limiter (protects the rest of the AWS account)      8 run allowance (atomic)    9 invoke
-Then the response is validated and shaped. See docs/backend_wire.md section 5.
+Then the response is validated and shaped. See docs/TECHNICAL_SPECIFICATION.md (the backend gateway).
 The reserved path /_jobs (background jobs, see jobs.py) is answered after check 6 and never reaches the student's function.
 """
 import base64

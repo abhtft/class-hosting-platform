@@ -288,7 +288,7 @@ General rules for any domain: **one topic per shelf**, **one version of a docume
 ---
 
 ## 12. Proposal (not built): a shelf settings file
-To give you the "configs file" you asked for, I propose **one small file per shelf**, kept with the books and read by the platform when the shelf is synced:
+*The plan for all settings, including this one, is [CONFIGURATION_PLAN.md](CONFIGURATION_PLAN.md); this section keeps the draft contents.* One small file per shelf is proposed, kept with the books, kept with the books and read by the platform when the shelf is synced:
 
 ```
 knowledge/physics/shelf.json        (a student's own shelf)

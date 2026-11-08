@@ -2,7 +2,7 @@
 
 > **Companion document.** The source of truth for this release is [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md); if the two disagree, the specification wins. This document goes deeper on every HTTP route and its request and response shapes.
 
-Every HTTP route of the portal, the legacy CLI, and the student-backend gateway. Companion to [END_TO_END.md](END_TO_END.md).
+Every HTTP route of the portal, the legacy CLI, and the student-backend gateway. Companion to [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md).
 
 Conventions:
 - All bodies are JSON unless stated. Errors are `{"error": "<message or code>"}`.
@@ -73,7 +73,7 @@ Body, any of:
 → `200 { "token": <view> }`. `400` invalid value; `503` backends are not set up on this server.
 
 ### `POST /api/admin/tokens/{id}/ai`
-Class AI connector (needs `AiEnabled`; see END_TO_END.md section 3.3a). Body, any of:
+Class AI connector (needs `AiEnabled`; see AI_CONNECTOR.md). Body, any of:
 
 | Field | Type | Notes |
 |---|---|---|
@@ -347,3 +347,45 @@ Errors are JSON `{"error": "<code>", "message": "..."}`:
 | 413 | `too_large` | a value, a request body or a file is over its size limit |
 | 400 | `bad_request` | a name, id, size or content type is not allowed, or the body is not valid |
 | 404 | `not_found` | no such item or file, or an unknown route |
+
+---
+
+## 7. Routes of the later features (knowledge, traces, compute worker, the AI proxy)
+
+All teacher routes need the teacher's session as a bearer token; all student routes the student's. Errors are `{"error": "<message>"}` with the usual statuses (`400` bad input, `401` no or expired session, `403` not allowed, `404` not found, `409` wrong state or not installed, `429` a limit).
+
+### 7.1 Teacher routes
+
+| Route | Body or query | Answer |
+|---|---|---|
+| `POST /api/admin/tokens/{id}/knowledge` | `{enabled?, collections?, documents?, passages?, stored_mb?, upload_mb?, searches_limit?, searches_period?, embed_tokens?}` | `200 {token}`; the key is made once when first enabled |
+| `POST /api/admin/tokens/{id}/knowledge/clear` | | `200 {cleared, token}`: removes all of the student's shelves |
+| `GET /api/admin/knowledge` | | The class library and this month's spending against the ceiling |
+| `POST\|DELETE /api/admin/knowledge/library/collections[/{name}[/documents[/{id}[/start]]]]` | as the knowledge API | The class library |
+| `POST /api/admin/tokens/{id}/traces` | `{enabled?, level? (metadata\|masked\|full), retention_days? (30\|60\|90), student_view? (off\|metadata\|stored), daily_limit? (0 to 100000)}` | `200 {token}`; `409` when traces are not installed |
+| `POST /api/admin/tokens/{id}/traces/clear` | | `200 {removed, more}`: deletes up to 100 of the student's traces; repeat while `more` |
+| `GET /api/admin/traces` | `?slug&day&limit&before` | Recent traces (summaries), newest first |
+| `GET\|DELETE /api/admin/traces/{slug}/{trace_id}` | | One trace with its steps; delete removes it |
+| `GET /api/admin/traces/status` | | Days until the oldest trace expires, and whether a reminder is due |
+| `GET /api/admin/traces/export` | `?from&to&slug&shelf&cursor` | One page (at most 150 traces) of an archive, with `next` |
+| `GET /api/admin/traces/summary` | `?days` | The daily numbers (answers, refusals, errors, tokens, cost) |
+| `GET /api/admin/worker` | | The compute worker: state, settings, last run, month estimate; `{"available": false}` when not installed |
+| `POST /api/admin/worker/start` | `{mode: "run"\|"keep"}` | Starts the machine; `409` when it is on, stopping or the monthly cap is reached |
+| `POST /api/admin/worker/stop` | | Stops it |
+| `POST /api/admin/worker/settings` | `{daily_enabled?, hour_utc?, max_minutes?, monthly_cap_minutes?}` | Saves the schedule, time limit and cap |
+
+### 7.2 Student routes
+
+| Route | Answer |
+|---|---|
+| `GET /api/student/knowledge`, `POST /api/student/knowledge/collections`, `GET\|POST\|DELETE /api/student/knowledge/{shelf}/documents[/{id}[/start]]` | The folder sync for the student's own shelves (see the knowledge API above) |
+| `GET /api/student/traces` (`?limit&before`) and `GET /api/student/traces/{trace_id}` | The student's **own** app's traces, only as the teacher allows: `403` when the setting is off; "numbers only" strips stored text; another app's id is `404` |
+
+### 7.3 Calls made by a student's function
+
+| Route | Notes |
+|---|---|
+| `POST /v1/chat/completions`, `GET /v1/models` on the AI proxy (`OPENAI_BASE_URL`, bearer `ga_<slug>.<secret>`) | The OpenAI-shaped chat call used when the teacher chose Gemini; the model is always the one the teacher set; no streaming; the answer carries an `x-trace-id` header when traces are on |
+| `POST /v1/search` on the knowledge API | Also returns `x-trace-id` when traces are on; send your own `x-trace-id` (`tr_` and 16 hex digits) to join steps into one trace |
+| `POST /v1/trace` on the knowledge API | `{trace_id, spans: [...]}` (at most 30 steps): the helpers report their own steps once at the end of an answer; never an error for the app |
+

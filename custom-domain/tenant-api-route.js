@@ -1,5 +1,5 @@
 // CloudFront function `student-hosting-tenant-api`, attached (viewer-request) to the /api/* behavior of the multi-tenant
-// distribution that serves student CUSTOM DOMAINS (see custom-domain/HANDOFF.md and docs/backend_wire.md).
+// distribution that serves student CUSTOM DOMAINS (see docs/TECHNICAL_SPECIFICATION.md, custom domains).
 //
 // The API origin's path is /b/{{student}}, which already selects the student's backend, so all that is left to do is:
 //   * remove the "/api" prefix:   /api/analyse  ->  /analyse    (the origin path then makes it /b/<student>/analyse)
