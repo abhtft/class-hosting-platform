@@ -1,0 +1,478 @@
+{
+  "catalogVersion": 1,
+  "note": "The teacher-approved add-ons. Edit by hand, then run  node starter/addons/pin.mjs  (it fills in the checksums, sizes and the exact package list). Rules: docs/ADDONS.md.",
+  "addons": [
+    {
+      "id": "frontend-design",
+      "kind": "skill",
+      "title": "Frontend design basics",
+      "description": "Layout, spacing, type, colour, components and the states people forget (loading, empty, error).",
+      "license": "MIT",
+      "source": "written for this platform",
+      "file": "skills/frontend-design.md",
+      "with": [
+        "responsive",
+        "accessibility",
+        "font-inter"
+      ],
+      "sha256": "c10dfa23263712976af9c683b592f7db91bdda50a1e24b3298bbc65777f4a288",
+      "sizeKb": 2
+    },
+    {
+      "id": "accessibility",
+      "kind": "skill",
+      "title": "Accessibility checklist",
+      "description": "Structure, keyboard, contrast, images, forms and motion: a checklist to run before a page is done.",
+      "license": "MIT",
+      "source": "written for this platform",
+      "file": "skills/accessibility.md",
+      "sha256": "d6553b12d9799a51fa5a46b35e084c167127c2cdd9ecab5bd7285aa2ce7ce4a6",
+      "sizeKb": 2
+    },
+    {
+      "id": "responsive",
+      "kind": "skill",
+      "title": "Responsive layout (phones first)",
+      "description": "Mobile-first layout, grids, touch sizes and the checks to run on a phone-sized screen.",
+      "license": "MIT",
+      "source": "written for this platform",
+      "file": "skills/responsive.md",
+      "sha256": "76fd85192b6c6a5b95c0ce336de3abc7a6bf95261824f009a742ba158e4843c5",
+      "sizeKb": 2
+    },
+    {
+      "id": "charts-dashboard",
+      "kind": "skill",
+      "title": "Charts and dashboards",
+      "description": "Choosing the right chart, making it readable, and laying out a dashboard.",
+      "license": "MIT",
+      "source": "written for this platform",
+      "file": "skills/charts-dashboard.md",
+      "with": [
+        "recharts"
+      ],
+      "sha256": "765e52ebfedf351ad9fec57723943512620c26902d9fdaaf0d65d63b6d4d59e6",
+      "sizeKb": 2
+    },
+    {
+      "id": "forms",
+      "kind": "skill",
+      "title": "Forms and validation",
+      "description": "Designing forms, validating in the page and in the backend, and the sending, success and failure states.",
+      "license": "MIT",
+      "source": "written for this platform",
+      "file": "skills/forms.md",
+      "with": [
+        "day-picker"
+      ],
+      "sha256": "46795082a0efdfdb47430b713b09aafa54c7ff2f66af1b4be7778f822d719df3",
+      "sizeKb": 2
+    },
+    {
+      "id": "portfolio-page",
+      "kind": "skill",
+      "title": "Clean portfolio page",
+      "description": "A recipe for a personal page: sections in order, content rules and a finishing check.",
+      "license": "MIT",
+      "source": "written for this platform",
+      "file": "skills/portfolio-page.md",
+      "with": [
+        "frontend-design",
+        "pico-css",
+        "lucide-icons"
+      ],
+      "sha256": "8476258a71ad60085b2261c58941b3f668932d16045c2861faf86b0cde3f7287",
+      "sizeKb": 2
+    },
+    {
+      "id": "pico-css",
+      "kind": "module",
+      "title": "Pico CSS",
+      "description": "A small CSS kit that makes plain HTML (forms, buttons, tables, cards) look good without writing much CSS.",
+      "license": "MIT",
+      "source": "https://github.com/picocss/pico",
+      "package": "@picocss/pico",
+      "version": "2.1.1",
+      "howto": "Added as the package @picocss/pico. Load it once in frontend/src/main.tsx with: import '@picocss/pico/css/pico.min.css'; (put it BEFORE the line that imports ./styles.css so your own rules win). Then use plain HTML elements: <main className=\"container\">, <article> for a card, <button>, <input>, <label>, <table>, <nav>. Pico styles those tags directly, so do not add many classes. Use role=\"group\" for button groups and <details> for accordions. Change the accent by overriding the --pico-primary variables in src/styles.css. Do not mix it with another CSS kit.",
+      "integrity": "sha512-kIDugA7Ps4U+2BHxiNHmvgPIQDWPDU4IeU6TNRdvXQM1uZX+FibqDQT2xUOnnO2yq/LUHcwnGlu1hvf4KfXnMg==",
+      "packages": [
+        {
+          "name": "@picocss/pico",
+          "version": "2.1.1",
+          "integrity": "sha512-kIDugA7Ps4U+2BHxiNHmvgPIQDWPDU4IeU6TNRdvXQM1uZX+FibqDQT2xUOnnO2yq/LUHcwnGlu1hvf4KfXnMg==",
+          "license": "MIT"
+        }
+      ],
+      "installedKb": 19100
+    },
+    {
+      "id": "lucide-icons",
+      "kind": "module",
+      "title": "Lucide icons",
+      "description": "A large set of clean line icons as React components.",
+      "license": "ISC",
+      "source": "https://github.com/lucide-icons/lucide",
+      "package": "lucide-react",
+      "version": "1.61.0",
+      "howto": "Added as the package lucide-react. Import only the icons you use, for example: import { Search, Trash2, Check } from 'lucide-react'; then <Search size={20} aria-hidden=\"true\" />. Use size and strokeWidth props; icons take the text colour. An icon on its own inside a button needs an accessible name: <button aria-label=\"Delete note\"><Trash2 aria-hidden=\"true\" /></button>. Never import the whole library (import * as ...).",
+      "integrity": "sha512-v2SQPPPNjnr+BlhL9Spuzmo5yR+hLkftfuE4E3jaxdNPgSH0hJKPcLJBP7yAta87jQNPsSERS59PJjCJ/CorBA==",
+      "packages": [
+        {
+          "name": "lucide-react",
+          "version": "1.61.0",
+          "integrity": "sha512-v2SQPPPNjnr+BlhL9Spuzmo5yR+hLkftfuE4E3jaxdNPgSH0hJKPcLJBP7yAta87jQNPsSERS59PJjCJ/CorBA==",
+          "license": "ISC"
+        }
+      ],
+      "installedKb": 35488
+    },
+    {
+      "id": "recharts",
+      "kind": "module",
+      "title": "Recharts",
+      "description": "Charts as React components: line, bar, area, pie, scatter.",
+      "license": "MIT",
+      "source": "https://github.com/recharts/recharts",
+      "package": "recharts",
+      "version": "3.10.1",
+      "howto": "Added as the package recharts. Wrap every chart in <ResponsiveContainer width=\"100%\" height={300}> inside a parent that has a set height. Typical use: import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'; <LineChart data={rows}><CartesianGrid strokeDasharray=\"3 3\" /><XAxis dataKey=\"week\" /><YAxis /><Tooltip /><Line type=\"monotone\" dataKey=\"score\" stroke=\"#2563eb\" /></LineChart>. Data is an array of plain objects. For bars use BarChart and Bar. Give the chart a one-sentence text summary next to it. Read the charts-dashboard skill for choosing and laying out charts.",
+      "integrity": "sha512-QXFrvt6IVcw7eeZCoyXTwkIJAX3Dv1nyVhMicXJ47GsGDDpcN8z6o644DibE9XjpBTThtsomLKnTV6lc+cVFUA==",
+      "packages": [
+        {
+          "name": "@reduxjs/toolkit",
+          "version": "2.14.0",
+          "integrity": "sha512-m/PxMwRe0xLL6XUsAgy0YjInklHcfi9uMwFhJk+QINqjxqPvyc89T5cMjszA5bDmTE0gwGc7zr9LRO4gL+mhaw==",
+          "license": "MIT"
+        },
+        {
+          "name": "@standard-schema/spec",
+          "version": "1.1.0",
+          "integrity": "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==",
+          "license": "MIT"
+        },
+        {
+          "name": "@standard-schema/utils",
+          "version": "0.3.0",
+          "integrity": "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-array",
+          "version": "3.2.2",
+          "integrity": "sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-color",
+          "version": "3.1.3",
+          "integrity": "sha512-iO90scth9WAbmgv7ogoq57O9YpKmFBbmoEoCHDB2xMBY0+/KVrqAaCDyCE16dUspeOvIxFFRI+0sEtqDqy2b4A==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-ease",
+          "version": "3.0.2",
+          "integrity": "sha512-NcV1JjO5oDzoK26oMzbILE6HW7uVXOHLQvHshBUW4UMdZGfiY6v5BeQwh9a9tCzv+CeefZQHJt5SRgK154RtiA==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-interpolate",
+          "version": "3.0.4",
+          "integrity": "sha512-mgLPETlrpVV1YRJIglr4Ez47g7Yxjl1lj7YKsiMCb27VJH9W8NVM6Bb9d8kkpG/uAQS5AmbA48q2IAolKKo1MA==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-path",
+          "version": "3.1.1",
+          "integrity": "sha512-VMZBYyQvbGmWyWVea0EHs/BwLgxc+MKi1zLDCONksozI4YJMcTt8ZEuIR4Sb1MMTE8MMW49v0IwI5+b7RmfWlg==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-scale",
+          "version": "4.0.9",
+          "integrity": "sha512-dLmtwB8zkAeO/juAMfnV+sItKjlsw2lKdZVVy6LRr0cBmegxSABiLEpGVmSJJ8O08i4+sGR6qQtb6WtuwJdvVw==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-shape",
+          "version": "3.2.0",
+          "integrity": "sha512-kVd74ta9eof3eJOvbNd1vGKS/XERRyQbT26Og63hIsvDO84cjD5gEOhsXf26w3FSoNlPVz84DOFcKv/oou+fMw==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-time",
+          "version": "3.0.4",
+          "integrity": "sha512-yuzZug1nkAAaBlBBikKZTgzCeA+k1uy4ZFwWANOfKw5z5LRhV0gNA7gNkKm7HoK+HRN0wX3EkxGk0fpbWhmB7g==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/d3-timer",
+          "version": "3.0.2",
+          "integrity": "sha512-Ps3T8E8dZDam6fUyNiMkekK3XUsaUEik+idO9/YjPtfj2qruF8tFBXS7XhtE4iIXBLxhmLjP3SXpLhVf21I9Lw==",
+          "license": "MIT"
+        },
+        {
+          "name": "@types/use-sync-external-store",
+          "version": "0.0.6",
+          "integrity": "sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg==",
+          "license": "MIT"
+        },
+        {
+          "name": "clsx",
+          "version": "2.1.1",
+          "integrity": "sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==",
+          "license": "MIT"
+        },
+        {
+          "name": "d3-array",
+          "version": "3.2.5",
+          "integrity": "sha512-Th8qGXoBalmWsstpkuhmBuTsBQIFqYOJtjlBvNVvBfJ8E3uYusBUwUR8HU20U0qKKQkgCvKyR1YjiozWadk5QA==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-color",
+          "version": "3.1.1",
+          "integrity": "sha512-lfab8x0Bj0UO7SNsY8dZSbNIA6ipbkE3X0NG9nqjCu6CfCHZseuDnOSJY7hidKrjpP++i1M2qT+FlAdPKYRilA==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-ease",
+          "version": "3.0.2",
+          "integrity": "sha512-B5znKqRmKROAN4oHWQ50W/qisVjA9GXh2WMsVKdFVp4DxWmcrOsweqgUOUVsv5th96kwaZlokU6SlV4J3gak1w==",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "name": "d3-format",
+          "version": "3.1.3",
+          "integrity": "sha512-+F+/49swqmGuQJmSKnVMIDH/QkEFV5li9QRj0xm/KhyAUBv099O5PrvpQFxBp24PYph17Mnvt9mjKQV0ii0nMA==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-interpolate",
+          "version": "3.0.2",
+          "integrity": "sha512-IRzGU62DtxhvsnSTWMQIdnoZ6gA+BCWwBon1EJI6SjoN595799b6z/QRBzXfFhE8iupUPp3042yBNo0STPqnzQ==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-path",
+          "version": "3.1.1",
+          "integrity": "sha512-jsbgV8zIT38ReB9O7X7gcLndTQRONSqNNd+oGIaTBdUug4r5jFmp0N6RY9R5GWbdUDucn0qoTGyfjapT4tDhcg==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-scale",
+          "version": "4.0.3",
+          "integrity": "sha512-66cWobCNzcMvlfoaDHCxuIv9TBUWG1BLOWdv9kHHFuCr1JdqAWPvTmsaEYDD5NRMyWZ5+7u0GqiCDfMXMqh3hg==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-shape",
+          "version": "3.2.1",
+          "integrity": "sha512-dm2o+lbKdzg9tY7GEag/dB9hcbodLfwkE/DkvqbELJXaMz0yKzWWhZqhbI7CKubukA7HnRyz0avdtvi7EPxPvw==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-time",
+          "version": "3.1.1",
+          "integrity": "sha512-Ze7rjrhMzdeulh0/hjcfFj7XLAHOfowtEMfsoG6DU866HPynQNW7Wfen6hzXcqKTv8XzxvF6Hzr5XD6bMHr2ug==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-time-format",
+          "version": "4.1.1",
+          "integrity": "sha512-22XaqjyCjpqgda20erhsOjGmC3vvYwTNYniKAd45W5UWLDF43moeOuV9qYpRqobIlsnK0UhnKZjUUJm3VgORUA==",
+          "license": "ISC"
+        },
+        {
+          "name": "d3-timer",
+          "version": "3.0.2",
+          "integrity": "sha512-1Il1aliroVSErrv5aulRBxAY+7+DnaoLIWGd1C6SsBTWDeobWiP/V69vwb8vT6abR1kKwaNe1196pmaQ1fK90A==",
+          "license": "ISC"
+        },
+        {
+          "name": "decimal.js-light",
+          "version": "2.5.1",
+          "integrity": "sha512-qIMFpTMZmny+MMIitAB6D7iVPEorVw6YQRWkvarTkT4tBeSLLiHzcwj6q0MmYSFCiVpiqPJTJEYIrpcPzVEIvg==",
+          "license": "MIT"
+        },
+        {
+          "name": "es-toolkit",
+          "version": "1.53.2",
+          "integrity": "sha512-iUqZ+NlwH4jUgRmXZUxFBsV/9762TQEa1O4IXLFBmDEjVHScBytKuseX23I0+v9ShZ5MYxEx6WKNzm6IPnex8g==",
+          "license": "MIT"
+        },
+        {
+          "name": "eventemitter3",
+          "version": "5.0.4",
+          "integrity": "sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==",
+          "license": "MIT"
+        },
+        {
+          "name": "immer",
+          "version": "11.2.9",
+          "integrity": "sha512-IQ4UEtXjZjyefyWjtLEDXUSrF6T2hwjKPi6BIJl3bY/2XXW24d6cNGdXJSBOA/+KNnuiXkZY6DR0C3efolhitA==",
+          "license": "MIT"
+        },
+        {
+          "name": "internmap",
+          "version": "2.0.3",
+          "integrity": "sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==",
+          "license": "ISC"
+        },
+        {
+          "name": "react-is",
+          "version": "19.3.1",
+          "integrity": "sha512-RRieF6IyxQBkcK6pP8xOHprLTPW6QjRkbGdImtqNme+/hYVwCZkLQLdlZGOhUqXwkS9IEynaGvPJtv6XB/cz0Q==",
+          "license": "MIT"
+        },
+        {
+          "name": "react-redux",
+          "version": "9.3.1",
+          "integrity": "sha512-vxMLT0lalUjbZPkoTepWyKAZbjIIFssNx/CEL9lTfwQBU6XpkGSmCNdcCIrkOBUgB68uftZMnbXVb6DwGnhRKQ==",
+          "license": "MIT"
+        },
+        {
+          "name": "recharts",
+          "version": "3.10.1",
+          "integrity": "sha512-QXFrvt6IVcw7eeZCoyXTwkIJAX3Dv1nyVhMicXJ47GsGDDpcN8z6o644DibE9XjpBTThtsomLKnTV6lc+cVFUA==",
+          "license": "MIT"
+        },
+        {
+          "name": "redux",
+          "version": "5.0.1",
+          "integrity": "sha512-M9/ELqF6fy8FwmkpnF0S3YKOqMyoWJ4+CS5Efg2ct3oY9daQvd/Pc71FpGZsVsbl3Cpb+IIcjBDUnnyBdQbq4w==",
+          "license": "MIT"
+        },
+        {
+          "name": "redux-thunk",
+          "version": "3.1.0",
+          "integrity": "sha512-NW2r5T6ksUKXCabzhL9z+h206HQw/NJkcLm1GPImRQ8IzfXwRGqjVhKJGauHirT0DAuyy6hjdnMZaRoAcy0Klw==",
+          "license": "MIT"
+        },
+        {
+          "name": "reselect",
+          "version": "5.2.0",
+          "integrity": "sha512-AgZ3UOZm3YndfrJ4OYjgrT7bmCm/1iqkjvEfH/oYjzh6PD2qw4QuT3jjnXIrpdt4MTpMXclMT3lXbmRY+XRakw==",
+          "license": "MIT"
+        },
+        {
+          "name": "tiny-invariant",
+          "version": "1.3.3",
+          "integrity": "sha512-+FbBPE1o9QAYvviau/qC5SE3caw21q3xkvWKBtja5vgqOWIHHJ3ioaq1VPfn/Szqctz2bU/oYeKd9/z5BL+PVg==",
+          "license": "MIT"
+        },
+        {
+          "name": "use-sync-external-store",
+          "version": "1.7.0",
+          "integrity": "sha512-6L+EeigHMQhdaIPNIFUKwfWJSwWFQ8gJbJ2DLOs5sDIegTwR9fRxvnM3uciHKjIZhFz+KAv2emhWMRvDmMcY8A==",
+          "license": "MIT"
+        },
+        {
+          "name": "victory-vendor",
+          "version": "37.4.1",
+          "integrity": "sha512-geV4p2GVfVM9lgm9ZRS3pvsbAPS+BUGhM9W9nPzPHTKi+/+KjNrFXdgP6KkG+XspNZuvcXmchcrtklfuQ4gniw==",
+          "license": "MIT AND ISC AND BSD-3-Clause"
+        }
+      ],
+      "installedKb": 22851
+    },
+    {
+      "id": "motion",
+      "kind": "module",
+      "title": "Motion (animation)",
+      "description": "Gentle, smooth animation for React: fade-ins, slide-ins and layout changes.",
+      "license": "MIT",
+      "source": "https://github.com/motiondivision/motion",
+      "package": "motion",
+      "version": "14.6.0",
+      "howto": "Added as the package motion. In React import from 'motion/react', for example: import { motion } from 'motion/react'; <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>...</motion.div>. Keep animations short (under 0.4 seconds) and subtle. Wrap the app or the animated part in <MotionConfig reducedMotion=\"user\"> so people who ask their device for less motion get none. Do not animate everything: use it for appearing content and for state changes.",
+      "integrity": "sha512-qqaZbyubgk7x3zxjPgP1l3Br/KQXol/IIV1uqb358SoN4ApcqNuV7+wyDPg/XLErmuyQL5lL8JVI/fOmDsmBKQ==",
+      "packages": [
+        {
+          "name": "framer-motion",
+          "version": "14.6.0",
+          "integrity": "sha512-MzBgZxGgoHPfSLEXmo4o5XlZvb+nVRFdHtGjVhm6LMIEJKTt/8hNO023euL5mYyzc8llV/hQTfjnN68tNRHalw==",
+          "license": "MIT"
+        },
+        {
+          "name": "motion",
+          "version": "14.6.0",
+          "integrity": "sha512-qqaZbyubgk7x3zxjPgP1l3Br/KQXol/IIV1uqb358SoN4ApcqNuV7+wyDPg/XLErmuyQL5lL8JVI/fOmDsmBKQ==",
+          "license": "MIT"
+        },
+        {
+          "name": "motion-dom",
+          "version": "14.6.0",
+          "integrity": "sha512-lIojTl9aYSPIkeOOSzBliy1nNvpdO3JtVzW2WgTXQlOP4ZMuJhtWO3fP7OD4TVFwlRucdvxlDSMkL+fEQnQ52A==",
+          "license": "MIT"
+        },
+        {
+          "name": "motion-utils",
+          "version": "14.6.0",
+          "integrity": "sha512-bZJo2AmQ2aOFkaato6VXrTbkPG0XhMzivWUWSaI59pxyllj8QMQUFZ84MYRQnPkK+7dr4KldyJwF2+RM0sdq/w==",
+          "license": "MIT"
+        },
+        {
+          "name": "tslib",
+          "version": "2.9.1",
+          "integrity": "sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA==",
+          "license": "0BSD"
+        }
+      ],
+      "installedKb": 11563
+    },
+    {
+      "id": "font-inter",
+      "kind": "module",
+      "title": "Inter font (self-hosted)",
+      "description": "The Inter typeface, served from your own site instead of Google Fonts.",
+      "license": "OFL-1.1",
+      "source": "https://github.com/fontsource/font-files",
+      "package": "@fontsource-variable/inter",
+      "version": "5.3.0",
+      "howto": "Added as the package @fontsource-variable/inter. Load it once in frontend/src/main.tsx with: import '@fontsource-variable/inter'; then in src/styles.css set: font-family: 'Inter Variable', system-ui, sans-serif; on body. The font files are built into the site, so nothing is loaded from another website.",
+      "integrity": "sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==",
+      "packages": [
+        {
+          "name": "@fontsource-variable/inter",
+          "version": "5.3.0",
+          "integrity": "sha512-OupL48va4JNofb97w6NYeF9S7W/kHNKM0Er8Dem5nqi4jeOLrVJDoE8tZEpnMJmtkvNbB1EIPPwHcdkF6b1oUA==",
+          "license": "OFL-1.1"
+        }
+      ],
+      "installedKb": 1864
+    },
+    {
+      "id": "day-picker",
+      "kind": "module",
+      "title": "Day picker (calendar)",
+      "description": "An accessible calendar and date picker component for forms.",
+      "license": "MIT",
+      "source": "https://github.com/gpbl/react-day-picker",
+      "package": "react-day-picker",
+      "version": "10.0.2",
+      "howto": "Added as the package react-day-picker. Import the component and its stylesheet once: import { DayPicker } from 'react-day-picker'; import 'react-day-picker/style.css'; Use it controlled: const [day, setDay] = useState<Date | undefined>(); <DayPicker mode=\"single\" selected={day} onSelect={setDay} />. Show the chosen date as text next to it, and also accept a typed date in an <input type=\"date\"> for people who prefer typing. Send dates to the backend as ISO text (YYYY-MM-DD) and validate them there too.",
+      "integrity": "sha512-QetiKtZWE9Uaw/pM/SYNv6WPYOTRnSJ2puL0GgwkmUFMIwiY0dtjH1W4B7DOVXVNQM0ZOClGpH/heOfBSzWeiA==",
+      "packages": [
+        {
+          "name": "@date-fns/tz",
+          "version": "1.5.0",
+          "integrity": "sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==",
+          "license": "MIT"
+        },
+        {
+          "name": "date-fns",
+          "version": "4.4.0",
+          "integrity": "sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==",
+          "license": "MIT"
+        },
+        {
+          "name": "react-day-picker",
+          "version": "10.0.2",
+          "integrity": "sha512-QetiKtZWE9Uaw/pM/SYNv6WPYOTRnSJ2puL0GgwkmUFMIwiY0dtjH1W4B7DOVXVNQM0ZOClGpH/heOfBSzWeiA==",
+          "license": "MIT"
+        }
+      ],
+      "installedKb": 11714
+    }
+  ]
+}

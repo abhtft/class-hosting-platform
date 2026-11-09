@@ -85,6 +85,8 @@ Start here. The first half is a one-page overview; the second half says which do
 |---|---|
 | [ROADMAP.md](ROADMAP.md) | The overall plan |
 | [RAG_ROADMAP.md](RAG_ROADMAP.md) | The plan for trustworthy, measured answers: benchmark, guards, Hindi, drift |
+| [ADDONS.md](ADDONS.md) | Add-ons: teacher-approved skills and open-source packages the AI can add to a project (kit 2.4.0): what they are, the safety rules, how a teacher adds one |
+| [ADDONS_PLAN.md](ADDONS_PLAN.md) | The plan behind add-ons: phase 1 built, phases 2 and 3 (teacher tab, suggestions) still plans |
 | [CONFIGURATION_PLAN.md](CONFIGURATION_PLAN.md) | One place for every setting: per-shelf files, a project file, teacher ranges |
 
 ### Background

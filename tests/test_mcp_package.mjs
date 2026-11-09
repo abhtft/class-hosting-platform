@@ -106,7 +106,7 @@ try {
   const projectA = join(work, 'my-first-project');
   mkdirSync(projectA);
   const a = await editor(bin, { roots: projectA }).start();
-  assert.deepEqual(await a.list(), ['init_project', 'check_project', 'deploy', 'status', 'logs', 'project_status', 'pull_project', 'push_project', 'project_auto', 'update_kit']);
+  assert.deepEqual(await a.list(), ['init_project', 'check_project', 'deploy', 'status', 'logs', 'project_status', 'pull_project', 'push_project', 'project_auto', 'list_addons', 'add_addon', 'remove_addon', 'update_kit']);
   const refused = await a.tool('init_project', {});
   assert.equal(refused.isError, true);
   assert.match(refused.content[0].text, /Nothing written.*confirm=true/s);

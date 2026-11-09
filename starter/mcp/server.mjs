@@ -7,6 +7,7 @@
 //   check_project   the same as `npm run check`
 //   deploy          check first, then the same as `npm run deploy` (it asks you for a yes before it publishes)
 //   status          is this project's token valid, and for how many days; which features the teacher switched on; brings the kit in line with the teacher's platform first
+//   list_addons / add_addon / remove_addon   the teacher's approved skills and packages (add and remove ask for a yes first)
 //   update_kit      bring the kit's own files up to date (it asks you for a yes first; same as `npm run platform -- update --apply`)
 //
 // This one file runs in two places: inside a kit project as tools/mcp.mjs, and as the entry of the `class-platform-mcp` package that the editor
@@ -48,7 +49,7 @@ function projectRoot(given) {
 
 /** The project's own copy of a script if it has one (the kit), else the copy bundled with this package. */
 function scriptFor(root, name) {
-  const own = { check: join('tools', 'check.mjs'), deploy: 'portal-deploy.mjs', platform: join('tools', 'platform.mjs') }[name];
+  const own = { check: join('tools', 'check.mjs'), deploy: 'portal-deploy.mjs', platform: join('tools', 'platform.mjs'), addons: join('tools', 'addons.mjs') }[name];
   if (existsSync(join(root, own))) return join(root, own);
   const bundled = { check: 'check.mjs', deploy: 'portal-deploy.mjs' }[name];
   return bundled && existsSync(join(here, bundled)) ? join(here, bundled) : null;
@@ -233,6 +234,34 @@ const TOOLS = [
       if (enabled && confirm !== true) return { ok: false, text: 'Not turned on. Ask the student whether to save the project files after every deploy; if they say yes, call project_auto again with confirm=true.' };
       const root = projectRoot(path);
       return run(scriptFor(root, 'deploy'), ['project', '--auto', enabled ? 'on' : 'off'], 30000, root);
+    },
+  },
+  {
+    name: 'list_addons',
+    description: 'Add-ons: list the skills (guides for you) and modules (open-source packages for the site) the teacher approved, and which ones this project already has. Reads only. Look here BEFORE you build a chart, a dashboard, a styled page, a form or animation from scratch, and use what fits. The answer says what each one adds and its licence.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'one add-on to look at in detail' }, path: PATH_PROPERTY }, additionalProperties: false },
+    run: ({ name, path } = {}) => { const root = projectRoot(path); return run(scriptFor(root, 'addons'), name ? ['show', String(name)] : ['list'], 30000, root); },
+  },
+  {
+    name: 'add_addon',
+    description: 'Add-ons: add one approved add-on to this project: a guide in skills/<name>.md and, for a module, the package in frontend/ (installed with scripts turned off, and only if it brings exactly the packages the teacher approved; otherwise nothing is changed). IMPORTANT: ask the student first, say what it adds and its licence, and call this with confirm=true only after they say yes. Afterwards READ skills/<name>.md before you build with it. Only names from list_addons work.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string', description: 'the add-on id from list_addons' }, confirm: { type: 'boolean', description: 'true only after the student agreed to add it' }, path: PATH_PROPERTY }, required: ['name', 'confirm'], additionalProperties: false },
+    async run({ name, confirm, path }) {
+      if (typeof name !== 'string' || !name) return { ok: false, text: 'Say which add-on (a name from list_addons).' };
+      if (confirm !== true) return { ok: false, text: `Not added. Tell the student what ${name} adds (see list_addons) and ask whether to add it; if they say yes, call add_addon again with confirm=true.` };
+      const root = projectRoot(path);
+      return run(scriptFor(root, 'addons'), ['add', name], 360000, root);
+    },
+  },
+  {
+    name: 'remove_addon',
+    description: 'Add-ons: take an add-on out of this project again (its guide and, for a module, the package). IMPORTANT: ask the student first and call this with confirm=true only after they say yes. The student’s own code that imports the package must be changed too.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' }, confirm: { type: 'boolean', description: 'true only after the student agreed' }, path: PATH_PROPERTY }, required: ['name', 'confirm'], additionalProperties: false },
+    async run({ name, confirm, path }) {
+      if (typeof name !== 'string' || !name) return { ok: false, text: 'Say which add-on to remove.' };
+      if (confirm !== true) return { ok: false, text: `Not removed. Ask the student whether to remove ${name}; if they say yes, call remove_addon again with confirm=true.` };
+      const root = projectRoot(path);
+      return run(scriptFor(root, 'addons'), ['remove', name], 360000, root);
     },
   },
   {

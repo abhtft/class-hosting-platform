@@ -18,6 +18,7 @@
     "pull": "node portal-deploy.mjs pull",
     "push": "node portal-deploy.mjs push",
     "project": "node portal-deploy.mjs project",
+    "addons": "node tools/addons.mjs",
     "eval": "node tools/eval.mjs",
     "deploy": "node portal-deploy.mjs"
   }

@@ -1,6 +1,6 @@
 {
   "kit": "class-platform-starter",
-  "kitVersion": "2.3.2",
+  "kitVersion": "2.4.0",
   "minKit": "1.0.0",
   "portal": "https://deploy.example.edu",
   "frontend": "frontend",
@@ -19,6 +19,7 @@
     "pull",
     "push",
     "project",
+    "addons",
     "traces",
     "eval",
     "deploy"

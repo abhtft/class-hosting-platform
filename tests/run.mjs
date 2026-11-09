@@ -193,6 +193,11 @@ await step('project sync: the portal side (personal and team projects, content-a
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('add-ons: the shipped catalogue obeys its own rules (accepted licences, exact versions, integrity, a checksum for each skill, nothing banned in a skill), the rules catch what they must, add and remove for a skill and a module, a module that brings anything unapproved changes nothing, the command from a built kit, the rules for the AI', () => {
+  const r = spawnSync('node', [join(here, 'test_addons.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('knowledge folder sync (scan, plan, and the tool and npm run knowledge against the real portal and knowledge code)', () => {
   const r = spawnSync('node', [join(here, 'test_knowledge_sync.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

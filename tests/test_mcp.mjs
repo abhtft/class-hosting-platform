@@ -86,7 +86,7 @@ try {
   assert.equal(init.result.serverInfo.name, 'class-platform');
   mcp.notify('notifications/initialized');
   const tools = (await mcp.call('tools/list')).result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['init_project', 'check_project', 'deploy', 'status', 'logs', 'project_status', 'pull_project', 'push_project', 'project_auto', 'update_kit']);
+  assert.deepEqual(tools.map((t) => t.name), ['init_project', 'check_project', 'deploy', 'status', 'logs', 'project_status', 'pull_project', 'push_project', 'project_auto', 'list_addons', 'add_addon', 'remove_addon', 'update_kit']);
   assert.deepEqual(tools.find((t) => t.name === 'update_kit').inputSchema.required, ['confirm']);
   assert.deepEqual(tools.find((t) => t.name === 'deploy').inputSchema.required, ['confirm']);
   for (const name of ['pull_project', 'push_project']) assert.match(tools.find((t) => t.name === name).description, /ask the student first[\s\S]*confirm=true/i, `${name} asks before it acts`);
