@@ -12,6 +12,8 @@
 // On a new computer: download the starter kit from the portal, open the folder, run  npm run login  and then  npm run pull  (the kit files come from the portal,
 // everything else from your project).
 //
+// After the first yes (npm run push, or the editor tool push_project), every `npm run deploy` also saves the project's files here (never stopping the deploy);
+//   npm run project -- --auto off    stops that (and  --auto on  starts it again).
 // What is never synced: the kit's own files (they come from the portal), node_modules, .git, build output (dist, build, ...), secrets (.env, .env.local, keys),
 // the knowledge/ books and anything listed in a file called .syncignore (one name, folder/ or *.ext per line). A file can be up to 5 MB; a project up to 50 MB and 500 files.
 //
@@ -87,14 +89,22 @@ export function scan(root) {
 export function loadState(root) {
   try {
     const state = JSON.parse(readFileSync(join(root, STATE_FILE), 'utf8'));
-    return { project: state.project || 'personal', rev: state.rev || 0, base: state.base || {}, known: true };
+    return { project: state.project || 'personal', rev: state.rev || 0, base: state.base || {}, auto: typeof state.auto === 'boolean' ? state.auto : undefined, known: true };
   } catch {
-    return { project: 'personal', rev: 0, base: {}, known: false };
+    return { project: 'personal', rev: 0, base: {}, auto: undefined, known: false };
   }
 }
 
+/** Writes what was synced. `auto` (the student's answer to "save this project automatically after every deploy?": true, false or not asked yet) is kept as it is unless given. */
 export function saveState(root, state) {
-  writeFileSync(join(root, STATE_FILE), `${JSON.stringify({ project: state.project, rev: state.rev, base: state.base }, null, 1)}\n`);
+  const auto = state.auto !== undefined ? state.auto : loadState(root).auto;
+  writeFileSync(join(root, STATE_FILE), `${JSON.stringify({ project: state.project, rev: state.rev, base: state.base, ...(auto === undefined ? {} : { auto }) }, null, 1)}\n`);
+}
+
+/** Remember the student's answer to "save this project on the platform automatically after every deploy?" (true, false). */
+export function setAuto(root, value) {
+  const state = loadState(root);
+  saveState(root, { ...state, auto: Boolean(value) });
 }
 
 // ---------- the platform ----------
@@ -219,8 +229,9 @@ export function planPush(local, base) {
   return changes;
 }
 
-export async function push({ portalUrl, session, root = '.', project, mine = false, dryRun = false, log = console.log, warn = console.warn }) {
+export async function push({ portalUrl, session, root = '.', project, mine = false, dryRun = false, remember = false, log = console.log, warn = console.warn }) {
   const call = http(portalUrl, session);
+  if (remember && !dryRun) setAuto(root, true); // the student said yes: this project is saved now and after every deploy
   const state = loadState(root);
   const wanted = project || state.project;
   if (state.known && wanted !== state.project) stop(`This folder is synced with "${state.project}". Run  npm run pull -- --project ${wanted}  first, or work in another folder.`);

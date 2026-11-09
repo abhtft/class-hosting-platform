@@ -221,6 +221,15 @@ async function status() {
   const { token } = info;
   console.log(`Signed in as ${info.name} (${info.slug}). Token status: ${token.status}; valid for ${info.daysLeft} more day${info.daysLeft === 1 ? '' : 's'}; ${token.can_deploy ? 'it can deploy.' : 'it CANNOT deploy right now: ask your teacher.'} Token from ${tokenSource}.`);
   for (const line of featureLines(token)) console.log(line);
+  try { // project sync: say whether this project is saved on the platform (the editor tool reads this and asks the student once)
+    const tool = await loadProjectTool();
+    if (tool) {
+      const state = tool.loadState(process.cwd());
+      if (state.auto === true) console.log('Project files: saved on the platform after every deploy (turn off with  npm run project -- --auto off).');
+      else if (state.auto === false) console.log('Project files: automatic saving is off for this project (npm run project -- --auto on turns it on).');
+      else console.log('Project files: NOT saved on the platform yet. Ask the student: "Save a copy of your project files on the platform, so you can use them on other computers? (your teacher can read them; I will also save them after every deploy)". If yes, use push_project with confirm=true (or  npm run push  in a terminal); if no, use project_auto with enabled=false.');
+    }
+  } catch { /* a status line is never worth a failure */ }
 }
 
 /** `logs`: what your backend printed lately (newest last). `--errors` shows only errors and tracebacks. Secrets you set as variables are hidden as ***. */
@@ -474,11 +483,48 @@ async function syncBooksAfterDeploy(session, token) {
 }
 
 // ---------- project sync: pull, push, project (tools/project.mjs does the work) ----------
+async function loadProjectTool() {
+  const tool = join(process.cwd(), 'tools', 'project.mjs');
+  return existsSync(tool) ? import(pathToFileURL(tool).href) : null;
+}
+
+/** After a deploy: save the project's files on the platform when the student has said yes (once, by `push`, the editor tool, or the question below). It never stops or fails the deploy. */
+async function syncProjectAfterDeploy(session) {
+  if (flag('--no-project-sync')) return;
+  const tool = await loadProjectTool();
+  if (!tool) return;
+  try {
+    const state = tool.loadState(process.cwd());
+    if (state.auto === false) return;
+    if (state.auto !== true) {
+      if (!process.stdin.isTTY) {
+        console.log('Tip: your project files are not saved on the platform yet. Run  npm run push  once (or tell your AI editor "save my project") to keep a copy that you can use on other computers; after that every deploy saves it for you.');
+        return;
+      }
+      const answer = (await ask('\nSave a copy of your project files on the platform, now and after every deploy? You can use them on other computers, and your teacher can read them. [Y/n] ')).trim().toLowerCase();
+      if (answer === 'n' || answer === 'no') { tool.setAuto(process.cwd(), false); console.log('OK, not saved. Change your mind later with  npm run project -- --auto on'); return; }
+      tool.setAuto(process.cwd(), true);
+    }
+    const keep = (message) => { if (/^(Pushed|Nothing to push|Nothing from|\s+CONFLICT)/.test(message)) console.log(message); };
+    const result = await tool.push({ portalUrl: PORTAL_URL, session, root: process.cwd(), log: keep, warn: () => {} });
+    if (result.conflicts.length) console.warn('⚠ Your project files were not saved: a teammate changed the same file(s). Run  npm run pull  and then  npm run push.');
+    else if (result.pushed) console.log('✔ Project files saved on the platform.');
+  } catch (error) {
+    console.warn(`⚠ Your project files were not saved (${error.message}). Run  npm run push  to try again. Your deploy is not affected.`);
+  }
+}
+
 /** `pull`, `push` and `project`: keep the project's source files on the platform (a second computer, or a team). */
 async function projectCommand(name) {
   const tool = join(process.cwd(), 'tools', 'project.mjs');
   if (!existsSync(tool)) fail('tools/project.mjs is missing. Run  npm run platform -- update --apply  to restore the kit files.');
-  const { pull, push, status, Stop: ToolStop } = await import(pathToFileURL(tool).href);
+  const { pull, push, status, setAuto, Stop: ToolStop } = await import(pathToFileURL(tool).href);
+  if (name === 'project' && option('--auto')) {
+    if (!['on', 'off'].includes(option('--auto'))) fail('--auto is on or off.');
+    setAuto(process.cwd(), option('--auto') === 'on');
+    console.log(option('--auto') === 'on' ? 'Your project files will be saved on the platform after every deploy (and by  npm run push).' : 'Your project files will not be saved automatically any more. You can still use  npm run push.');
+    return;
+  }
   const saved = readToken();
   if (!saved) fail(NO_TOKEN());
   const { session } = await signIn(saved);
@@ -488,7 +534,7 @@ async function projectCommand(name) {
       const result = await pull({ ...common, theirs: flag('--theirs') });
       if (result.conflicts.length) process.exitCode = 1;
     } else if (name === 'push') {
-      const result = await push({ ...common, mine: flag('--mine') });
+      const result = await push({ ...common, mine: flag('--mine'), remember: flag('--remember') });
       if (result.conflicts.length) process.exitCode = 1;
     } else {
       await status(common);
@@ -542,6 +588,7 @@ async function main() {
   if (doBackend) await deployBackend(session, backendDir);
   if (doFrontend) await deployFrontend(session, frontendDir);
   if (!only) await syncBooksAfterDeploy(session, token);
+  await syncProjectAfterDeploy(session);
   // inside the student kit: one quiet line when a newer kit exists (a terminal only; this file also runs alone, so it is optional)
   const notice = join(process.cwd(), 'tools', 'update-notice.mjs');
   if (existsSync(notice)) await import(pathToFileURL(notice).href).then((m) => m.updateNotice(process.cwd())).catch(() => {});

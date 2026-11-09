@@ -191,6 +191,51 @@ const TOOLS = [
     },
   },
   {
+    name: 'project_status',
+    description: 'Project sync: list the student’s projects on the platform (their personal one and any team projects their teacher made) and say what is not sent yet. Reads only; changes nothing. Use it to see whether a push or a pull is needed, for example when the student sits down at another computer or a teammate may have changed files.',
+    inputSchema: { type: 'object', properties: { path: PATH_PROPERTY }, additionalProperties: false },
+    run: ({ path } = {}) => { const root = projectRoot(path); return run(scriptFor(root, 'deploy'), ['project'], 60000, root); },
+  },
+  {
+    name: 'pull_project',
+    description: 'Project sync: bring the newest source files of the student’s project from the platform into this folder (another computer, or a teammate’s changes). It never overwrites a file both sides changed: their copy is saved as <file>.theirs and the student decides. With dry_run=true it only lists what would happen. IMPORTANT: ask the student first and call this with confirm=true only after they say yes (dry_run needs no yes). For a team project pass its id as project (the folder remembers it). Never use theirs=true unless the student asked to take the platform’s copy; their own file is kept as <file>.mine.',
+    inputSchema: {
+      type: 'object',
+      properties: { confirm: { type: 'boolean', description: 'true only after the student agreed to pull now' }, dry_run: { type: 'boolean' }, project: { type: 'string', description: 'a team project id; leave out for the personal project' }, theirs: { type: 'boolean', description: 'take the platform’s copy for files that conflict (only if the student asked)' }, path: PATH_PROPERTY },
+      additionalProperties: false,
+    },
+    async run({ confirm, dry_run: dryRun, project, theirs, path } = {}) {
+      if (confirm !== true && dryRun !== true) return { ok: false, text: 'Not pulled. Ask the student whether to pull now; if they say yes, call pull_project again with confirm=true (or use dry_run=true to only look).' };
+      const root = projectRoot(path);
+      return run(scriptFor(root, 'deploy'), ['pull', ...(dryRun ? ['--dry-run'] : []), ...(project ? ['--project', String(project)] : []), ...(theirs ? ['--theirs'] : [])], 120000, root);
+    },
+  },
+  {
+    name: 'push_project',
+    description: 'Project sync: send the files the student changed (new, changed, deleted) to their project on the platform, so another computer or a teammate can pull them. Secrets (.env files, keys), node_modules, build output and the kit’s own files are never sent. If a teammate changed the same file, nothing is sent: the answer lists the files; tell the student, run pull_project, and let them decide (mine=true sends the student’s version over the platform’s only if they ask). With dry_run=true it only lists what would be sent. IMPORTANT: ask the student first and call this with confirm=true only after they say yes (dry_run needs no yes). A yes also turns on saving after every deploy, so say that when you ask; the student can turn it off with project_auto.',
+    inputSchema: {
+      type: 'object',
+      properties: { confirm: { type: 'boolean', description: 'true only after the student agreed to push now' }, dry_run: { type: 'boolean' }, project: { type: 'string', description: 'a team project id; leave out for the personal project' }, mine: { type: 'boolean', description: 'send the student’s files over the platform’s when they conflict (only if the student asked)' }, path: PATH_PROPERTY },
+      additionalProperties: false,
+    },
+    async run({ confirm, dry_run: dryRun, project, mine, path } = {}) {
+      if (confirm !== true && dryRun !== true) return { ok: false, text: 'Not pushed. Ask the student whether to push now; if they say yes, call push_project again with confirm=true (or use dry_run=true to only look).' };
+      const root = projectRoot(path);
+      return run(scriptFor(root, 'deploy'), ['push', ...(dryRun ? ['--dry-run'] : ['--remember']), ...(project ? ['--project', String(project)] : []), ...(mine ? ['--mine'] : [])], 120000, root);
+    },
+  },
+  {
+    name: 'project_auto',
+    description: 'Project sync: turn the automatic saving of the project files (after every deploy) on or off for this folder. enabled=false needs no question (the student said no or changed their mind). enabled=true needs the student\u2019s yes first: call it with confirm=true only after they said yes.',
+    inputSchema: { type: 'object', properties: { enabled: { type: 'boolean' }, confirm: { type: 'boolean', description: 'true only after the student agreed (needed to turn it on)' }, path: PATH_PROPERTY }, required: ['enabled'], additionalProperties: false },
+    async run({ enabled, confirm, path }) {
+      if (typeof enabled !== 'boolean') return { ok: false, text: 'enabled must be true or false.' };
+      if (enabled && confirm !== true) return { ok: false, text: 'Not turned on. Ask the student whether to save the project files after every deploy; if they say yes, call project_auto again with confirm=true.' };
+      const root = projectRoot(path);
+      return run(scriptFor(root, 'deploy'), ['project', '--auto', enabled ? 'on' : 'off'], 30000, root);
+    },
+  },
+  {
     name: 'update_kit',
     description: 'Bring the class kit\'s own files (the rules for AI editors, tools/, the deploy script, the helpers class_ai, class_storage and class_knowledge, the check) up to date from the portal. It never touches the student\'s own code, .env files or files the student edited. IMPORTANT: ask the student first and call this with confirm=true only after they say yes. Afterwards tell them to restart this tool server (or reload the editor).',
     inputSchema: { type: 'object', properties: { confirm: { type: 'boolean', description: 'true only after the student agreed to update' }, path: PATH_PROPERTY }, required: ['confirm'], additionalProperties: false },

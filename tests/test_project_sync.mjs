@@ -173,6 +173,24 @@ try {
   assert.equal(read(B, 'README.md'), '# changed on A', 'deleted here but changed on the platform: restored, not lost');
   say('deletes travel too; a file deleted here that changed elsewhere comes back');
 
+  // the answer to "save automatically after every deploy?" is remembered and survives every later sync
+  const auto = join(work, 'auto');
+  put(auto, 'a.txt', 'one');
+  assert.equal(tool.loadState(auto).auto, undefined, 'not asked yet');
+  await tool.push(opts('bob', auto));
+  assert.equal(tool.loadState(auto).auto, undefined, 'a plain push does not decide for the student');
+  await tool.push(opts('bob', auto, { remember: true }));
+  assert.equal(tool.loadState(auto).auto, true, 'a push with a yes turns it on');
+  put(auto, 'a.txt', 'two');
+  await tool.push(opts('bob', auto));
+  await tool.pull(opts('bob', auto));
+  assert.equal(tool.loadState(auto).auto, true, 'pushes and pulls keep the answer');
+  tool.setAuto(auto, false);
+  assert.equal(tool.loadState(auto).auto, false);
+  await tool.push(opts('bob', auto, { dryRun: true, remember: true }));
+  assert.equal(tool.loadState(auto).auto, false, 'a dry run never turns it on');
+  say('the automatic-saving answer: unknown until the student says yes (a push with a yes) or no, and every later sync keeps it');
+
   // a team project
   const aliceSlug = await slugOf('alice');
   const bobSlug = await slugOf('bob');

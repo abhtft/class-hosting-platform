@@ -20,7 +20,7 @@ Why it matters here: students are beginners. Instead of learning `npm run check`
 |---|---|
 | Package | `class-platform-mcp` (published by the teacher's portal, not on the public npm registry) |
 | Transport | **stdio**: the editor starts the process and exchanges one JSON-RPC 2.0 message per line on stdin/stdout |
-| Tools | `init_project`, `check_project`, `deploy`, `status`, `logs`, `update_kit` |
+| Tools | `init_project`, `check_project`, `deploy`, `status`, `logs`, `project_status`, `pull_project`, `push_project`, `project_auto`, `update_kit` |
 | Who writes the files | The tools run existing scripts (`check.mjs`, `portal-deploy.mjs`, `platform.mjs`) and unpack the starter kit; nothing else |
 | Token | Never in the editor's settings. Read from the environment or the project's `.env.local` (`npm run login` saves it there). There is no computer-wide token |
 | Code | `starter/mcp/server.mjs` (the one server), `bin.mjs` (command entry), `setup.mjs` (editor setup), `jsonc.mjs`, `package.json`; built by `starter/build-mcp-package.mjs` |
@@ -35,6 +35,10 @@ Why it matters here: students are beginners. Instead of learning `npm run check`
 | `deploy` | Runs the check, **refuses to publish if it fails**, then publishes backend first, then frontend, and returns the live address. Optional `only: frontend | backend`. One deploy at a time | **Yes** |
 | `status` | Is the saved token valid and for how many days; is a newer kit or a newer MCP package available. Deploys nothing | No |
 | `logs` | What the student's published backend printed lately: the newest lines, errors and tracebacks included, secrets the student set as variables shown as `***`. `errors=true` shows only errors; `minutes` looks further back (1 to 180). The first thing to read when the live backend answers 502 or does nothing. Same as `npm run logs`. |
+| `project_status` | Project sync: the student's projects (personal and team) and what is not sent yet. Reads only | No |
+| `push_project` | Project sync: sends the files the student changed to their project on the platform (`dry_run=true` only lists); the first yes also turns on saving after every deploy. Never sends secrets, `node_modules`, build output or kit files. A file a teammate changed is not overwritten: the answer lists it | **Yes** (`confirm=true`; not needed for `dry_run`) |
+| `pull_project` | Project sync: brings newer files from the platform into the folder (`dry_run=true` only lists). A file both sides changed is saved as `<file>.theirs`, never overwritten | **Yes** (same) |
+| `project_auto` | Project sync: turns the automatic saving of the project's files after every deploy off (no question) or on (needs a yes, `confirm=true`) | On: **Yes** |
 | `update_kit` | Brings the kit's own files (rules, `tools/`, deploy script, helpers) up to date. Never touches the student's code, `.env` files or files the student edited | **Yes** |
 
 The "ask first" rule is written into each tool's **description**, which is what the AI reads. The tools also enforce it: without `confirm: true` they do nothing and answer with the sentence the AI should say to the student.

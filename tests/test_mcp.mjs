@@ -86,9 +86,10 @@ try {
   assert.equal(init.result.serverInfo.name, 'class-platform');
   mcp.notify('notifications/initialized');
   const tools = (await mcp.call('tools/list')).result.tools;
-  assert.deepEqual(tools.map((t) => t.name), ['init_project', 'check_project', 'deploy', 'status', 'logs', 'update_kit']);
+  assert.deepEqual(tools.map((t) => t.name), ['init_project', 'check_project', 'deploy', 'status', 'logs', 'project_status', 'pull_project', 'push_project', 'project_auto', 'update_kit']);
   assert.deepEqual(tools.find((t) => t.name === 'update_kit').inputSchema.required, ['confirm']);
   assert.deepEqual(tools.find((t) => t.name === 'deploy').inputSchema.required, ['confirm']);
+  for (const name of ['pull_project', 'push_project']) assert.match(tools.find((t) => t.name === name).description, /ask the student first[\s\S]*confirm=true/i, `${name} asks before it acts`);
   assert.equal((await mcp.call('nope')).error.code, -32601);
   assert.equal((await mcp.call('tools/call', { name: 'nope' })).error.code, -32602);
   assert.deepEqual((await mcp.call('ping')).result, {});
@@ -109,6 +110,7 @@ try {
   const status = await mcp.tool('status');
   assert.equal(status.isError, false, status.content[0].text);
   assert.match(status.content[0].text, /Signed in as .*alice/i);
+  assert.match(status.content[0].text, /Project files: NOT saved on the platform yet\. Ask the student/, 'status tells the AI to ask the student once about saving the project');
   assert.match(status.content[0].text, /Kit \d+\.\d+\.\d+: up to date\./, 'status also says whether the kit is current');
   say('status reads the saved token and reports who is signed in and for how long');
 
@@ -120,6 +122,26 @@ try {
   const wrongOnly = await mcp.tool('deploy', { confirm: true, only: 'everything' });
   assert.equal(wrongOnly.isError, true);
   say('deploy without confirm=true publishes nothing');
+
+  // project sync through the editor: look freely, change only after a yes
+  const looked = await mcp.tool('project_status');
+  assert.equal(looked.isError, false, looked.content[0].text);
+  assert.match(looked.content[0].text, /personal {2}\(only yours\)/);
+  for (const name of ['push_project', 'pull_project']) {
+    const refusedWithoutYes = await mcp.tool(name, {});
+    assert.equal(refusedWithoutYes.isError, true);
+    assert.match(refusedWithoutYes.content[0].text, /Ask the student whether to/);
+  }
+  const dry = await mcp.tool('push_project', { dry_run: true });
+  assert.equal(dry.isError, false, dry.content[0].text);
+  assert.match(dry.content[0].text, /would send/);
+  const pushed = await mcp.tool('push_project', { confirm: true });
+  assert.equal(pushed.isError, false, pushed.content[0].text);
+  assert.match(pushed.content[0].text, /Pushed \d+ changes?\. The project is now at revision 1/);
+  const pulled = await mcp.tool('pull_project', { confirm: true });
+  assert.equal(pulled.isError, false, pulled.content[0].text);
+  assert.match(pulled.content[0].text, /Nothing to pull/);
+  say('project_status reads freely; push_project and pull_project do nothing without a yes, a dry run only lists, and with a yes they push and pull through the portal');
 
   // a project that fails the check is not deployed
   appendFileSync(join(kit, 'backend', 'app.py'), '\nimport requests\n');
@@ -136,6 +158,21 @@ try {
   assert.match(deployed.content[0].text, /Backend ready \(python3\.12\)/);
   assert.equal((await fetch(`${URL}/b/alice/health`)).status, 200);
   say('deploy with confirm=true checks, then publishes the backend through the same portal-deploy.mjs');
+
+  // the yes given to push_project also turns on saving after every deploy; project_auto turns it off and on
+  assert.match(deployed.content[0].text, /Project files saved on the platform|Nothing to push/, 'a deploy saves the project files after the first yes');
+  assert.match((await mcp.tool('status')).content[0].text, /Project files: saved on the platform after every deploy/);
+  appendFileSync(join(kit, 'README.md'), '\nA note written after the first save.\n');
+  const again = await mcp.tool('deploy', { confirm: true, only: 'backend' });
+  assert.match(again.content[0].text, /Pushed \d+ changes?\./, 'a changed file is saved by the next deploy without anyone asking');
+  assert.equal((await mcp.tool('project_auto', { enabled: true })).isError, true, 'turning it on needs a yes');
+  assert.equal((await mcp.tool('project_auto', { enabled: false })).isError, false);
+  assert.match((await mcp.tool('status')).content[0].text, /automatic saving is off for this project/);
+  appendFileSync(join(kit, 'README.md'), '\nAnother note.\n');
+  const quiet = await mcp.tool('deploy', { confirm: true, only: 'backend' });
+  assert.doesNotMatch(quiet.content[0].text, /Pushed|Project files saved/, 'with it off a deploy saves nothing');
+  assert.equal((await mcp.tool('project_auto', { enabled: true, confirm: true })).isError, false);
+  say('after the first yes every deploy saves the project files by itself; project_auto turns that off (no question) and on (needs a yes), and status says which');
 
   const everything = JSON.stringify(mcp.lines);
   assert.ok(!everything.includes(token), 'the token must never appear in anything the server says');
