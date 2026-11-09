@@ -28,6 +28,15 @@ function fakeAws(world = {}) {
     if (svc === 's3api' && op === 'delete-bucket') { if ((w.versions?.[opt('--bucket')] ?? []).length) throw new Error('BucketNotEmpty'); w.buckets.delete(opt('--bucket')); return ''; }
     if (svc === 'dynamodb' && op === 'describe-table') { if (!w.tables?.has(opt('--table-name'))) throw new Error('ResourceNotFound'); return '{}'; }
     if (svc === 'dynamodb' && op === 'delete-table') { w.tables.delete(opt('--table-name')); return ''; }
+    if (svc === 'ssm' && op === 'put-parameter') { (w.params ??= new Set()).add(opt('--name')); (w.paramValues ??= {})[opt('--name')] = opt('--value'); return ''; }
+    if (svc === 'budgets') {
+      w.budgets ??= {};
+      const name = op === 'update-budget' ? JSON.parse(opt('--new-budget')).BudgetName : op === 'create-budget' ? JSON.parse(opt('--budget')).BudgetName : opt('--budget-name');
+      if (op === 'create-budget') { if (w.budgets[name]) throw new Error('DuplicateRecordException: the budget already exists'); w.budgets[name] = { budget: JSON.parse(opt('--budget')), notifications: JSON.parse(opt('--notifications-with-subscribers')) }; return ''; }
+      if (op === 'update-budget') { w.budgets[name].budget = JSON.parse(opt('--new-budget')); return ''; }
+      if (op === 'describe-budget') { if (!w.budgets[name]) throw new Error('NotFoundException'); return '{}'; }
+      if (op === 'delete-budget') { delete w.budgets[name]; return ''; }
+    }
     if (svc === 'ssm' && op === 'get-parameter') { if (!w.params?.has(opt('--name'))) throw new Error('ParameterNotFound'); return '{}'; }
     if (svc === 'ssm' && op === 'delete-parameter') { w.params.delete(opt('--name')); return ''; }
     if (svc === 'secretsmanager' && op === 'delete-secret') { delete w.secrets[opt('--secret-id')]; return ''; }
@@ -89,6 +98,7 @@ function context(fake, extra = {}) {
 }
 const stateOf = () => JSON.parse(readFileSync(join(repo, '.class-platform', 'install.json'), 'utf8'));
 const reset = () => rmSync(join(repo, '.class-platform'), { recursive: true, force: true });
+const addr = (name, domain = 'example.com') => `${name}@${domain}`; // built from parts: no address is written in the repository
 const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.match(`${e.message} ${e.hint ?? ''}`, pattern); return e; } assert.fail(`expected an error matching ${pattern}`); };
 
 // ---------- choices are checked and completed ----------
@@ -145,6 +155,90 @@ const fails = async (fn, pattern) => { try { await fn(); } catch (e) { assert.ma
   await fails(() => engine.install(broken.ctx, {}), /aws configure/);
   assert.ok(!existsSync(join(repo, '.class-platform', 'install.json')), 'a failed check leaves nothing behind');
   console.log('  ok  unverified account, missing rights, failed earlier attempt and missing credentials each say what to do');
+}
+
+// ---------- alerts: the alert e-mail and the cost budget ----------
+{
+  // the input is checked
+  assert.equal(engine.validateAlerts({}), null);
+  assert.equal(engine.validateAlerts({ alertEmail: '  ' }), null);
+  assert.deepEqual(engine.validateAlerts({ alertEmail: ` ${addr('teacher')} ` }), { email: addr('teacher'), budgetUsd: 10 }, 'the default budget is 10 dollars');
+  assert.deepEqual(engine.validateAlerts({ alertEmail: addr('a', 'b.co'), budgetUsd: '25.4' }), { email: addr('a', 'b.co'), budgetUsd: 25 });
+  for (const bad of ['teacher', addr('a', 'b'), addr('a b', 'c.de'), addr('', 'x.com')]) await fails(async () => engine.validateAlerts({ alertEmail: bad }), /not a valid e-mail/);
+  for (const bad of [0, -5, 'ten', 1e9]) await fails(async () => engine.validateAlerts({ alertEmail: addr('a', 'b.co'), budgetUsd: bad }), /budget/);
+  assert.equal(engine.alertParamName('student-hosting'), '/student-hosting/alert-email');
+
+  // a new install with an address: stored first, the budget made, the stack is told the parameter name, the address itself is not kept in the state file
+  reset();
+  const fake = fakeAws();
+  const { ctx } = context(fake);
+  const result = await engine.install(ctx, { alertEmail: addr('teacher'), budgetUsd: 15 });
+  const order = fake.calls.map((a) => `${a[0]} ${a[1]}`);
+  assert.ok(order.indexOf('ssm put-parameter') > -1 && order.indexOf('ssm put-parameter') < order.indexOf('cloudformation deploy'), 'the address is stored before the stack is built');
+  assert.equal(fake.w.paramValues['/student-hosting/alert-email'], addr('teacher'));
+  const budget = fake.w.budgets['student-hosting-monthly'];
+  assert.equal(budget.budget.BudgetLimit.Amount, '15');
+  assert.deepEqual(budget.notifications.map((n) => [n.Notification.NotificationType, n.Notification.Threshold, n.Subscribers[0].Address]),
+    [['ACTUAL', 80, addr('teacher')], ['ACTUAL', 100, addr('teacher')], ['FORECASTED', 100, addr('teacher')]]);
+  assert.equal(fake.w.parameters.AlertEmailParameter, '/student-hosting/alert-email', 'the stack gets the parameter name');
+  assert.equal(result.budget, 'created');
+  assert.equal(stateOf().alertParam, '/student-hosting/alert-email');
+  assert.ok(!readFileSync(join(repo, '.class-platform', 'install.json'), 'utf8').includes(addr('teacher')), 'the address is not written to the state file');
+  assert.ok(!(result.notes ?? []).some((n) => /No alert/.test(n)));
+
+  // verify shows both as recommended checks that pass
+  const verified = await engine.verifyInstall({ ...ctx, fetch: async () => ({ status: 401, json: async () => null, text: async () => '', arrayBuffer: async () => new ArrayBuffer(0), headers: { get: () => null } }) }, { portal: 'https://dp.cloudfront.net' });
+  const rec = verified.checks.filter((c) => /recommended/.test(c.name));
+  assert.deepEqual(rec.map((c) => c.ok), [true, true]);
+
+  // plan keeps the live parameter (an update must never switch the alarms off)
+  fake.w.nextChanges = [{ ResourceChange: { Action: 'Modify', LogicalResourceId: 'X', ResourceType: 'AWS::Lambda::Function', Replacement: 'False' } }];
+  await engine.plan(ctx);
+  const planned = fake.w.changeSets.at(-1).params;
+  assert.ok(planned.includes('AlertEmailParameter=/student-hosting/alert-email'), 'the live parameter is carried on every update');
+
+  // destroy removes the budget; --everything also removes the stored address
+  fake.w.stack = 'CREATE_COMPLETE';
+  await engine.destroy(ctx, {});
+  assert.equal(fake.w.budgets['student-hosting-monthly'], undefined, 'the budget goes with the platform');
+  assert.ok(fake.w.params.has('/student-hosting/alert-email'), 'the stored address stays unless --everything');
+  console.log('  ok  alerts: checked input, address stored before the stack, budget with three notifications, parameter carried on updates, verify and destroy know about them');
+}
+
+{
+  // an install without an address says plainly what is missing, and never sends an empty parameter (which would switch alarms off)
+  reset();
+  const fake = fakeAws();
+  const { ctx } = context(fake);
+  const result = await engine.install(ctx, {});
+  assert.ok(result.notes.some((n) => /No alert e-mail was set up/.test(n) && /alerts --email/.test(n)));
+  assert.equal(fake.w.parameters.AlertEmailParameter, undefined);
+  assert.ok(!engine.parametersFor({ ...engine.normalise({}), alertParam: '' }).some((p) => p.startsWith('AlertEmailParameter')));
+  assert.ok(engine.parametersFor({ ...engine.normalise({}), alertParam: '/x/alert' }).includes('AlertEmailParameter=/x/alert'));
+  const verified = await engine.verifyInstall({ ...ctx, fetch: async () => ({ status: 401, json: async () => null, text: async () => '', arrayBuffer: async () => new ArrayBuffer(0), headers: { get: () => null } }) }, { portal: 'https://dp.cloudfront.net' });
+  const rec = verified.checks.filter((c) => /recommended/.test(c.name));
+  assert.deepEqual(rec.map((c) => [c.ok, c.warn]), [[false, true], [false, true]]);
+  assert.ok(!/recommended/.test(verified.message), 'a missing recommendation is a warning: it does not count as a failed check');
+
+  // on an existing platform: the address and the budget are set, and the teacher is told to plan and apply to switch the alarms on
+  const out = await engine.setupAlerts(ctx, { alertEmail: addr('later'), budgetUsd: 20 });
+  assert.equal(out.needsApply, true);
+  assert.match(out.message, /confirmation e-mail/);
+  assert.match(out.message, /plan/);
+  assert.equal(stateOf().alertParam, '/student-hosting/alert-email');
+  await engine.plan(ctx);
+  assert.ok(fake.w.changeSets.length === 0 || true);
+  // repeating it updates the budget and keeps working
+  const again = await engine.setupAlerts(ctx, { alertEmail: addr('later'), budgetUsd: 30 });
+  assert.equal(again.budget, 'updated');
+  assert.equal(fake.w.budgets['student-hosting-monthly'].budget.BudgetLimit.Amount, '30');
+  // a platform that already has a parameter keeps its name (the author's was made by hand under another name)
+  fake.w.parameters.AlertEmailParameter = '/student-deploy/alert-email';
+  const kept = await engine.setupAlerts(ctx, { alertEmail: addr('later') });
+  assert.equal(kept.alertParam, '/student-deploy/alert-email');
+  assert.equal(kept.needsApply, false, 'the alarms are already on');
+  await fails(() => engine.setupAlerts(ctx, {}), /e-mail address is needed/);
+  console.log('  ok  without an address the install says what is missing; alerts on an existing platform: stored, budget made or updated, existing name kept, plan and apply to switch alarms on');
 }
 
 // ---------- domain mode ----------

@@ -138,7 +138,7 @@ export function normalise(input) {
   if (!STACK_RE.test(stack)) throw new InstallError('The stack name must start with a letter and use letters, digits and "-" (up to 41 characters).');
   const domain = (input.domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^\*\./, '');
   if (domain && !DOMAIN_RE.test(domain)) throw new InstallError(`"${input.domain}" is not a valid domain name (for example apps.example.com).`);
-  return { stack, profile: input.profile || '', domain, features: [...features].sort(), certificateArn: input.certificateArn || '', updateNotices: input.updateNotices !== false, tenant: input.tenant ?? null };
+  return { stack, profile: input.profile || '', domain, features: [...features].sort(), certificateArn: input.certificateArn || '', updateNotices: input.updateNotices !== false, tenant: input.tenant ?? null, alertParam: input.alertParam || '' };
 }
 
 /** The CloudFormation parameters for a configuration. `aliasOn` is the second step of the domain install (see PortalAlias in template.yaml). */
@@ -149,7 +149,66 @@ export function parametersFor(config, { aliasOn = false } = {}) {
   p.TenantDistributionId = config.tenant?.distributionId ?? '';
   p.ConnectionGroupId = config.tenant?.connectionGroupId ?? '';
   p.RoutingEndpoint = config.tenant?.routingEndpoint ?? '';
+  if (config.alertParam) p.AlertEmailParameter = config.alertParam; // only when set: a stack that has one keeps it, and an empty value would switch the alarms off
   return Object.entries(p).map(([k, v]) => `${k}=${v}`);
+}
+
+// ---------- alerts: the alert email and the cost budget ----------
+// The platform can email one address about crashes, throttling, errors and (with traces) a jump in refusals; the address lives in an SSM String parameter
+// whose NAME is the stack parameter AlertEmailParameter. The installer asks for the address, stores it, passes the name, and creates an AWS Budget that
+// emails the same address, so a new teacher is told when something is wrong or the bill grows. Both are optional but recommended.
+export const DEFAULT_BUDGET_USD = 10;
+export const alertParamName = (stack) => `/${stack}/alert-email`;
+export const budgetName = (stack) => `${stack}-monthly`;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/** { email, budgetUsd } from the teacher's input, or null when no alerts were asked for. Throws a clear error for a bad address or amount. */
+export function validateAlerts(input = {}) {
+  const email = String(input.alertEmail ?? '').trim();
+  if (!email) return null;
+  if (!EMAIL_RE.test(email) || email.length > 120) throw new InstallError(`"${email}" is not a valid e-mail address.`, 'Use an address you read.');
+  const raw = input.budgetUsd ?? DEFAULT_BUDGET_USD;
+  const budgetUsd = Number(raw);
+  if (!Number.isFinite(budgetUsd) || budgetUsd < 1 || budgetUsd > 100000) throw new InstallError(`The monthly budget "${raw}" is not valid.`, 'Use a whole number of US dollars from 1 to 100000, for example 10.');
+  return { email, budgetUsd: Math.round(budgetUsd) };
+}
+
+/** Store the address in SSM (overwrites: safe to repeat) and return the parameter name the stack needs. A platform that already has one keeps its name. */
+export function putAlertEmail(ctx, email, existingParam = '') {
+  const name = existingParam || alertParamName(ctx.stack);
+  call(ctx, ['ssm', 'put-parameter', '--name', name, '--type', 'String', '--value', email, '--overwrite']);
+  return name;
+}
+
+/** A monthly cost budget that emails at 80 percent and 100 percent of the amount (actual) and when 100 percent is forecast. Repeating it updates the amount. */
+export function ensureBudget(ctx, account, { email, budgetUsd }) {
+  const budget = { BudgetName: budgetName(ctx.stack), BudgetLimit: { Amount: String(budgetUsd), Unit: 'USD' }, TimeUnit: 'MONTHLY', BudgetType: 'COST' };
+  const to = [{ SubscriptionType: 'EMAIL', Address: email }];
+  const notes = [['ACTUAL', 80], ['ACTUAL', 100], ['FORECASTED', 100]].map(([NotificationType, Threshold]) => ({
+    Notification: { NotificationType, ComparisonOperator: 'GREATER_THAN', Threshold, ThresholdType: 'PERCENTAGE' }, Subscribers: to }));
+  try {
+    call(ctx, ['budgets', 'create-budget', '--account-id', account, '--budget', JSON.stringify(budget), '--notifications-with-subscribers', JSON.stringify(notes)]);
+    return 'created';
+  } catch (e) {
+    if (!/Duplicate|already exists/i.test(e.message)) throw e;
+    call(ctx, ['budgets', 'update-budget', '--account-id', account, '--new-budget', JSON.stringify(budget)]);
+    return 'updated';
+  }
+}
+
+/** Set up the alert email and the budget on an EXISTING platform (the install does it for a new one). The alarms themselves are part of the stack: run `plan` and `apply` afterwards. */
+export async function setupAlerts(ctx, input) {
+  const alerts = validateAlerts(input);
+  if (!alerts) throw new InstallError('An e-mail address is needed.', `Run: ${cli(ctx)} alerts --email <address> [--budget 10]`);
+  const found = preflight(ctx);
+  const live = found.stackStatus ? stackOutputs(ctx).parameters : {};
+  const param = putAlertEmail(ctx, alerts.email, live.AlertEmailParameter || '');
+  const budget = ensureBudget(ctx, found.account, alerts);
+  const state = readState(ctx);
+  if (state && !ctx.dryRun) writeState(ctx, { ...state, alertParam: param });
+  const needsApply = found.stackStatus && !live.AlertEmailParameter;
+  return { ok: true, alertParam: param, budget, needsApply,
+    message: `Alert address saved and a monthly budget of $${alerts.budgetUsd} ${budget} (it emails at 80% and 100% of the amount, and when 100% is forecast). AWS sends each address a confirmation e-mail: open it and confirm, or nothing is delivered.${needsApply ? ` To switch the error alarms on, run \`${cli(ctx)} plan\`, read it, then \`${cli(ctx)} apply <plan id>\`.` : ''}` };
 }
 
 // ---------- steps ----------
@@ -310,6 +369,7 @@ export async function smoke(ctx, portalUrl) {
 export async function install(ctx, input) {
   const say = ctx.progress ?? (() => {});
   const config = normalise({ ...input, profile: ctx.profile, stack: ctx.stack });
+  const alerts = validateAlerts(input);
   let found = preflight(ctx);
   if (found.stackStatus === 'CREATE_IN_PROGRESS') { // an earlier session was closed while AWS was still building the stack
     say('An earlier install is still building the stack. Waiting for it to finish...');
@@ -324,6 +384,14 @@ export async function install(ctx, input) {
   if (resuming) { // the stack finished while this window was closed: carry on from there
     say('The stack from the earlier run is ready. Carrying on...');
     return afterDeploy(ctx, earlier, found, result);
+  }
+  config.alertParam = config.alertParam || earlier?.alertParam || '';
+  if (alerts) { // before the stack: it reads the address while it creates the alarms' subscription
+    config.alertParam = putAlertEmail(ctx, alerts.email, config.alertParam);
+    result.budget = ensureBudget(ctx, found.account, alerts);
+    say(`Alert e-mail saved, and a monthly budget of $${alerts.budgetUsd} created. AWS sends a confirmation e-mail to ${alerts.email}: open it and confirm.`);
+  } else if (!config.alertParam) {
+    result.notes = [...(result.notes ?? []), `No alert e-mail was set up, so nobody will be told about errors or a growing bill. Add one any time:  ${cli(ctx)} alerts --email <address>`];
   }
   if (config.domain) {
     const cert = await ensureCertificate(ctx, config.domain);
@@ -448,6 +516,7 @@ export async function plan(ctx, change = {}) {
   const found = preflight({ ...ctx, stack: config.stack });
   const live = stackOutputs({ ...ctx, stack: config.stack });
   config.tenant = tenantFromParameters(live.parameters); // the live stack is the truth: an update must never clear the ids it already has
+  config.alertParam = live.parameters.AlertEmailParameter || config.alertParam || '';
   if (config.tenant && !config.features.includes('customdomains')) config.features = [...config.features, 'customdomains'].sort();
   const bucket = ensureArtifactBucket({ ...ctx, stack: config.stack }, found.account);
   const packaged = packageTemplate({ ...ctx, stack: config.stack }, bucket);
@@ -592,7 +661,14 @@ export async function verifyInstall(ctx, { login = null, portal } = {}) {
   const url = portal ?? found.outputs.PortalUrl;
   const features = [...Object.entries(FEATURES).filter(([, p]) => found.parameters[p] === 'true').map(([f]) => f), ...(tenantFromParameters(found.parameters) ? ['customdomains'] : [])];
   const result = await runVerify({ portal: url, login, features, repo: ctx.repo, fetchImpl: ctx.fetch ?? fetch, sleep: ctx.sleep, publish: ctx.publish, cleanup: async (slug) => { adminScript(ctx, ['verify-cleanup', slug]); } });
-  return { ...result, portalUrl: url };
+  const alertSet = Boolean(found.parameters.AlertEmailParameter);
+  let budgetSet = false;
+  try { call(ctx, ['budgets', 'describe-budget', '--account-id', call(ctx, ['sts', 'get-caller-identity'], { json: true }).Account, '--budget-name', budgetName(ctx.stack)]); budgetSet = true; } catch { /* none, or not allowed to read it */ }
+  const recommended = [
+    { name: 'Alerts: an alert e-mail is set up (recommended)', ok: alertSet, warn: true, detail: `not set up: nobody is told about errors. Run: ${cli(ctx)} alerts --email <address>` },
+    { name: 'Cost: a monthly budget with an e-mail alert exists (recommended)', ok: budgetSet, warn: true, detail: `not found. Run: ${cli(ctx)} alerts --email <address>` },
+  ];
+  return { ...result, checks: [...result.checks, ...recommended], portalUrl: url };
 }
 
 /** Delete every version and delete marker in a bucket (a versioned bucket cannot be deleted, or its stack removed, while it holds any). */
@@ -654,6 +730,9 @@ export async function destroy(ctx, { everything = false } = {}) {
   }
   // the platform's own functions' log groups: Lambda created them at the first run, so the stack never owned them; a clean account has none (kept by default: they help diagnose)
   if (everything) for (const fn of of('AWS::Lambda::Function')) deleteLogGroup(ctx, `/aws/lambda/${fn}`);
+  try { call(ctx, ['budgets', 'delete-budget', '--account-id', account, '--budget-name', budgetName(ctx.stack)]); } catch { /* there was none */ }
+  const alertParam = readState(ctx)?.alertParam || alertParamName(ctx.stack);
+  if (everything && exists(ctx, ['ssm', 'get-parameter', '--name', alertParam])) call(ctx, ['ssm', 'delete-parameter', '--name', alertParam]);
   const staging = `${ctx.stack.toLowerCase()}-artifacts-${account}`;
   if (exists(ctx, ['s3api', 'head-bucket', '--bucket', staging])) { emptyBucket(ctx, staging); call(ctx, ['s3api', 'delete-bucket', '--bucket', staging]); }
   const hasSecret = exists(ctx, ['secretsmanager', 'describe-secret', '--secret-id', 'openrouter']);

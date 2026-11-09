@@ -28,7 +28,9 @@
 
 ## P0: fix before any public announcement
 
-### 1. The installer creates no alerts and no budget
+### 1. The installer creates no alerts and no budget (fixed in code, 2.3.2 unreleased)
+
+> **Status:** built and tested (`installer/engine.mjs`: `validateAlerts`, `putAlertEmail`, `ensureBudget`, `setupAlerts`; `setup.mjs alerts`). Not yet applied to a clean account (item 2). The text below describes the problem as found.
 
 - **What is wrong.** The platform can email one address about crashes, throttling, student-backend errors and a failed daily sweep. The address is read from an AWS parameter whose name is given to the stack as `AlertEmailParameter`. **The installer never sets it** (`installer/engine.mjs` `parametersFor` passes only the features and the domain), so a teacher who installs the documented way has no alerts at all, and no AWS Budget either. The documentation used to describe the manual route that only the author used.
 - **Evidence.** `AlertEmailParameter` appears only in `template.yaml`; `grep` finds no mention in `installer/`, `setup.mjs` or the teacher tools. The author's stack has it because it was set by hand months ago, and updates keep it.

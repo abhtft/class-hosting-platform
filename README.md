@@ -43,7 +43,7 @@ npx -y "$PKG" install
 
 1. **New AWS accounts:** AWS may refuse your first CloudFront distribution until it verifies the account, which can take **days**. Open the AWS Support case first.
 2. **Access:** the installer needs broad AWS permissions (AdministratorAccess). Use a dedicated account, turn on MFA, delete the access key when done. CloudShell avoids keeping a key.
-3. **Cost and alerts:** an idle platform costs close to nothing. The cost drivers are student traffic, AI use (capped per student) and stored data. **Set up the alert email and an AWS Budget** (see the guide); the install does not create alerts for you.
+3. **Cost and alerts:** an idle platform costs close to nothing. The cost drivers are student traffic, AI use (capped per student) and stored data. The install asks for an **alert e-mail and a monthly budget** (recommended): give an address you read, and open the confirmation mail AWS sends.
 4. **Student content:** sites are served from **your** domain and you are responsible for what students publish. You can take any site offline from the teacher page.
 
 Everything else is in the **[teacher guide](docs/TEACHER_SETUP.md)**.
@@ -59,7 +59,6 @@ Student guide: [student/README.md](student/README.md) and [docs/STUDENT_KIT.md](
 - **Built for classes of a few dozen.** Tokens are created one at a time and features are switched on per student; there are no class-wide defaults.
 - **Backend capacity is small by design:** at most 3 student backend requests run at once on the whole platform (2 per student) and the backend API allows about 10 requests a second, because a new AWS account may allow only 10 concurrent function executions. A class using the AI at the same moment will see "busy" answers. See [docs/STATUS.md](docs/STATUS.md).
 - **One teacher login** per platform; no co-teachers and no audit log.
-- **Alerts are optional and not set up by the installer** (see the guide).
 - **Student backends:** one Python 3.12 or Node 22 function, standard library only, 10 seconds per request (25 with the class AI), no SQL database.
 - **One class per platform.** Do not import a backup into a platform that already has students. **A backup does not yet include class knowledge (books) or traces.**
 - **`transfer`** (moving a class to another AWS account) was only rehearsed with simulated accounts: experimental.

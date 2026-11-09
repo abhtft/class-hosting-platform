@@ -4,6 +4,7 @@
 //   node setup.mjs                      guided install (asks for the AWS account, an optional domain, the features and your teacher login)
 //   node setup.mjs install              the same, or with flags and no questions:  --profile p --domain apps.example.com --features ai,storage
 //   node setup.mjs finish-domain        step two of a domain install, after the DNS records are added
+//   node setup.mjs alerts --email a@b.c [--budget 10]   alert e-mail and a monthly cost budget (the install asks for them; use this on an existing platform, then plan and apply)
 //   node setup.mjs teacher <username>   set or reset the teacher login (asks for the password, hidden)
 //   node setup.mjs secrets              save the AI keys in AWS Secrets Manager (asks, hidden)
 //   node setup.mjs publish              publish the portal pages, the student kit and the MCP package again
@@ -46,7 +47,7 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (!a.startsWith('--')) { rest.push(a); continue; }
     const key = a.slice(2);
-    if (['dry-run', 'json', 'yes', 'everything', 'no-login', 'finish', 'disable', 'merge'].includes(key)) flags[key] = true;
+    if (['dry-run', 'json', 'yes', 'everything', 'no-login', 'finish', 'disable', 'merge', 'no-alerts'].includes(key)) flags[key] = true;
     else flags[key] = argv[++i];
   }
   return { command: rest[0], args: rest.slice(1), flags };
@@ -85,6 +86,14 @@ async function wizard(ctx, flags) {
   const wantsDomain = flags.domain !== undefined ? Boolean(flags.domain) : await yes('Use your own domain name for student sites? (No = free test addresses; everything can still be tried)', 'n');
   answers.domain = flags.domain ?? (wantsDomain ? await ask('Domain, for example apps.example.com:') : '');
   answers.features = flags.features === undefined ? undefined : parseFeatures(flags.features); // none given: every feature is installed
+  if (flags['no-alerts']) answers.alertEmail = '';
+  else if (flags['alert-email'] !== undefined) { answers.alertEmail = flags['alert-email']; answers.budgetUsd = flags.budget; }
+  else {
+    console.log('');
+    console.log('Alerts (recommended): an e-mail when something breaks, and when the AWS bill passes a monthly budget. AWS sends a confirmation mail you must open.');
+    answers.alertEmail = await ask('E-mail address for alerts (Enter to skip):', '');
+    if (answers.alertEmail) answers.budgetUsd = await ask('Monthly budget in US dollars:', String(engine.DEFAULT_BUDGET_USD));
+  }
   answers.teacher = await ask('Choose your teacher login name (3-40 letters, digits . _ -):', 'teacher');
   const password = await prompt.newPassword('Choose your teacher password');
   answers.updateNotices = await yes('Tell you when a new version is released? (a notice only: nothing ever updates by itself)', 'y');
@@ -111,7 +120,7 @@ const print = (data, flags) => {
   if (data.record) console.log(`\n  ${data.record.type}  ${data.record.name}\n  ->     ${data.record.value}`);
   if (data.records) for (const r of data.records) console.log(`  ${r.type}  ${r.name}  ->  ${r.value}   (${r.for})`);
   if (data.portalUrl) console.log(`\nYour portal: ${data.portalUrl}`);
-  if (data.checks?.length) for (const c of data.checks) console.log(c.name ? `  ${c.ok ? 'ok  ' : 'FAIL'} ${c.name}${c.detail ? `: ${c.detail}` : ''}` : `  ${c.ok ? 'ok ' : 'FAIL'} ${c.path} (${c.status})`);
+  if (data.checks?.length) for (const c of data.checks) console.log(c.name ? `  ${c.ok ? 'ok  ' : c.warn ? 'WARN' : 'FAIL'} ${c.name}${c.detail ? `: ${c.detail}` : ''}` : `  ${c.ok ? 'ok ' : 'FAIL'} ${c.path} (${c.status})`);
   if (data.items?.length) for (const i of data.items) console.log(`  ${i.action.padEnd(7)} ${i.id} (${i.type}${i.replacement !== 'False' ? `, replacement: ${i.replacement}` : ''})`);
   if (data.next) console.log(`\nNext: ${data.next}`);
 };
@@ -139,7 +148,7 @@ export async function main(argv, overrides = {}) {
     switch (command) {
       case 'wizard': case 'install': {
         if (flags.json || !process.stdin.isTTY || command === 'install' && (flags.domain !== undefined || flags.features !== undefined || flags.yes)) { // no terminal, or all choices given as flags: no questions
-          return finish(await engine.install(ctx, { domain: flags.domain, features: flags.features === undefined ? undefined : parseFeatures(flags.features), certificateArn: flags['certificate-arn'] }));
+          return finish(await engine.install(ctx, { domain: flags.domain, features: flags.features === undefined ? undefined : parseFeatures(flags.features), certificateArn: flags['certificate-arn'], alertEmail: flags['no-alerts'] ? '' : flags['alert-email'], budgetUsd: flags.budget }));
         }
         const { answers, password, keys } = await wizard(ctx, flags);
         const ctx2 = { ...ctx, profile: answers.profile, aws: overrides.aws ?? engine.realAws({ profile: answers.profile }) };
@@ -173,6 +182,11 @@ export async function main(argv, overrides = {}) {
         return result;
       }
       case 'finish-domain': return finish(await engine.finishDomain(ctx));
+      case 'alerts': {
+        let email = flags.email ?? flags['alert-email'];
+        if (!email && !flags.json && process.stdin.isTTY) email = await prompt.ask('E-mail address for alerts:');
+        return finish(await engine.setupAlerts(ctx, { alertEmail: email, budgetUsd: flags.budget }));
+      }
       case 'teacher': {
         if (!args[0]) throw new engine.InstallError('Usage: node setup.mjs teacher <username>');
         if (flags.json) throw new engine.InstallError('The teacher password is never typed through an editor.', `Run in your own terminal: node setup.mjs teacher ${args[0]}`);

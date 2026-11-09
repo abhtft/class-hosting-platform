@@ -150,7 +150,7 @@ export async function runVerify({ portal, login = null, features = [], repo, fet
 }
 
 function summary(checks, publicOnly = false) {
-  const failed = checks.filter((c) => !c.ok && !(publicOnly && c.name === 'Signed-in checks'));
+  const failed = checks.filter((c) => !c.ok && !c.warn && !(publicOnly && c.name === 'Signed-in checks'));
   return { ok: failed.length === 0, publicOnly, checks, failed: failed.length,
     message: failed.length ? `${failed.length} check${failed.length === 1 ? '' : 's'} failed: ${failed.map((c) => c.name).join('; ')}` : (publicOnly ? 'The public checks passed. Run verify in your terminal, with your teacher login, for the full check.' : 'Every check passed: a student can publish a site and it is live.') };
 }

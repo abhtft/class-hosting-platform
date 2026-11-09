@@ -350,9 +350,15 @@ Open an issue on the repository with the version (`version`) and the exact messa
 
 ## 13a. Alerts, cost and recovering a file
 
-**Cost watch (do this once).** The install does **not** create a budget or alerts. In the AWS console create an **AWS Budget** for the account with an email alert (for example at $10 and $25 a month). The cost drivers are student traffic (there is no per-site traffic cap), AI use (capped per student by you) and stored data. Look at the **Usage** tab now and then.
+**Alerts and a cost budget (the install asks for them).** The guided install asks for an e-mail address and a monthly budget (default $10). It stores the address, creates an **AWS Budget** that e-mails at 80 percent and 100 percent of the amount and when 100 percent is forecast, and switches on the error alarms below. **AWS sends a confirmation e-mail to the address: open it and confirm, or nothing is delivered.** With flags: `install --alert-email <your address> --budget 10`, or `--no-alerts` to skip. On a platform that was installed without them:
+```bash
+<package> alerts --email <your address> --budget 10   # stores the address and creates the budget
+<package> plan                                          # shows the alarms that would be added
+<package> apply <plan id>
+```
+`verify` shows a warning (not a failure) when either is missing. The cost drivers are student traffic (there is no per-site traffic cap), AI use (capped per student by you) and stored data; look at the **Usage** tab now and then.
 
-**Error alerts (not available from the installer yet).** The platform can email one address when something is wrong (a crashed function, throttling, many server errors from student backends, the daily sweeper failing, and, with traces on, a jump in refusals). The address is read from an AWS Systems Manager String parameter whose **name** is passed to the stack as `AlertEmailParameter`; the installer has no option for it yet (tracked in [CRITICAL_ISSUES.md](CRITICAL_ISSUES.md)). Until it has, the alerts exist only on a platform whose stack was given that parameter by hand. Do not rely on alert emails for a class: check the teacher page, and keep the AWS Budget.
+The platform e-mails the address when something is wrong: a crashed function, throttling, many server errors from student backends, the daily sweeper failing, and, with traces on, a jump in refusals.
 
 | Alert | Fires when | What to do |
 |---|---|---|
@@ -378,7 +384,8 @@ Pages cached by CloudFront show the restored file after the cache expires or an 
 
 | Command | What it does |
 |---|---|
-| `install [--domain <d>] [--features a,b \| none]` | guided install (also with flags and no questions); resumes if interrupted |
+| `install [--domain <d>] [--features a,b \| none] [--alert-email <e> --budget <usd> \| --no-alerts]` | guided install (also with flags and no questions); resumes if interrupted |
+| `alerts --email <e> [--budget <usd>]` | store the alert address and create the monthly budget on an existing platform, then `plan` and `apply` to switch the alarms on |
 | `finish-domain` | step two of a domain install, after the DNS records are added |
 | `teacher <name>` | set or reset the teacher login (password typed twice, hidden) |
 | `secrets` | save your OpenRouter and/or Gemini keys in AWS Secrets Manager (hidden) |
