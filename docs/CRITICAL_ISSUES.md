@@ -50,7 +50,9 @@
 - **Why it matters.** The AI and books features are the platform's main attraction, and a demo to a class is the first thing a teacher does.
 - **Fix.** (a) Read the account's real concurrency quota at install and set the caps from it, as parameters; (b) raise the defaults on accounts whose limit allows it; (c) make the helpers wait and retry with a short, visible "busy, trying again" path instead of failing; (d) document the capacity ("about N simultaneous students") in the teacher guide; (e) re-run the measurement above as a permanent test (item 5).
 
-### 4. Backup and restore leave out books and traces
+### 4. Backup and restore leave out books and traces (fixed in code, 2.3.2 unreleased)
+
+> **Status:** `export` and `import` now include `knowledge/`; point-in-time recovery is on for the student-data table (needs an `apply`); traces are documented as expendable. Not yet tested on a real account. The text below describes the problem as found.
 
 - **What is wrong.** `export` copies tokens, the teacher login, stored student data and the folders `sites/`, `archive/` and `userdata/`. It does **not** copy `knowledge/` (every student's books, the class library, the search indexes) or traces. After a move or a rebuild the books are simply gone. The student-data table has no point-in-time recovery either (the tokens table does).
 - **Evidence.** `installer/data.mjs`: `const FOLDERS = ['sites', 'archive', 'userdata']`; `template.yaml` has `PointInTimeRecoverySpecification` only on the tokens table.

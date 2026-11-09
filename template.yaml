@@ -396,6 +396,8 @@ Resources:
           KeyType: HASH
         - AttributeName: id
           KeyType: RANGE
+      PointInTimeRecoverySpecification: # students' stored data can be restored to any second of the last 35 days (the tokens table has it too)
+        PointInTimeRecoveryEnabled: true
 
   # Traces (traces.py): one partition per answer (t#<slug>#<trace id>) holding a summary item and one small item per step. Every item expires by
   # itself (ttl). Only summary items carry app / day / started, so the two indexes list answers without ever holding step text. On-demand: idle costs nothing.

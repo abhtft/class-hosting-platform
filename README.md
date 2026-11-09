@@ -60,7 +60,7 @@ Student guide: [student/README.md](student/README.md) and [docs/STUDENT_KIT.md](
 - **Backend capacity is small by design:** at most 3 student backend requests run at once on the whole platform (2 per student) and the backend API allows about 10 requests a second, because a new AWS account may allow only 10 concurrent function executions. A class using the AI at the same moment will see "busy" answers. See [docs/STATUS.md](docs/STATUS.md).
 - **One teacher login** per platform; no co-teachers and no audit log.
 - **Student backends:** one Python 3.12 or Node 22 function, standard library only, 10 seconds per request (25 with the class AI), no SQL database.
-- **One class per platform.** Do not import a backup into a platform that already has students. **A backup does not yet include class knowledge (books) or traces.**
+- **One class per platform.** Do not import a backup into a platform that already has students. A backup includes books but not traces (download those from the Traces tab).
 - **`transfer`** (moving a class to another AWS account) was only rehearsed with simulated accounts: experimental.
 - **No third-party security review** has been done.
 

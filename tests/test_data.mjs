@@ -80,17 +80,33 @@ const backup = join(work, 'backup');
   const result = exportData(context(fake), backup, { say: (t) => said.push(t) });
   assert.equal(result.ok, true);
   assert.deepEqual(result.counts, { tokens: 5, storedItems: 1 });
-  for (const f of ['manifest.json', 'tokens.json', 'studentdata.json', 'ssm.json', 's3/sites/index.html', 's3/archive/index.html', 's3/userdata/index.html']) assert.ok(existsSync(join(backup, f)), f);
+  for (const f of ['manifest.json', 'tokens.json', 'studentdata.json', 'ssm.json', 's3/sites/index.html', 's3/archive/index.html', 's3/userdata/index.html', 's3/knowledge/index.html']) assert.ok(existsSync(join(backup, f)), f);
   const manifest = JSON.parse(readFileSync(join(backup, 'manifest.json'), 'utf8'));
   assert.deepEqual([manifest.format, manifest.platformVersion, manifest.domain, manifest.features.sort()], [1, '1.1.0', 'apps.example.com', ['BackendEnabled', 'StorageEnabled']]);
   assert.equal(JSON.parse(readFileSync(join(backup, 'ssm.json'), 'utf8')).teacher, TEACHER_SECRET);
   assert.ok(!result.message.includes(TEACHER_SECRET) && !JSON.stringify(manifest).includes(TEACHER_SECRET), 'the secret is in its file only, never in messages or the manifest');
   assert.match(result.message, /keep it private/);
+  assert.match(result.message, /class knowledge \(books and the class library\)/, 'the books are in the backup');
+  assert.match(result.message, /Traces are not included/, 'traces are said to be left out');
+  assert.ok(manifest.folders.includes('knowledge'));
   assert.ok(said.length >= 3, 'progress is reported');
   try { if (process.platform !== 'win32') assert.equal(statSync(backup).mode & 0o077, 0, 'the folder is private'); } catch (e) { throw e; }
   assert.throws(() => exportData(context(fakeAws()), backup), /not empty/, 'an old backup is never mixed with a new one');
   assert.throws(() => exportData(context(fakeAws({ status: null })), join(work, 'x')), /no stack/);
   console.log('  ok  export: tokens, stored data, files, teacher login and key map in a private folder; secrets stay in their file; a used folder is refused');
+}
+
+// ---------- books: a backup made where class knowledge was on tells a target without it how to switch it on ----------
+{
+  const kb = join(work, 'kb');
+  exportData(context(fakeAws({ parameters: { BackendEnabled: 'true', KnowledgeEnabled: 'true' } })), kb);
+  assert.ok(existsSync(join(kb, 's3', 'knowledge', 'index.html')), 'the books are copied');
+  const without = importData(context(fakeAws({ tokens: [], parameters: { BackendEnabled: 'true' } })), kb);
+  assert.match(without.message, /class knowledge \(books\), but it is not switched on/);
+  assert.match(without.message, /plan --enable knowledge/);
+  const withIt = importData(context(fakeAws({ tokens: [], parameters: { BackendEnabled: 'true', KnowledgeEnabled: 'true' } })), kb);
+  assert.doesNotMatch(withIt.message, /not switched on/);
+  console.log('  ok  books are exported and imported; a target without class knowledge is told how to switch it on');
 }
 
 // ---------- import: a faithful restore, repeatable, secrets off the command line ----------

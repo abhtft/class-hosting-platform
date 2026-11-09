@@ -26,6 +26,7 @@ assert "STORAGE_URL" not in globals_, "the URL is given to the portal function o
 
 # ---- the data table: keyed by partition and id, on demand, kept when the stack is deleted ----
 table = block("StudentDataTable")
+assert "PointInTimeRecoveryEnabled: true" in table, "students' stored data can be restored to a point in time"
 assert "BillingMode: PAY_PER_REQUEST" in table
 assert re.search(r"AttributeName: s\n\s+KeyType: HASH", table) and re.search(r"AttributeName: id\n\s+KeyType: RANGE", table)
 assert "DeletionPolicy: Retain" in table and "UpdateReplacePolicy: Retain" in table, "student data must outlive a stack change"

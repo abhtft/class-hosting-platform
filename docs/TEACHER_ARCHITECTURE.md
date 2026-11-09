@@ -174,7 +174,8 @@ Why a separate, careful `destroy`? Because `delete-stack` alone **fails** on thi
 |---|---|---|
 | DynamoDB tokens table | student tokens (hashes), slug locks, settings, counters, AI settings (including student AI keys) | yes |
 | DynamoDB student data table (if class storage is on) | stored student data | yes |
-| S3 `sites/`, `archive/`, `userdata/` | published sites, archived sites, student files | yes (`portal/` is republished; `uploads/` is temporary) |
+| S3 `sites/`, `archive/`, `userdata/`, `knowledge/` | published sites, archived sites, student files, class knowledge (books, the class library and their indexes) | yes (`portal/` is republished; `uploads/` is temporary) |
+| Traces | step records of answers | no: they expire after 30 to 90 days; download an archive from the Traces tab to keep them |
 | SSM parameters | the student key map and the teacher login (a hash and a session secret) | yes |
 | Secrets Manager | the AI keys | **no**: re-entered with `secrets` |
 | Lambda functions (student backends), CloudFront tenants (custom domains) | live resources of the old account | **no**: they cannot be copied as data |

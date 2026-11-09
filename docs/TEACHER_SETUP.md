@@ -376,7 +376,7 @@ aws s3api delete-object --bucket <bucket> --key sites/alice/index.html --version
 ```
 Pages cached by CloudFront show the restored file after the cache expires or an invalidation.
 
-**What a backup (`export`) contains, and what it does not.** It contains tokens and settings, the teacher login, stored student data and the published sites and files. It does **not** contain class knowledge (books, the class library) or traces: after an `import` those start empty and students add their books again. (This gap is listed in [CRITICAL_ISSUES.md](CRITICAL_ISSUES.md).)
+**What a backup (`export`) contains, and what it does not.** It contains tokens and settings, the teacher login, stored student data, the published sites and files, and **class knowledge** (every student's books, the class library and their search indexes). It does **not** contain traces (they expire after 30 to 90 days: download an archive from the Traces tab to keep them), the AI keys (enter them again with `secrets`), student backend functions (students publish again) or custom domains. Students' stored data can also be restored to any point in the last 35 days (point-in-time recovery).
 
 ## 14. All commands
 

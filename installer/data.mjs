@@ -3,6 +3,9 @@
 // accounts (see transfer). Nothing here deletes anything: import only adds or overwrites on the target. It is meant for an EMPTY, freshly installed
 // platform: it refuses a platform that already has other students (see foreignStudents).
 //
+// Class knowledge (every student's books, the class library and their search indexes under knowledge/) is in the backup: it is plain files, so a restore brings the
+// books back exactly. Traces are NOT: they expire by themselves after 30 to 90 days and are meant to be downloaded from the teacher page when they are worth keeping.
+//
 // What is NOT in a backup, on purpose: the AI keys in Secrets Manager (they are re-entered with `secrets`), student backend functions and custom
 // domains (they live in the old account's Lambda and CloudFront; students publish their backend again and add one DNS record, see the transfer CSV).
 //
@@ -14,7 +17,7 @@ import { awsCall, InstallError, repoVersion, stackOutputs } from './engine.mjs';
 
 export const FORMAT = 1;
 const BATCH = 25;
-const FOLDERS = ['sites', 'archive', 'userdata']; // the bucket's prefixes that hold a class's files (portal/ is republished, uploads/ is temporary)
+const FOLDERS = ['sites', 'archive', 'userdata', 'knowledge']; // the bucket's prefixes that hold a class's files and books (portal/ is republished, uploads/ is temporary, worker/ is rebuilt)
 // settings a TEACHER chooses stay; everything the PLATFORM made in the old account (functions, tenants, states) is dropped on a transfer
 const BACKEND_TEACHER_KEYS = new Set(['enabled', 'runs_limit', 'runs_period']);
 const DOMAIN_FIELDS = ['domain', 'domain_state', 'tenant_id', 'domain_removing'];
@@ -94,7 +97,7 @@ export function exportData(ctx, folder, { say = () => {} } = {}) {
   }
   const manifest = { format: FORMAT, createdAt: ctx.now(), platformVersion: repoVersion(ctx), stack: ctx.stack, account: awsCall(ctx, ['sts', 'get-caller-identity'], { json: true }).Account ?? '',
     domain: found.parameters.RootDomain || '', features: Object.entries(found.parameters).filter(([k, v]) => /Enabled$/.test(k) && v === 'true').map(([k]) => k),
-    counts: { tokens: tokens.length, storedItems: stored.length }, hasStudentData: Boolean(o.StudentDataTableName) };
+    counts: { tokens: tokens.length, storedItems: stored.length }, hasStudentData: Boolean(o.StudentDataTableName), folders: FOLDERS };
   if (!ctx.dryRun) {
     writeFileSync(join(folder, 'tokens.json'), text(tokens));
     writeFileSync(join(folder, 'studentdata.json'), text(stored));
@@ -102,7 +105,7 @@ export function exportData(ctx, folder, { say = () => {} } = {}) {
     writeFileSync(join(folder, 'manifest.json'), text(manifest));
   }
   return { ok: true, folder, counts: manifest.counts, manifest,
-    message: `Backed up ${tokens.length} token records, ${stored.length} stored student items, the published files and the teacher login to ${folder}. It holds student AI keys and the teacher login hash: keep it private and delete it when you no longer need it.` };
+    message: `Backed up ${tokens.length} token records, ${stored.length} stored student items, the published files, the class knowledge (books and the class library) and the teacher login to ${folder}. Traces are not included (download them from the Traces tab if you want to keep them). It holds student AI keys and the teacher login hash: keep it private and delete it when you no longer need it.` };
 }
 
 /** Students already in the target that the backup does not contain, and those among them that use the same site name as a student in the backup.
@@ -154,6 +157,7 @@ export function importData(ctx, folder, { forTransfer = false, merge = false, sa
     try { awsCall(ctx, ['ssm', 'put-parameter', '--cli-input-json', `file://${file.file}`]); } finally { file.done(); }
   }
   if (o.DistributionId) awsCall(ctx, ['cloudfront', 'create-invalidation', '--distribution-id', o.DistributionId, '--paths', '/*']);
+  const booksNote = manifest.features?.includes('KnowledgeEnabled') && found.parameters.KnowledgeEnabled !== 'true' ? ' The backup holds class knowledge (books), but it is not switched on in this platform: run plan --enable knowledge, then apply, and the books are used again.' : '';
   return { ok: true, counts: { tokens: items.length, storedItems: stored.length }, domains,
-    message: `Imported ${items.length} token records and ${stored.length} stored student items, the published files and the teacher login into ${ctx.stack}.${domains.length ? ` ${domains.length} student custom domain${domains.length === 1 ? '' : 's'} must be added again (see the DNS file).` : ''}` };
+    message: `Imported ${items.length} token records and ${stored.length} stored student items, the published files, the class knowledge and the teacher login into ${ctx.stack}.${booksNote}${domains.length ? ` ${domains.length} student custom domain${domains.length === 1 ? '' : 's'} must be added again (see the DNS file).` : ''}` };
 }
