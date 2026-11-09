@@ -16,6 +16,9 @@
     "mcp-config",
     "logs",
     "knowledge",
+    "pull",
+    "push",
+    "project",
     "traces",
     "eval",
     "deploy"

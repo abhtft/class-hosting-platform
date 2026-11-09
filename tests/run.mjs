@@ -186,6 +186,13 @@ await step('AI patterns together in a fresh kit (Python and Node dev servers): b
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('project sync: the portal side (personal and team projects, content-addressed uploads, the manifest with its revision, conflicts and a race, every limit, the teacher view, restore, compact, delete) and the kit side (scan, plans, pull, push, conflicts and both ways out, a team, a damaged download, the commands) against the real portal code', () => {
+  let r = spawnSync(python, [join(here, 'test_projects.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  r = spawnSync('node', [join(here, 'test_project_sync.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('knowledge folder sync (scan, plan, and the tool and npm run knowledge against the real portal and knowledge code)', () => {
   const r = spawnSync('node', [join(here, 'test_knowledge_sync.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

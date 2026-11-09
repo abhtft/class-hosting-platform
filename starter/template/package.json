@@ -15,6 +15,9 @@
     "logs": "node portal-deploy.mjs logs",
     "traces": "node portal-deploy.mjs traces",
     "knowledge": "node portal-deploy.mjs knowledge",
+    "pull": "node portal-deploy.mjs pull",
+    "push": "node portal-deploy.mjs push",
+    "project": "node portal-deploy.mjs project",
     "eval": "node tools/eval.mjs",
     "deploy": "node portal-deploy.mjs"
   }

@@ -17,7 +17,7 @@ import { awsCall, InstallError, repoVersion, stackOutputs } from './engine.mjs';
 
 export const FORMAT = 1;
 const BATCH = 25;
-const FOLDERS = ['sites', 'archive', 'userdata', 'knowledge']; // the bucket's prefixes that hold a class's files and books (portal/ is republished, uploads/ is temporary, worker/ is rebuilt)
+const FOLDERS = ['sites', 'archive', 'userdata', 'knowledge', 'projects']; // the bucket's prefixes that hold a class's files, books and project source files (portal/ is republished, uploads/ is temporary, worker/ is rebuilt)
 // settings a TEACHER chooses stay; everything the PLATFORM made in the old account (functions, tenants, states) is dropped on a transfer
 const BACKEND_TEACHER_KEYS = new Set(['enabled', 'runs_limit', 'runs_period']);
 const DOMAIN_FIELDS = ['domain', 'domain_state', 'tenant_id', 'domain_removing'];
@@ -105,7 +105,7 @@ export function exportData(ctx, folder, { say = () => {} } = {}) {
     writeFileSync(join(folder, 'manifest.json'), text(manifest));
   }
   return { ok: true, folder, counts: manifest.counts, manifest,
-    message: `Backed up ${tokens.length} token records, ${stored.length} stored student items, the published files, the class knowledge (books and the class library) and the teacher login to ${folder}. Traces are not included (download them from the Traces tab if you want to keep them). It holds student AI keys and the teacher login hash: keep it private and delete it when you no longer need it.` };
+    message: `Backed up ${tokens.length} token records, ${stored.length} stored student items, the published files, the class knowledge (books and the class library), the project source files and the teacher login to ${folder}. Traces are not included (download them from the Traces tab if you want to keep them). It holds student AI keys and the teacher login hash: keep it private and delete it when you no longer need it.` };
 }
 
 /** Students already in the target that the backup does not contain, and those among them that use the same site name as a student in the backup.

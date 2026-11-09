@@ -81,11 +81,13 @@ for name in ("DeployFunction", "SweeperFunction"):
 assert re.search(r"Action: s3:DeleteObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/userdata/\*'", block("DeployFunction")), "the portal may only delete students' stored files (the teacher's clear), never read or write them"
 # the single-line grants: class storage's userdata/ and class knowledge's knowledge/ (the portal's, the API's and the book reader's), nothing else
 single = re.findall(r"Action: \[s3:GetObject, s3:PutObject, s3:DeleteObject\]\n\s+Resource: !Sub '([^']+)'", template)
-assert sorted(single) == ["${SitesBucket.Arn}/knowledge/*"] * 3 + ["${SitesBucket.Arn}/userdata/*"], single
+assert sorted(single) == ["${SitesBucket.Arn}/knowledge/*"] * 3 + ["${SitesBucket.Arn}/projects/*", "${SitesBucket.Arn}/userdata/*"], single
+# project sync's projects/: the portal only (it signs upload forms and download links and deletes; it never reads a file)
+assert "${SitesBucket.Arn}/projects/*" in block("DeployFunction") and template.count("${SitesBucket.Arn}/projects/*") == 1, "only the portal function may touch projects/"
 for name in ("DeployFunction", "KnowledgeFunction", "KnowledgeWorkerFunction"):
     assert "${SitesBucket.Arn}/knowledge/*" in block(name), f"{name} is one of the three that may write knowledge/"
 # the compute worker's three (its own role, the control function, the portal) write the worker/ folder only: tests/test_template_worker.py checks each
-assert template.count("s3:PutObject") == 9, "every S3 write grant is reviewed (two lists above, class storage's userdata/, three for knowledge/, three for worker/): extend this check for a new one"
+assert template.count("s3:PutObject") == 10, "every S3 write grant is reviewed (two lists above, class storage's userdata/, three for knowledge/, project sync's projects/, three for worker/): extend this check for a new one"
 
 # ---- the kit signing key: only the account's administrators (the teacher's own credentials) can use it ----
 signing = block("KitSigningKey")

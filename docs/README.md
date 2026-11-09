@@ -76,6 +76,7 @@ Start here. The first half is a one-page overview; the second half says which do
 | [AGENT_GUIDE.md](AGENT_GUIDE.md) | How the student agent works: one run step by step, guardrails, approval, settings, cost |
 | [BACKGROUND_JOBS.md](BACKGROUND_JOBS.md) | Work longer than a request: parts, states, limits, security, cost |
 | [TRACE_SCHEMA.md](TRACE_SCHEMA.md) | Traces: the format, privacy levels, retention, who sees what, the archive |
+| [PROJECT_SYNC.md](PROJECT_SYNC.md) | Project sync: source files shared through the platform (second computer, teams) without GitHub accounts; how it works, limits, routes |
 | [COMPUTE_WORKER.md](COMPUTE_WORKER.md) | The optional teacher-only machine for heavy checks: install, controls, cost, protection |
 
 ### Plans (not built)

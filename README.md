@@ -26,6 +26,8 @@ You run it in **your own AWS account** with one command. Students get a token, n
 | **Custom domain** | The student's own domain for their site |
 | **Traces** | A step-by-step record of every answer (question, passages found, model call, cost), numbers only by default; you control how much text is kept |
 
+**Project sync:** students keep their source files on the platform (`npm run push`, `npm run pull`), so the same code is on every computer they use, and the teacher can make **team projects**, all without GitHub accounts: [docs/PROJECT_SYNC.md](docs/PROJECT_SYNC.md).
+
 An **optional compute worker** (one small machine, off until you start it, teacher-only) is available for heavy checks later: [docs/COMPUTE_WORKER.md](docs/COMPUTE_WORKER.md).
 
 ## Install (teachers)

@@ -159,6 +159,17 @@ Before you build anything with more than one AI call, read `PATTERNS.md`: it say
   - **Quality:** `import class_quality as quality` (Node: `./class_quality.mjs`). Cache answers that are the same for every visitor (`quality.cached`, `quality.answer_cached`), collect thumbs with `quality.feedback`, and **before every deploy of an AI app run `quality.evaluate` on 8 to 15 test cases that include questions the app must refuse**; read the failed cases to the student. They need class storage to remember anything and never break the app without it. Never cache or store private data. Do not edit `class_quality.py` / `class_quality.mjs`.
   - **The starter has working examples:** `backend/study.py` (Node: `study.mjs`, wired into `app.py` / `index.mjs`) has the routes `/study` (answer from books with a cache), `/feedback`, `/agent` and `/agent/approve` (an agent that waits for a click before it saves), `frontend/src/StudyPanel.tsx` and `AgentPanel.tsx` are the matching page parts (answer with sources and thumbs; an approval card that shows the exact text the agent wants to save, what it read, and Approve and Decline buttons: keep that card whenever you copy the agent), and `evals/study.json` has starter test cases for `npm run eval`. They are the student's own files: copy from them, and delete them (and the `study` lines in the entry file) when the app does not need them. Which books are searched (`BOOKS`) is decided in that file, never by the visitor.
 
+## Keeping the project's files on the platform (project sync)
+
+The student's source files can live on the platform too, so the same code is on every computer they use and a team can share one project **without GitHub accounts**. It is not Git: whole files, and it stops when two people changed the same file.
+
+- `npm run push` sends the files that are new, changed or deleted here. `npm run pull` brings the changes made elsewhere. `npm run project` lists the student's projects and what is not sent yet. `--dry-run` shows the plan and changes nothing.
+- Every student has a **personal** project (`personal`, the default). The teacher can make **team projects**; `npm run pull -- --project robot-club` (and `push`) works on one, and the folder remembers it.
+- **New computer:** download the starter kit from the portal, `npm run login`, then `npm run pull` (the kit's own files come from the portal, the project's files from the platform).
+- **Conflict:** if two people changed the same file, `push` stops and says who changed it; nothing is overwritten. `npm run pull` saves their copy next to the student's as `<file>.theirs`. The student keeps what they want in their file, deletes the `.theirs` copy, and runs `npm run push -- --mine`. Or `npm run pull -- --theirs` takes the platform's copy (the student's is kept as `<file>.mine`). Never delete a `.theirs` or `.mine` file for the student without asking.
+- **What is never synced:** the kit's own files, `node_modules`, `.git`, build output, `.env` files, keys, the `knowledge/` books, and anything listed in `.syncignore` (one name, `folder/` or `*.ext` per line). A file can be up to 5 MB, a project 50 MB and 500 files. If a push is refused for size, add the big files to `.syncignore`; do not split secrets into files to get them synced.
+- Do not edit `.class-project.json` (it records what was last synced on this computer). Run `npm run push` when the student finishes a piece of work and `npm run pull` when they sit down at a computer they used before; both are quick.
+
 ## Commands the student (or you) can run
 
 | Command | What it does |
@@ -171,6 +182,7 @@ Before you build anything with more than one AI call, read `PATTERNS.md`: it say
 | `npm run doctor` | Checks Node, Python and git on the computer. |
 | `npm run logs` | What the published backend printed lately (`-- --errors` for errors only). The first thing to read when the live backend misbehaves. |
 | `npm run login` | **The student runs this themselves, once per project.** It asks for the portal token (hidden), checks it and saves it in this project's `.env.local`. There is no computer-wide token. |
+| `npm run push` / `npm run pull` / `npm run project` | Project sync: send this folder's source files to the platform, bring changes made elsewhere (another computer or a teammate), or list the projects. See "Keeping the project's files on the platform". |
 | `npm run deploy` | Publishes the backend, then the frontend, straight from this computer. |
 | `npm run mcp-config` | Prints the settings that connect an AI editor's tool server (see "Deploying"). |
 

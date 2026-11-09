@@ -40,6 +40,8 @@ Student (the token itself is the login -> signed session, 12 h):
   GET  /api/student/storage              storage usage including the file count and size (storage.py)
   GET  /api/student/traces[?limit&before]  /{trace_id}   the student's own app's traces, only as the teacher allows (traces.py)
   GET|POST|DELETE /api/student/knowledge[/collections|/{shelf}/documents[/{id}[/start]]]   the student's own book shelf for the kit's folder sync (knowledge.py student_route)
+  GET /api/student/projects, GET /{id}, POST /{id}/download|prepare|commit   project sync: source files shared through the bucket (projects.py)
+  GET|POST /api/admin/projects, GET|POST|DELETE /api/admin/projects/{p|t}/{name}[/file|/restore|/compact]   the teacher's projects
 
 A token is active until expires_at, "expired" (read-only) for GRACE_DAYS, then "offline".
 Only a SHA-256 of each token is stored. Teacher and student sessions use different signing keys.
@@ -98,6 +100,17 @@ class DynamoStore:
 
     def delete(self, pk):
         self.table.delete_item(Key={"pk": pk})
+
+    def replace_if(self, item, field, expected):
+        """Replace the item only if its `field` still equals `expected` (optimistic concurrency). True when replaced."""
+        from botocore.exceptions import ClientError
+        try:
+            self.table.put_item(Item=item, ConditionExpression="#f = :e", ExpressionAttributeNames={"#f": field}, ExpressionAttributeValues={":e": expected})
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return False
+            raise
+        return True
 
     def list_prefix(self, prefix):
         from boto3.dynamodb.conditions import Attr
@@ -179,6 +192,14 @@ class MemoryStore:
 
     def delete(self, pk):
         self.items.pop(pk, None)
+
+    def replace_if(self, item, field, expected):
+        with self.lock:
+            current = self.items.get(item["pk"])
+            if not current or current.get(field) != expected:
+                return False
+            self.items[item["pk"]] = json.loads(json.dumps(item))
+            return True
 
     def list_prefix(self, prefix):
         return [self.get(pk) for pk in sorted(self.items) if pk.startswith(prefix)]
@@ -485,6 +506,12 @@ def dispatch(method, path, body, event, now, site_url):
         if routed is None:
             return reply(404, error="Unknown route.")
         return reply(routed[0], **routed[1])
+    if path == "/api/student/projects" or path.startswith("/api/student/projects/"):
+        import projects
+        routed = projects.student_route(student_token(event, now), method, path, body, now)
+        if routed is None:
+            return reply(404, error="Unknown route.")
+        return reply(routed[0], **routed[1])
     if path in ("/api/student/domain", "/api/student/domain/status") and method in ("PUT", "DELETE", "GET"):
         import domains
         item = student_token(event, now)
@@ -540,6 +567,12 @@ def dispatch(method, path, body, event, now, site_url):
             item = get_token(trace_set.group(1))
             traces.set_settings(item, body)
             return reply(200, token=view(db().get(item["pk"]) or item, now, site_url))
+        if path == "/api/admin/projects" or path.startswith("/api/admin/projects/"):
+            import projects
+            routed = projects.admin_route(method, path, body, now)
+            if routed is None:
+                return reply(404, error="Unknown route.")
+            return reply(routed[0], **routed[1])
         if path == "/api/admin/worker" and method == "GET":
             import worker
             return reply(200, **worker.view(now))

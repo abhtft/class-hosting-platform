@@ -381,6 +381,18 @@ All teacher routes need the teacher's session as a bearer token; all student rou
 | `GET /api/student/knowledge`, `POST /api/student/knowledge/collections`, `GET\|POST\|DELETE /api/student/knowledge/{shelf}/documents[/{id}[/start]]` | The folder sync for the student's own shelves (see the knowledge API above) |
 | `GET /api/student/traces` (`?limit&before`) and `GET /api/student/traces/{trace_id}` | The student's **own** app's traces, only as the teacher allows: `403` when the setting is off; "numbers only" strips stored text; another app's id is `404` |
 
+Project sync (see [PROJECT_SYNC.md](PROJECT_SYNC.md)):
+
+| Route | Answer |
+|---|---|
+| `GET /api/student/projects` | The student's projects: `personal` and the teams they belong to (`id`, `kind`, `title`, `members`, `rev`, `files`, `bytes`, `frozen`) |
+| `GET /api/student/projects/{id}` | The manifest: `files` as path to `{sha256, size, by, ts}`; `404` for a project the student is not in |
+| `POST /api/student/projects/{id}/download` | `{paths}` (up to 100) to short-lived download links with the expected `sha256` |
+| `POST /api/student/projects/{id}/prepare` | `{changes: [{path, op: "put"\|"delete", sha256, size, base}]}` to S3 upload forms for the files S3 lacks (size and SHA-256 enforced by S3); `409 conflict` with `conflicts` (path, who changed it) when a path changed since `base`; `413` over a limit; `403` frozen |
+| `POST /api/student/projects/{id}/commit` | The same body: applies it only if nobody committed meanwhile; `{rev}`; `409 conflict`, or `409` when an upload is missing or the project is busy |
+
+Teacher: `GET|POST /api/admin/projects` (list; make a team project `{id, title, members}`), `GET|POST|DELETE /api/admin/projects/{p|t}/{name}` (files and history; change `title`, `members`, `frozen`; delete), `POST .../file` `{path}` (download link), `POST .../restore` `{path, rev}` (puts a file back as a new revision), `POST .../compact` (deletes versions no longer shown).
+
 ### 7.3 Calls made by a student's function
 
 | Route | Notes |

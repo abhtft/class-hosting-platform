@@ -141,4 +141,4 @@
 
 ## What is good and should not be disturbed
 
-The security design (students never hold AWS credentials, a permission boundary on student functions, tokens stored only as hashes, kit signing with KMS), the plan-then-apply update model, the refusal to replace data-holding resources, the per-feature off-by-default switches enforced on the server, the test culture (46 groups, machine-checked specification) and the release process are all strong. The work ahead is **closing gaps, not redesigning**.
+The security design (students never hold AWS credentials, a permission boundary on student functions, tokens stored only as hashes, kit signing with KMS), the plan-then-apply update model, the refusal to replace data-holding resources, the per-feature off-by-default switches enforced on the server, the test culture (47 groups, machine-checked specification) and the release process are all strong. The work ahead is **closing gaps, not redesigning**.

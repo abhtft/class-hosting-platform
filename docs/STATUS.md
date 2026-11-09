@@ -18,7 +18,7 @@
 | **Portal** (`web/`) | Teacher page (students, requests, storage, library, traces, worker, usage) and student page | about 2,600 lines of JavaScript, no framework |
 | **Teacher tooling** (`setup.mjs`, `installer/`, `teacher-mcp/`) | install, plan and apply, verify, destroy, export and import, transfer, editor tools | about 2,400 lines |
 | **Student kit** (`starter/`, `student/`) | A starter project for AI editors, a one-command deploy, helpers for class AI, storage, knowledge, agents and answer quality, a checker, an editor tool server | about 9,600 lines |
-| **Tests** (`tests/`) | 46 test groups run by one command (about 13,800 lines), no AWS needed; a separate live smoke test for real AWS | |
+| **Tests** (`tests/`) | 47 test groups run by one command (about 13,800 lines), no AWS needed; a separate live smoke test for real AWS | |
 | **Release process** | Signed releases (Sigstore), CI, CodeQL, Scorecard, Dependabot, a changelog, issue templates | |
 | **Documentation** | One map ([docs/README.md](README.md)), a teacher guide, a student guide, a specification whose facts are machine-checked, one guide per feature | |
 

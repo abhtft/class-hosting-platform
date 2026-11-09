@@ -1275,6 +1275,9 @@ Resources:
                 - !Sub '${SitesBucket.Arn}/sites/*'
                 - !Sub '${SitesBucket.Arn}/archive/*'
                 - !Sub '${SitesBucket.Arn}/uploads/*'
+            - Effect: Allow # project sync: upload forms and download links for the files of a project (the portal never reads them), and the teacher's clean-up
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/projects/*'
             - Effect: Allow # the teacher's "clear this student's files" only deletes; it never reads or writes a student's stored files
               Action: s3:DeleteObject
               Resource: !Sub '${SitesBucket.Arn}/userdata/*'

@@ -473,6 +473,32 @@ async function syncBooksAfterDeploy(session, token) {
   }
 }
 
+// ---------- project sync: pull, push, project (tools/project.mjs does the work) ----------
+/** `pull`, `push` and `project`: keep the project's source files on the platform (a second computer, or a team). */
+async function projectCommand(name) {
+  const tool = join(process.cwd(), 'tools', 'project.mjs');
+  if (!existsSync(tool)) fail('tools/project.mjs is missing. Run  npm run platform -- update --apply  to restore the kit files.');
+  const { pull, push, status, Stop: ToolStop } = await import(pathToFileURL(tool).href);
+  const saved = readToken();
+  if (!saved) fail(NO_TOKEN());
+  const { session } = await signIn(saved);
+  const common = { portalUrl: PORTAL_URL, session, root: process.cwd(), project: option('--project'), dryRun: flag('--dry-run') };
+  try {
+    if (name === 'pull') {
+      const result = await pull({ ...common, theirs: flag('--theirs') });
+      if (result.conflicts.length) process.exitCode = 1;
+    } else if (name === 'push') {
+      const result = await push({ ...common, mine: flag('--mine') });
+      if (result.conflicts.length) process.exitCode = 1;
+    } else {
+      await status(common);
+    }
+  } catch (error) {
+    if (!(error instanceof ToolStop)) throw error;
+    fail(error.message);
+  }
+}
+
 // ---------- main ----------
 async function main() {
   if (args[0] === 'login') return login(option('--token'));
@@ -481,6 +507,7 @@ async function main() {
   if (args[0] === 'logs') return logs();
   if (args[0] === 'knowledge') return knowledgeCommand();
   if (args[0] === 'traces') return tracesCommand();
+  if (['pull', 'push', 'project'].includes(args[0])) return projectCommand(args[0]);
   const only = option('--only');
   if (only && !['frontend', 'backend'].includes(only)) fail('--only must be "frontend" or "backend".');
   const frontendDir = option('--frontend', 'frontend');
