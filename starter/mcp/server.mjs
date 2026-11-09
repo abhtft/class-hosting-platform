@@ -101,34 +101,10 @@ const TOOLS = [
     async run({ confirm, path, install }) {
       const root = projectRoot(path);
       if (confirm !== true) return { ok: false, text: `Nothing written. Ask the student whether to set up the class project in ${root}; if they say yes, call init_project again with confirm=true.` };
-      const zipFile = join(here, 'kit.zip');
-      if (!existsSync(zipFile)) return { ok: false, text: 'init_project is only available in the class-platform-mcp package (this copy has no starter inside).' };
-      mkdirSync(root, { recursive: true });
-      const harmless = new Set(['.git', '.vscode', '.idea', '.DS_Store', '.mcp.json', '.claude', '.cursor', '.gemini']);
-      const blocking = readdirSync(root).filter((name) => !harmless.has(name));
-      if (blocking.length) return { ok: false, text: `${root} is not empty (${blocking.slice(0, 5).join(', ')}${blocking.length > 5 ? ', ...' : ''}). Open an empty folder for a new project, or ask the student what they want.` };
-      const { readZip } = await import('./zip.mjs');
-      let written = 0;
-      for (const [name, data] of readZip(readFileSync(zipFile))) { // readZip refuses any path that would leave the folder
-        const target = join(root, name);
-        if (existsSync(target)) continue; // a file the editor already made (for example .vscode/mcp.json) is left alone
-        mkdirSync(dirname(target), { recursive: true });
-        writeFileSync(target, data);
-        written++;
-      }
-      let installText = '';
-      if (install !== false) {
-        const done = await new Promise((resolveRun) => {
-          const child = spawn('npm ci --no-audit --no-fund', { cwd: join(root, 'frontend'), shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
-          let out = '';
-          child.stdout.on('data', (d) => (out += d));
-          child.stderr.on('data', (d) => (out += d));
-          const timer = setTimeout(() => child.kill(), 300000);
-          child.on('close', (code) => { clearTimeout(timer); resolveRun({ ok: code === 0, out }); });
-        });
-        installText = done.ok ? ' The site\'s packages are installed.' : ` The site\'s packages could not be installed (run "npm ci" inside frontend/ yourself): ${clean(done.out).slice(-300)}`;
-      }
-      return { ok: true, text: `Wrote ${written} files to ${root}.${installText}\nNext: run check_project, then try it with "npm run dev" (site on http://localhost:3000). The rules for the assistant are in AGENTS.md. To publish: in this folder's terminal run "npm run login" once (it saves the token in this project's .env.local), then deploy.` };
+      const mod = await import('./init.mjs').catch(() => null); // the kit's own copy of this file has neither init.mjs nor kit.zip
+      if (!mod) return { ok: false, text: 'init_project is only available in the class-platform-mcp package (this copy has no starter inside).' };
+      const { ok, text } = await mod.initProject({ root, here, install });
+      return { ok, text };
     },
   },
   {

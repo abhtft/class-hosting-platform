@@ -4,7 +4,7 @@
 //   node starter/build-mcp-package.mjs <out.tgz>
 //
 // What goes in (package/ is the folder npm expects at the top of a tarball):
-//   package.json, bin.mjs, server.mjs, setup.mjs, jsonc.mjs     starter/mcp/   (the package's own code; server.mjs is also the kit's tools/mcp.mjs)
+//   package.json, bin.mjs, server.mjs, setup.mjs, init.mjs, jsonc.mjs     starter/mcp/   (the package's own code; server.mjs is also the kit's tools/mcp.mjs)
 //   portal-deploy.mjs                                            student/       (single source, the same file the kit and the portal use)
 //   check.mjs, update-notice.mjs                                 starter/template/tools/
 //   zip.mjs                                                      starter/zip.mjs
@@ -58,6 +58,7 @@ export function buildMcpPackage(outFile, { portalUrl = '' } = {}) {
       'bin.mjs': text('starter/mcp/bin.mjs'),
       'server.mjs': text('starter/mcp/server.mjs'),
       'setup.mjs': text('starter/mcp/setup.mjs'),
+      'init.mjs': text('starter/mcp/init.mjs'),
       'jsonc.mjs': text('starter/mcp/jsonc.mjs'),
       'portal-deploy.mjs': text('student/portal-deploy.mjs'),
       'check.mjs': text('starter/template/tools/check.mjs'),

@@ -124,5 +124,5 @@ export async function main(argv) {
     say(`\nTo add it yourself, put this entry into the editor's MCP settings (inside "servers" for VS Code, inside "mcpServers" for Antigravity):`);
     say(JSON.stringify({ [NAME]: entry }, null, 2));
   }
-  say('\nNext: restart the editor (or refresh its MCP list). Then open an EMPTY folder and tell the AI:  set up my class project\nThen, in that folder\'s terminal:  npm run login  (paste the token your teacher gave you).');
+  say('\nNext: restart the editor (or refresh its MCP list). Then open an EMPTY folder and tell the AI:  set up my class project\nThen, in that folder\'s terminal:  npm run login  (paste the token your teacher gave you).\nNo AI editor at hand? In an empty folder run the same address with  init  at the end (npx -y <address> init): it sets the project up, installs it and offers the login.');
 }

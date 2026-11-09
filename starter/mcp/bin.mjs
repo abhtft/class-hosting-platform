@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // class-platform-mcp: the command the editor starts (no arguments = the MCP server), plus:
 //   setup     one-time setup for this computer: add the server to VS Code / Antigravity (the token is saved per project: `npm run login`)
+//   init      set up a class project in an empty folder from the terminal (no AI editor needed), then offer `npm run login`
 //   version   print the version
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -13,6 +14,9 @@ const version = () => JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'
 if (command === 'setup') {
   const { main } = await import('./setup.mjs');
   await main(rest);
+} else if (command === 'init') {
+  const { main } = await import('./init.mjs');
+  await main(rest, here);
 } else if (command === 'login') {
   console.error('This command was removed: one token for the whole computer let two windows share one student by accident.\nOpen your class project folder and run  npm run login  there (it saves the token in that project\'s .env.local).');
   process.exitCode = 1;

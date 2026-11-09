@@ -75,7 +75,7 @@ In this order: the `path` the AI passes, the folder the editor says is open (the
 
 | Where | How it starts | Notes |
 |---|---|---|
-| **The package** (new students) | The editor runs `npx -y <portal>/class-platform-mcp-<version>.tgz` | Bundles `check.mjs`, `portal-deploy.mjs`, `kit.zip` (for `init_project`) |
+| **The package** (new students) | The editor runs `npx -y <portal>/class-platform-mcp-<version>.tgz` | Bundles `check.mjs`, `portal-deploy.mjs`, `kit.zip` (for `init_project`) and `init.mjs` (the terminal command `init`, which sets a project up in an empty folder without any AI editor, installs its packages and offers `npm run login`) |
 | **Inside a kit project** (older students) | `node tools/mcp.mjs --root <project>` from `.vscode/mcp.json` | `build-kit.mjs` copies the same file to `tools/mcp.mjs` |
 
 Within a kit project the server prefers the project's own copies of the scripts, so a project keeps working the way it was set up; outside a kit it uses the bundled ones.

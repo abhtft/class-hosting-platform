@@ -161,6 +161,28 @@ try {
   assert.ok(!login.stdout.includes(alice), 'the token is never printed');
   assert.match(readFileSync(join(projectA, '.env.local'), 'utf8'), new RegExp(alice), 'the project login saves the token in the project');
   assert.ok(!existsSync(join(classHome, 'token')), 'and nowhere else');
+
+  // ---------- the terminal command: `init` sets a project up with no AI editor, and offers the login ----------
+  const fresh = join(work, 'terminal-project');
+  mkdirSync(fresh, { recursive: true });
+  const helpText = spawnSync(process.execPath, [bin, 'init', '--help'], { env, encoding: 'utf8' });
+  assert.equal(helpText.status, 0);
+  assert.match(helpText.stdout, /EMPTY folder/);
+  const viaTerminal = spawnSync(process.execPath, [bin, 'init', '--no-install', '--no-login'], { cwd: fresh, env, encoding: 'utf8' });
+  assert.equal(viaTerminal.status, 0, viaTerminal.stdout + viaTerminal.stderr);
+  assert.match(viaTerminal.stdout, /Done: \d+ files written/);
+  assert.match(viaTerminal.stdout, /npm run login/, 'it says what to do next');
+  assert.ok(existsSync(join(fresh, 'package.json')) && existsSync(join(fresh, 'frontend')) && existsSync(join(fresh, 'AGENTS.md')), 'the starter is in the folder');
+  assert.match(readFileSync(join(fresh, 'package.json'), 'utf8'), /"login"/, 'and its npm run login now exists');
+  const again2 = spawnSync(process.execPath, [bin, 'init', '--no-install', '--no-login'], { cwd: fresh, env, encoding: 'utf8' });
+  assert.notEqual(again2.status, 0, 'a folder that already has files is refused');
+  assert.match(again2.stderr, /not empty/);
+  const named = join(work, 'named-project');
+  const byName = spawnSync(process.execPath, [bin, 'init', named, '--no-install', '--no-login'], { cwd: work, env, encoding: 'utf8' });
+  assert.equal(byName.status, 0, byName.stdout + byName.stderr);
+  assert.ok(existsSync(join(named, 'package.json')), 'a folder named on the command line is created and set up');
+  assert.match(byName.stdout, /cd .*named-project/, 'the next steps include going into that folder');
+  say('terminal init: sets a project up in an empty folder (current or named) without an AI editor, refuses a folder with files, ends with the next steps');
   const after = await a.tool('status');
   assert.equal(after.isError, false, after.content[0].text);
   assert.match(after.content[0].text, /Signed in as .*alice/i);
