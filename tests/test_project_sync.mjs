@@ -30,7 +30,7 @@ const tree = (root, dir = '') => readdirSync(join(root, dir), { withFileTypes: t
     'AGENTS.md': 'kit', 'tools/check.mjs': 'kit', 'portal-deploy.mjs': 'kit',
     '.env': 'SECRET', '.env.local': 'SECRET', 'frontend/.env.production': 'S', 'keys/id.pem': 'S', 'node_modules/x/i.js': 'dep', 'frontend/node_modules/y/i.js': 'dep',
     'frontend/dist/a.js': 'b', 'build/o.js': 'b', '.git/config': 'g', '.venv/bin/p': 'v', '__pycache__/a.pyc': 'c', 'knowledge/books/a.txt': 'book', '.class-project.json': '{}',
-    'a.txt.theirs': 't', 'a.txt.mine': 'm', 'Thumbs.db': 'x', '.DS_Store': 'x', 'big/huge.bin': 'x'.repeat(5 * 1048576 + 1), 'skipme/a.txt': 'x', 'data.csv': 'x', 'draft/ok.md': 'x',
+    'a.txt.theirs': 't', '.kit-backup/20261101-1/old.mjs': 'old', 'kit-manifest.json': '{}', '.platform-notice.json': '{}', '.class-storage/db.json': '{}', 'backend/.class-storage/x': '{}', 'a.txt.mine': 'm', 'Thumbs.db': 'x', '.DS_Store': 'x', 'big/huge.bin': 'x'.repeat(5 * 1048576 + 1), 'skipme/a.txt': 'x', 'data.csv': 'x', 'draft/ok.md': 'x',
     '.syncignore': 'skipme/\n*.csv\n# comment\ndraft/ok.md\n',
   })) put(root, p, t);
   const { files, warnings } = tool.scan(root);

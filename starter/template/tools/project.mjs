@@ -24,8 +24,8 @@ import { dirname, join } from 'node:path';
 
 export const STATE_FILE = '.class-project.json';
 export const MAX_FILE_BYTES = 5 * 1048576;
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.next', '.turbo', '.cache', 'coverage', '.venv', 'venv', '__pycache__', '.class-platform', '.idea', 'knowledge']);
-const SKIP_NAMES = /^(\.env(\.(?!example$|sample$|template$).*)?|\.class-project\.json|\.class-token|\.ds_store|thumbs\.db|platform\.json|.*\.(pem|key|p12|pfx|theirs|mine))$/i;
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.next', '.turbo', '.cache', 'coverage', '.venv', 'venv', '__pycache__', '.class-platform', '.idea', 'knowledge', '.kit-backup', '.class-storage', '.class-knowledge']);
+const SKIP_NAMES = /^(\.env(\.(?!example$|sample$|template$).*)?|\.class-project\.json|\.class-token|\.ds_store|thumbs\.db|platform\.json|kit-manifest\.json|\.platform-notice\.json|.*\.(pem|key|p12|pfx|theirs|mine))$/i;
 const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
 const kb = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 

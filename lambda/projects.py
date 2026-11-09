@@ -32,7 +32,7 @@ COMMIT_TRIES = 3
 
 TEAM_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,39}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
-BLOCKED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".class-platform", ".idea", ".vscode-test"}
+BLOCKED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".class-platform", ".idea", ".vscode-test", ".kit-backup", ".class-storage", ".class-knowledge"}
 BLOCKED_NAME = re.compile(r"^(\.env(\.(?!example$|sample$|template$).*)?|\.class-project\.json|\.class-token|.*\.(pem|key|p12|pfx))$", re.I)
 
 
