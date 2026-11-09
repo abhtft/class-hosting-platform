@@ -2,7 +2,7 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
-## 2.3.2 (unreleased)
+## 2.3.2
 
 - **Alerts and a cost budget are part of the install.** The guided install now asks for an e-mail address and a monthly budget (default $10), stores the address, passes it to the stack so the error alarms exist, and creates an AWS Budget that e-mails at 80% and 100% of the amount and when 100% is forecast. Flags: `--alert-email`, `--budget`, `--no-alerts`. New command `alerts --email <address> [--budget <usd>]` for a platform that was installed without them (then `plan` and `apply` to add the alarms). `verify` shows a warning when either is missing, `destroy` removes the budget (and, with `--everything`, the stored address), and an update never clears an alert address the stack already has. AWS sends each address a confirmation e-mail that must be opened. **To apply:** `alerts --email <your address>`, then `plan` and `apply <plan id>`; nothing changes for students.
 
