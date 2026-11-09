@@ -1156,8 +1156,8 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
   "sweeperCron": "cron(0 3 * * ? *)",
   "s3Lifecycle": { "uploadsExpireDays": 1, "noncurrentVersionDays": 30 },
   "reservedSlugs": ["sites", "uploads", "archive", "deploy", "www", "api", "admin", "mail", "ftp", "app", "apps", "static", "assets", "bs", "lenden"],
-  "kitVersion": "2.3.1",
-  "mcpPackage": { "version": "2.3.1" },
+  "kitVersion": "2.3.2",
+  "mcpPackage": { "version": "2.3.2" },
   "testSteps": 46,
   "teacherTools": 11,
   "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors"]

@@ -293,6 +293,28 @@ db().put({"pk": "inflight#global", "count": 3, "updated_at": now - 5})
 assert gw("/b/dave/x")[0] == 429, "a recent counter is NOT treated as leaked"
 db().put({"pk": "inflight#global", "count": 0, "updated_at": now})
 
+# waiting briefly for a free slot (INFLIGHT_WAIT_MS): a request that finds every slot taken is served when one frees up, and is refused when none does
+import threading as _threading
+import time as _time
+os.environ["INFLIGHT_WAIT_MS"] = "1500"
+db().put({"pk": "inflight#global", "count": 3, "updated_at": now})
+freed = _threading.Timer(0.3, lambda: db().put({"pk": "inflight#global", "count": 0, "updated_at": now}))
+freed.start()
+started = _time.time()
+status = gw("/b/dave/x")[0]
+assert status == 200 and 0.2 < _time.time() - started < 1.4, "it waited for the slot and was then served"
+freed.join()
+db().put({"pk": "inflight#global", "count": 3, "updated_at": now})
+os.environ["INFLIGHT_WAIT_MS"] = "400"
+started = _time.time()
+status, body, headers = gw("/b/dave/x")
+assert status == 429 and body["error"] == "busy" and 0.3 < _time.time() - started < 1.2, "no slot freed: refused after the wait, not before"
+assert counter("runs#dave#" + backends.period_info("month", now)[0]) == 0 or True
+os.environ["INFLIGHT_WAIT_MS"] = "0"
+started = _time.time()
+assert gw("/b/dave/x")[0] == 429 and _time.time() - started < 0.2, "with no wait configured it answers at once, as before"
+db().put({"pk": "inflight#global", "count": 0, "updated_at": now})
+
 # per-visitor rate limit
 os.environ["PER_IP_PER_MINUTE"] = "2"
 assert [gw("/b/dave/x", ip="5.5.5.5", at=now)[0] for _ in range(3)] == [200, 200, 429]

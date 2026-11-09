@@ -57,7 +57,7 @@ Student guide: [student/README.md](student/README.md) and [docs/STUDENT_KIT.md](
 ## Known limitations
 
 - **Built for classes of a few dozen.** Tokens are created one at a time and features are switched on per student; there are no class-wide defaults.
-- **Backend capacity is small by design:** at most 3 student backend requests run at once on the whole platform (2 per student) and the backend API allows about 10 requests a second, because a new AWS account may allow only 10 concurrent function executions. A class using the AI at the same moment will see "busy" answers. See [docs/STATUS.md](docs/STATUS.md).
+- **Backend capacity follows your AWS account:** a new account allows only 10 concurrent function executions, so about 3 student requests run at once until you ask AWS for more (free: Service Quotas, AWS Lambda, request 1000). The install reads the limit and sizes the caps; `verify` warns until the account can serve a class of 30. See [docs/TEACHER_SETUP.md](docs/TEACHER_SETUP.md) (section 13a).
 - **One teacher login** per platform; no co-teachers and no audit log.
 - **Student backends:** one Python 3.12 or Node 22 function, standard library only, 10 seconds per request (25 with the class AI), no SQL database.
 - **One class per platform.** Do not import a backup into a platform that already has students. A backup includes books but not traces (download those from the Traces tab).

@@ -65,8 +65,9 @@ check("gateway.maxBodyBytes", g["maxBodyBytes"], const(gateway, "MAX_BODY_CHARS"
 check("gateway.maxResponseBytes", g["maxResponseBytes"], const(gateway, "MAX_RESPONSE_BYTES"))
 check("gateway.leakSeconds", g["leakSeconds"], const(gateway, "LEAK_SECONDS"))
 globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
-check("gateway.inflightGlobal (template Globals)", str(g["inflightGlobal"]), re.search(r"INFLIGHT_GLOBAL: '(\d+)'", globals_).group(1))
-check("gateway.inflightPerStudent (template Globals)", str(g["inflightPerStudent"]), re.search(r"INFLIGHT_STUDENT: '(\d+)'", globals_).group(1))
+check("gateway.inflightGlobal (template parameter default)", str(g["inflightGlobal"]), re.search(r"  BackendInflightGlobal:\n    Type: Number\n    Default: (\d+)", template).group(1))
+check("gateway.inflightPerStudent (template parameter default)", str(g["inflightPerStudent"]), re.search(r"  BackendInflightPerStudent:\n    Type: Number\n    Default: (\d+)", template).group(1))
+assert "INFLIGHT_GLOBAL: !Ref BackendInflightGlobal" in globals_ and "INFLIGHT_STUDENT: !Ref BackendInflightPerStudent" in globals_
 check("gateway.perIpPerMinute (template Globals)", str(g["perIpPerMinute"]), re.search(r"PER_IP_PER_MINUTE: '(\d+)'", globals_).group(1))
 check("gateway.inflightGlobal (gateway default)", g["inflightGlobal"], int(re.search(r'setting\("INFLIGHT_GLOBAL", (\d+)\)', gateway).group(1)))
 check("gateway.inflightPerStudent (gateway default)", g["inflightPerStudent"], int(re.search(r'setting\("INFLIGHT_STUDENT", (\d+)\)', gateway).group(1)))
@@ -126,10 +127,19 @@ for name, expected in facts["lambdas"].items():
     check(f"lambdas.{name}.memory", expected["memory"], int(re.search(r"\n      MemorySize: (\d+)", text).group(1)))
     check(f"lambdas.{name}.timeout", expected["timeout"], int(re.search(r"\n      Timeout: (\d+)", text).group(1)))
 
+def throttle(text, key):
+    """The number written in the template, or (for the backend API, whose caps are parameters the installer sets) the parameter's default."""
+    literal = re.search(rf"{key}: (\d+)", text)
+    if literal:
+        return int(literal.group(1))
+    ref = re.search(rf"{key}: !Ref (\w+)", text).group(1)
+    return int(re.search(rf"\n  {ref}:\n    Type: Number\n    Default: (\d+)", template).group(1))
+
+
 for name, expected in facts["apiThrottles"].items():
     text = block_of(name)
-    check(f"apiThrottles.{name}.rate", expected["rate"], int(re.search(r"ThrottlingRateLimit: (\d+)", text).group(1)))
-    check(f"apiThrottles.{name}.burst", expected["burst"], int(re.search(r"ThrottlingBurstLimit: (\d+)", text).group(1)))
+    check(f"apiThrottles.{name}.rate", expected["rate"], throttle(text, "ThrottlingRateLimit"))
+    check(f"apiThrottles.{name}.burst", expected["burst"], throttle(text, "ThrottlingBurstLimit"))
 
 parameters = template[template.index("\nParameters:"):template.index("\nConditions:")]
 for name, expected in facts["templateParameterDefaults"].items():

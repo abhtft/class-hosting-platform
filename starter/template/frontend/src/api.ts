@@ -39,28 +39,40 @@ const FRIENDLY: Record<string, string> = {
   no_such_job: 'That job was not found (finished jobs are kept for one day).',
 }
 
+// "busy" and "too_many_requests" are answered by the platform BEFORE your backend runs, so asking again is always safe. A class using the AI at the same
+// moment can hit them; waiting a moment and asking again (up to three times, longer each time, with a little randomness) is what a polite client does.
+const RETRY_CODES = new Set(['busy', 'too_many_requests'])
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response
-  try {
-    response = await fetch(`/api${path}`, {
-      ...init,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-    })
-  } catch {
-    throw new ApiError(0, 'network', 'Could not reach the server. Check your connection.')
+  for (let attempt = 0; ; attempt++) {
+    let response: Response
+    try {
+      response = await fetch(`/api${path}`, {
+        ...init,
+        headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      })
+    } catch {
+      throw new ApiError(0, 'network', 'Could not reach the server. Check your connection.')
+    }
+    const text = await response.text()
+    let body: any = null
+    try {
+      body = text ? JSON.parse(text) : null
+    } catch {
+      body = null
+    }
+    if (!response.ok) {
+      const code = String(body?.error ?? 'error')
+      if (response.status === 429 && RETRY_CODES.has(code) && attempt < 3) {
+        const asked = Number(response.headers.get('retry-after')) * 1000
+        await sleep(Math.min(Number.isFinite(asked) && asked > 0 ? asked : 400 * 2 ** attempt, 4000) + Math.random() * 300)
+        continue
+      }
+      throw new ApiError(response.status, code, FRIENDLY[code] ?? String(body?.message ?? `Something went wrong (${response.status}).`))
+    }
+    return body as T
   }
-  const text = await response.text()
-  let body: any = null
-  try {
-    body = text ? JSON.parse(text) : null
-  } catch {
-    body = null
-  }
-  if (!response.ok) {
-    const code = String(body?.error ?? 'error')
-    throw new ApiError(response.status, code, FRIENDLY[code] ?? String(body?.message ?? `Something went wrong (${response.status}).`))
-  }
-  return body as T
 }
 
 /** A background job as the platform reports it. */

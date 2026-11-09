@@ -43,12 +43,13 @@
 - **Evidence.** `HANDOFF.md` (before this rewrite) said the test account was blocked; the AWS Free-plan refusal of the first compute worker instance type showed that account-level limits surface only on real runs.
 - **Fix.** Get the second AWS account verified (support case), then run the clean-room test from [ROADMAP.md](ROADMAP.md) phase 1: install with the README quickstart in CloudShell, no domain, as a stranger would; run `verify`; switch every feature on; then `destroy --everything`. Fix what hesitates. Repeat with a domain.
 
-### 3. Backend capacity: 3 requests in flight for the whole platform
+### 3. Backend capacity: 3 requests in flight for the whole platform (fixed in code, 2.3.2 unreleased)
 
 - **What is wrong.** The gateway lets at most **3** student-backend requests run at once on the whole platform and 2 per student (`INFLIGHT_GLOBAL`, `INFLIGHT_STUDENT` in `template.yaml`), and the backend API allows about 10 requests a second. These were set for a new AWS account's limit of 10 concurrent executions. A class asking the AI or the books at the same moment mostly gets "busy" (HTTP 429).
 - **Evidence (measured on the owner's platform, 2026-11-08).** The same cached question sent in parallel: 1 at a time, all fine; **6 at once: 3 answered, 3 refused**; **12 at once: 2 answered, 10 refused**. The owner's account has a raised limit of 1,000, so the cap is the platform's own setting, not AWS's.
 - **Why it matters.** The AI and books features are the platform's main attraction, and a demo to a class is the first thing a teacher does.
-- **Fix.** (a) Read the account's real concurrency quota at install and set the caps from it, as parameters; (b) raise the defaults on accounts whose limit allows it; (c) make the helpers wait and retry with a short, visible "busy, trying again" path instead of failing; (d) document the capacity ("about N simultaneous students") in the teacher guide; (e) re-run the measurement above as a permanent test (item 5).
+- **Status.** Done in code: the installer reads the quota and sets the caps (parameters), the gateway waits up to 1.5 s for a slot when the account has room, the starter retries on "busy", `verify` warns until the account can serve 30, and `tests/live_load.py` repeats the measurement. Still to do: apply it on the live platform and run the script there.
+- **Fix (as designed).** (a) Read the account's real concurrency quota at install and set the caps from it, as parameters; (b) raise the defaults on accounts whose limit allows it; (c) make the helpers wait and retry with a short, visible "busy, trying again" path instead of failing; (d) document the capacity ("about N simultaneous students") in the teacher guide; (e) re-run the measurement above as a permanent test (item 5).
 
 ### 4. Backup and restore leave out books and traces (fixed in code, 2.3.2 unreleased)
 

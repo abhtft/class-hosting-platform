@@ -143,6 +143,41 @@ Parameters:
     MinValue: 15
     MaxValue: 360
     Description: The longest the machine may stay on after a start. The watchdog stops it after this (the teacher can lower it on the page).
+  BackendInflightGlobal:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    MaxValue: 500
+    Description: >
+      Student backend requests that may run at once on the whole platform. Every request can hold up to four function executions (the gateway, the student's
+      function, and the knowledge or AI function it calls), so this protects the AWS account's concurrency limit (10 on a new account, which allows 3).
+      The installer sets it from the account's real limit; raise the limit in Service Quotas (AWS Lambda, Concurrent executions) for a class.
+  BackendInflightPerStudent:
+    Type: Number
+    Default: 2
+    MinValue: 1
+    MaxValue: 50
+    Description: Requests that may run at once for one student's backend. Set by the installer from the account's limit.
+  BackendApiRate:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 2000
+    Description: Requests a second the student backend API accepts (its own throttle, so student traffic cannot starve the portal). Set by the installer.
+  BackendApiBurst:
+    Type: Number
+    Default: 20
+    MinValue: 1
+    MaxValue: 4000
+    Description: The short burst the student backend API accepts above its rate. Set by the installer.
+  BackendWaitMs:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 1500
+    Description: >
+      When every slot is busy, how long (milliseconds) the gateway waits for one to free up before answering "busy". 0 answers at once. The installer turns
+      this on only when the account has enough concurrency (a waiting gateway holds an execution itself).
   KnowledgeMonthlyCapUsd:
     Type: String
     Default: '3'
@@ -216,8 +251,9 @@ Globals:
         BACKEND_ENABLED: !Ref BackendEnabled
         SANDBOX_ROLE_ARN: !GetAtt StudentSandboxRole.Arn
         BACKEND_RESERVED_CONCURRENCY: '0' # the account limit is 10, so no reservation; the gateway's in-flight limiter is the cap
-        INFLIGHT_GLOBAL: '3'
-        INFLIGHT_STUDENT: '2'
+        INFLIGHT_GLOBAL: !Ref BackendInflightGlobal
+        INFLIGHT_STUDENT: !Ref BackendInflightPerStudent
+        INFLIGHT_WAIT_MS: !Ref BackendWaitMs
         PER_IP_PER_MINUTE: '120'
         ORIGIN_SECRET: !Select [2, !Split ['/', !Ref 'AWS::StackId']]
         AI_ENABLED: !Ref AiEnabled
@@ -813,8 +849,8 @@ Resources:
     Condition: UseBackend
     Properties:
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 20
-        ThrottlingRateLimit: 10
+        ThrottlingBurstLimit: !Ref BackendApiBurst
+        ThrottlingRateLimit: !Ref BackendApiRate
 
   GatewayFunction:
     Type: AWS::Serverless::Function

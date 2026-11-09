@@ -5,7 +5,7 @@
 Checks, in order (each failure is a small JSON error, and only a run that passes all of them is counted):
   1 origin secret (direct calls to the API URL are refused)      2 path and slug            3 body size
   4 student backend exists and the token's lifecycle allows it   5 teacher toggle (ON/OFF)  6 per-visitor-IP rate limit
-  7 in-flight limiter (protects the rest of the AWS account)      8 run allowance (atomic)    9 invoke
+  7 in-flight limiter (protects the rest of the AWS account; waits briefly for a free slot when INFLIGHT_WAIT_MS is set)      8 run allowance (atomic)    9 invoke
 Then the response is validated and shaped. See docs/TECHNICAL_SPECIFICATION.md (the backend gateway).
 The reserved path /_jobs (background jobs, see jobs.py) is answered after check 6 and never reaches the student's function.
 """
@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import re
 import time
 
@@ -84,8 +85,9 @@ def handler(event, context=None, now=None):
     slots = [("inflight#global", setting("INFLIGHT_GLOBAL", 3)), (f"inflight#{slug}", setting("INFLIGHT_STUDENT", 2))]
     taken = []
     try:
+        deadline = time.time() + setting("INFLIGHT_WAIT_MS", 0) / 1000
         for key, cap in slots:
-            if not acquire(key, cap, now):
+            if not acquire_waiting(key, cap, now, deadline):
                 return reply(429, {"retry-after": "1"}, error="busy", message="The backend is busy. Please retry in a moment.")
             taken.append(key)
 
@@ -117,6 +119,17 @@ def load_token(slug, now):
     item = db().get(f"tok#{lock['token']}") if lock else None
     _cache[slug] = (now, item)
     return item
+
+
+def acquire_waiting(key, cap, now, deadline, sleep=time.sleep):
+    """Take a slot, waiting (a few short sleeps with a little jitter) until `deadline` for one to free up. With no wait configured this is one try, as before.
+    Only the platform's own slot counters wait here; the student's function has not been called yet, so nothing is run twice."""
+    while True:
+        if acquire(key, cap, now):
+            return True
+        if time.time() >= deadline:
+            return False
+        sleep(0.12 + random.random() * 0.1)
 
 
 def acquire(key, cap, now):

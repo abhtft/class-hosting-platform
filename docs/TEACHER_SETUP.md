@@ -367,6 +367,8 @@ The platform e-mails the address when something is wrong: a crashed function, th
 | `sweeper-errors` | the daily sweeper failed on a site or domain (it retries next day) | read the sweeper logs |
 | `backend-5xx` | 20 or more server errors from student backends in 5 minutes | read the logs of the busiest `sd-*` function |
 
+**How many students can use the AI at once (capacity).** Every student request can hold up to four function executions at the same moment (the gateway, the student's function and the function it calls), and a new AWS account allows only **10** in total, so by default only about 3 requests run at once and a class of 30 asking together will often see "busy". Ask AWS for more (free, usually granted within a day): AWS console, **Service Quotas**, **AWS Lambda**, **Concurrent executions**, request **1000**. Then run `plan` and `apply <plan id>`: the installer reads the new limit and raises the caps (about `(limit - 10) / 4` requests at once; 1000 allows about 247, 8 per student, 494 requests a second), and the gateway waits up to 1.5 seconds for a free slot before it answers "busy", while the student kit asks again up to three times. `verify` shows a warning until the account can serve a class of 30. `tests/live_load.py` measures it on a real platform.
+
 **Recovering a file (S3 versioning).** The site bucket keeps old versions: an overwritten or deleted site file is recoverable for **30 days**. Uploaded zips (`uploads/`) are removed after 1 day. The bucket name is the physical id of `SitesBucket` in the stack.
 ```bash
 aws s3api list-object-versions --bucket <bucket> --prefix sites/alice/index.html --profile <name>

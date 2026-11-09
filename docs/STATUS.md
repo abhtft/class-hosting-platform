@@ -48,7 +48,7 @@
 
 **Student.** Gets a token, runs one command that connects the editor, asks the editor to build and publish. *Rough edges:* Node 22 and git are required; the first minutes depend on the AI editor following the rules; if the teacher has not switched a feature on, the student must understand why.
 
-**Everyone at once.** A class of 30 using the AI features in the same minute exceeds what the backend gateway allows (3 requests in flight, about 10 a second), so some students see "busy". It is by design on a new AWS account (10 concurrent executions), but it will be the first thing a real class notices.
+**Everyone at once.** The backend gateway's caps now follow the account's Lambda concurrency limit (a limit of 1000 serves about 247 requests at once; the gateway waits briefly and the kit retries). On a new account (limit 10) only about 3 run at once until the teacher asks AWS for more (free); `verify` warns until then. Applied on the live platform only after the owner approves the plan; measured by `tests/live_load.py`.
 
 ## 5. Where the project is, honestly
 
