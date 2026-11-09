@@ -16,11 +16,12 @@ import time
 import portal
 import trace_core as tc
 from portal import DAY, PortalError
+import platform_settings
 
 MS = 1000
-MAX_SPANS_PER_TRACE = 200
-SPANS_PER_TRACE_BUDGET = 20  # an app may report this many steps per allowed trace a day (daily_limit x 20), counted atomically
-CLEAR_BATCH = 100  # traces removed per call of "delete all of a student's traces" (the teacher page repeats until done)
+MAX_SPANS_PER_TRACE = platform_settings.value("traces.maxSpansPerTrace")
+SPANS_PER_TRACE_BUDGET = platform_settings.value("traces.spansPerTraceBudget")  # an app may report this many steps per allowed trace a day (daily_limit x 20), counted atomically
+CLEAR_BATCH = platform_settings.value("traces.clearBatch")  # traces removed per call of "delete all of a student's traces" (the teacher page repeats until done)
 
 
 def available():
@@ -316,8 +317,9 @@ def student_get(item, trace_id):
 
 
 # ---------------------------------------------------------------- archive, reminder and download (T7)
-REMIND_DAYS = 30
-EXPORT_MAX_TRACES, EXPORT_MAX_BYTES = 150, 3_000_000  # one page of a download: far below the 6 MB limit of a function answer
+REMIND_DAYS = platform_settings.value("traces.remindDays")
+EXPORT_MAX_TRACES = platform_settings.value("traces.exportMaxTraces")
+EXPORT_MAX_BYTES = platform_settings.value("traces.exportMaxBytes")  # one page of a download: far below the 6 MB limit of a function answer
 
 
 def status(now=None):
@@ -430,11 +432,11 @@ def clear_student(slug, limit=None):
 
 
 # ---------------------------------------------------------------- daily summaries and drift alerts (T6)
-ROLLUP_KEEP_DAYS = 400
-DRIFT_MIN_ANSWERS = 20        # a rate over fewer answers than this says nothing
-DRIFT_REFUSAL_JUMP = 0.15     # alert when the share of "the books do not say" is this much above the last week's
-DRIFT_ERROR_RATE = 0.20       # or when this share of answers had an error
-BASELINE_DAYS = 7
+ROLLUP_KEEP_DAYS = platform_settings.value("traces.rollupKeepDays")
+DRIFT_MIN_ANSWERS = platform_settings.value("traces.driftMinAnswers")        # a rate over fewer answers than this says nothing
+DRIFT_REFUSAL_JUMP = platform_settings.value("traces.driftRefusalJump")     # alert when the share of "the books do not say" is this much above the last week's
+DRIFT_ERROR_RATE = platform_settings.value("traces.driftErrorRate")       # or when this share of answers had an error
+BASELINE_DAYS = platform_settings.value("traces.baselineDays")
 
 
 def _blank():

@@ -218,6 +218,11 @@ await step('student kit MCP server: handshake, check, status and deploy tools, c
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('settings registry: config/settings.json is well formed and tied to code or the template, the generated loader data and docs/SETTINGS.md are current, the loader (defaults, units, groups, the template environment variable) behaves, the CloudFormation template agrees (every parameter is a setting, same default, range, choices), and no Lambda file holds a limit of its own', () => {
+  const r = spawnSync(python, [join(here, 'test_settings.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('specification: the machine-checked facts in docs/TECHNICAL_SPECIFICATION.md equal the code', () => {
   const r = spawnSync(python, [join(here, 'test_spec.py')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

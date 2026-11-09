@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+import platform_settings
 
 BUCKET = os.environ["BUCKET"]
 DISTRIBUTION_ID = os.environ["DISTRIBUTION_ID"]
@@ -27,9 +28,9 @@ DISTRIBUTION_DOMAIN = os.environ["DISTRIBUTION_DOMAIN"]
 ROOT_DOMAIN = os.environ.get("ROOT_DOMAIN", "")
 KEYS_PARAM = os.environ["KEYS_PARAM"]
 
-MAX_ZIP_BYTES = 50 * 1024 * 1024
-MAX_UNZIPPED_BYTES = 200 * 1024 * 1024
-MAX_FILES = 2000
+MAX_ZIP_BYTES = platform_settings.mb("frontend.maxZipMB")
+MAX_UNZIPPED_BYTES = platform_settings.mb("frontend.maxUnzippedMB")
+MAX_FILES = platform_settings.value("frontend.maxFiles")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
 JUNK = ("__MACOSX/", ".DS_Store", "Thumbs.db")
 
@@ -305,7 +306,7 @@ def content_type(path):
     return guessed
 
 
-CDN_SECONDS = 86400  # CloudFront keeps a file for a day at most; a publish clears it at once (invalidate), and if that ever fails the old copy still expires
+CDN_SECONDS = platform_settings.value("frontend.cdnCacheSeconds")  # CloudFront keeps a file for a day at most; a publish clears it at once (invalidate), and if that ever fails the old copy still expires
 
 
 def cache_control(path):

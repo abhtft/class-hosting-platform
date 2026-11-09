@@ -20,10 +20,12 @@ import portal
 import trace_core
 import traces
 from portal import db
+import platform_settings
 
 KEY_RE = re.compile(r"^ga_([a-z0-9][a-z0-9-]{0,29})\.([A-Za-z0-9_-]{20,})$")
-MAX_BODY_CHARS = 1_000_000
-DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS = 2048, 8192
+MAX_BODY_CHARS = platform_settings.value("ai.proxyMaxBodyChars")
+DEFAULT_MAX_TOKENS = platform_settings.default("ai.maxTokens")
+MAX_MAX_TOKENS = platform_settings.maximum("ai.maxTokens")
 ALLOWED = ("messages", "temperature", "top_p", "stop", "response_format", "tools", "tool_choice", "reasoning_effort", "seed",
            "frequency_penalty", "presence_penalty")
 

@@ -17,18 +17,19 @@ import time
 import backends
 import portal
 from portal import PortalError, db
+import platform_settings
 
 MB = 1024 * 1024
-MAX_FILES = 500
-MAX_FILE_BYTES = 5 * MB
-MAX_LIVE_BYTES = 50 * MB          # what the project holds now
-MAX_STORED_BYTES = 150 * MB       # everything ever uploaded to it (old versions stay until the teacher compacts)
-MAX_CHANGES = 100                 # paths in one push
-MAX_MEMBERS = 30
-HISTORY_DAYS = 180
-UPLOAD_SECONDS = 900
-DOWNLOAD_SECONDS = 300
-COMMIT_TRIES = 3
+MAX_FILES = platform_settings.value("projects.maxFiles")
+MAX_FILE_BYTES = platform_settings.mb("projects.maxFileMB")
+MAX_LIVE_BYTES = platform_settings.mb("projects.maxLiveMB")          # what the project holds now
+MAX_STORED_BYTES = platform_settings.mb("projects.maxStoredMB")       # everything ever uploaded to it (old versions stay until the teacher compacts it)
+MAX_CHANGES = platform_settings.value("projects.maxChanges")                 # paths in one push
+MAX_MEMBERS = platform_settings.value("projects.maxMembers")
+HISTORY_DAYS = platform_settings.value("projects.historyDays")
+UPLOAD_SECONDS = platform_settings.value("projects.uploadSeconds")
+DOWNLOAD_SECONDS = platform_settings.value("projects.downloadSeconds")
+COMMIT_TRIES = platform_settings.value("projects.commitTries")
 
 TEAM_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,39}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")

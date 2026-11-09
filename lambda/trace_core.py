@@ -8,21 +8,22 @@ Nothing here ever raises on bad input: tracing must never break an answer.
 import json
 import re
 import secrets
+import platform_settings
 
 LEVELS = ("metadata", "masked", "full")
 VIEWS = ("off", "metadata", "stored")  # what a student may see of their own app's traces
 RETENTION_CHOICES = (30, 60, 90)
-DEFAULT_RETENTION = 90
+DEFAULT_RETENTION = platform_settings.value("traces.retentionDays")
 DEFAULT_LEVEL = "metadata"
 DEFAULT_VIEW = "metadata"
-DEFAULT_DAILY_LIMIT = 2000
-MAX_DAILY_LIMIT = 100_000
+DEFAULT_DAILY_LIMIT = platform_settings.default("traces.dailyLimit")
+MAX_DAILY_LIMIT = platform_settings.maximum("traces.dailyLimit")
 KINDS = ("retriever", "llm", "guard", "tool", "agent", "chain", "other")
 STATUSES = ("ok", "error", "skipped")
 TEXT_KEYS = ("query", "question", "prompt", "messages", "answer", "output", "input", "passages", "text", "reason", "arguments", "result")
-MAX_TEXT_CHARS = 4000        # one text value
-MAX_ITEM_BYTES = 60_000      # a span item stays far below DynamoDB's 400 KB
-MAX_ATTR_KEYS = 40
+MAX_TEXT_CHARS = platform_settings.value("traces.maxTextChars")        # one text value
+MAX_ITEM_BYTES = platform_settings.value("traces.maxItemBytes")      # a span item stays far below DynamoDB's 400 KB
+MAX_ATTR_KEYS = platform_settings.value("traces.maxAttrKeys")
 TRACE_ID_RE = re.compile(r"^tr_[0-9a-f]{16}$")
 
 _MASKS = (
@@ -82,7 +83,7 @@ def _apply(value, level):
 SAFE_STRING_KEYS = frozenset(("name", "model", "provider", "finish_reason", "tool", "status", "kind", "source", "doc", "collection", "section", "title", "level", "error", "id",
                               "stop_reason", "reason_code"))
 SAFE_KEY_RE = re.compile(r"^[A-Za-z0-9_./:-]{1,60}$")  # a dictionary key that may stay (shelf names, ids), unlike a key made of text such as an email address
-MAX_SAFE_STRING = 80
+MAX_SAFE_STRING = platform_settings.value("traces.maxSafeString")
 
 
 def apply_level(attrs, level):

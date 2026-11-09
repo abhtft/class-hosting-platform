@@ -18,12 +18,13 @@ from html.parser import HTMLParser
 
 import embeddings as em
 import knowledge_core as kc
+import platform_settings
 
-MAX_FILE_BYTES = 50 * 1024 * 1024
-MAX_PAGES = 1500
-MAX_PASSAGES = 6000
-MIN_PAGE_CHARS = 40          # a PDF page with fewer characters than this is treated as a scan
-PSEUDO_PAGE_CHARS = 3000     # text, markdown and HTML have no pages: they are cut into pseudo-pages for citation (doc["paged"] is False)
+MAX_FILE_BYTES = platform_settings.mb("knowledge.maxFileMB")
+MAX_PAGES = platform_settings.value("knowledge.maxPages")
+MAX_PASSAGES = platform_settings.value("knowledge.maxPassages")
+MIN_PAGE_CHARS = platform_settings.value("knowledge.minPageChars")          # a PDF page with fewer characters than this is treated as a scan
+PSEUDO_PAGE_CHARS = platform_settings.value("knowledge.pseudoPageChars")     # text, markdown and HTML have no pages: they are cut into pseudo-pages for citation (doc["paged"] is False)
 TYPES = ("pdf", "txt", "md", "html")
 
 

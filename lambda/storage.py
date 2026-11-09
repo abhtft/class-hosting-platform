@@ -28,21 +28,27 @@ import backends
 import portal
 from botocore.exceptions import ClientError
 from portal import DAY, PortalError, db
+import platform_settings
 
 ENV_NAMES = ("CLASS_STORAGE_URL", "CLASS_STORAGE_KEY")
 PERIODS = ("day", "month", "total")
 MB = 1024 * 1024
-MAX_VALUE_BYTES = 64 * 1024
-MAX_ITEMS = 5000
-MAX_FILE_BYTES = 5 * MB
-MAX_FILES = 100
-MAX_COLLECTIONS = 50  # collection names a student may ever use (each is remembered so the teacher can clear them)
-DEFAULT_DATA_MB, MAX_DATA_MB = 5, 100
-DEFAULT_FILES_MB, MAX_FILES_MB = 50, 500
-DEFAULT_OPS, MAX_OPS = 10_000, 1_000_000
+MAX_VALUE_BYTES = platform_settings.kb("storage.maxValueKB")
+MAX_ITEMS = platform_settings.value("storage.maxItems")
+MAX_FILE_BYTES = platform_settings.mb("storage.maxFileMB")
+MAX_FILES = platform_settings.value("storage.maxFiles")
+MAX_COLLECTIONS = platform_settings.value("storage.maxCollections")  # collection names a student may ever use (each is remembered so the teacher can clear them)
+DEFAULT_DATA_MB = platform_settings.default("storage.dataMB")
+MAX_DATA_MB = platform_settings.maximum("storage.dataMB")
+DEFAULT_FILES_MB = platform_settings.default("storage.filesMB")
+MAX_FILES_MB = platform_settings.maximum("storage.filesMB")
+DEFAULT_OPS = platform_settings.default("storage.ops")
+MAX_OPS = platform_settings.maximum("storage.ops")
 DEFAULT_PERIOD = "day"
-LIST_PAGE_ITEMS, LIST_PAGE_BYTES = 100, 400 * 1024  # a list answer must stay far below Lambda's 6 MB response limit
-UPLOAD_SECONDS, DOWNLOAD_SECONDS = 300, 300
+LIST_PAGE_ITEMS = platform_settings.value("storage.listPageItems")
+LIST_PAGE_BYTES = platform_settings.kb("storage.listPageKB")  # a list answer must stay far below Lambda's 6 MB response limit
+UPLOAD_SECONDS = platform_settings.value("storage.uploadSeconds")
+DOWNLOAD_SECONDS = platform_settings.value("storage.downloadSeconds")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")                 # collection
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")           # item id
 FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")          # file name (no folders)
@@ -294,7 +300,7 @@ def _check(pattern, value, what):
     return value
 
 
-REMEMBER_SECONDS = 60  # a container trusts its own memory for this long, so a list deleted elsewhere is rebuilt within a minute
+REMEMBER_SECONDS = platform_settings.value("storage.rememberSeconds")  # a container trusts its own memory for this long, so a list deleted elsewhere is rebuilt within a minute
 _known = {}  # (slug, collection) -> until when this container may skip the check
 
 

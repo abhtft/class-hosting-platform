@@ -70,11 +70,11 @@ say('the kit is generic: no token, key, email or personal path (safe for a publi
 
 // the checker's backend limits equal the platform's real limits (no drift)
 const num = (expr) => expr.split('*').reduce((product, part) => product * Number(part.trim()), 1);
-const backends = read(join(repo, 'lambda', 'backends.py'));
+const registry = Object.fromEntries(JSON.parse(read(join(repo, 'config', 'settings.json'))).settings.map((s) => [s.key, s.default])); // the platform's limits live in the settings registry
 const limits = read(join(kit, 'tools', 'check.mjs')).match(/LIMITS = \{ files: (\d+), unzippedBytes: ([\d *]+), zippedBytes: ([\d *]+) \}/);
-assert.equal(Number(limits[1]), Number(backends.match(/^MAX_FILES = (\d+)/m)[1]));
-assert.equal(num(limits[2]), num(backends.match(/^MAX_UNZIPPED_BYTES = ([\d *]+)/m)[1]));
-assert.equal(num(limits[3]), num(backends.match(/^MAX_ZIP_BYTES = ([\d *]+)/m)[1]));
+assert.equal(Number(limits[1]), registry['backend.maxFiles']);
+assert.equal(num(limits[2]), registry['backend.maxUnzippedMB'] * 1024 * 1024);
+assert.equal(num(limits[3]), registry['backend.maxZipMB'] * 1024 * 1024);
 say("the checker's backend limits equal the platform's");
 
 // ---- 2. the checker ----

@@ -14,9 +14,10 @@ import os
 import time
 import urllib.error
 import urllib.request
+import platform_settings
 
 BASE_URL = os.environ.get("AI_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
-KEY_CACHE_SECONDS = 300
+KEY_CACHE_SECONDS = platform_settings.value("ai.keyCacheSeconds")
 # USD per million tokens (input, output): Gemini 3.5 Flash-Lite is the one model offered. Override or add models with the AI_GEMINI_PRICES
 # environment variable, a JSON object such as {"gemini-3.5-flash-lite": [0.3, 2.5]}.
 DEFAULT_PRICES = {"gemini-3.5-flash-lite": (0.30, 2.50)}

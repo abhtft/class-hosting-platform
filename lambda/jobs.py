@@ -27,15 +27,19 @@ from botocore.exceptions import ClientError
 import backends
 import portal
 from portal import DAY, PortalError, db
+import platform_settings
 
 JOB_SUFFIX = "_job"  # an underscore cannot occur in a slug, so sd-abc_job can never be the web function of another student
-PER_DAY_DEFAULT, PER_DAY_MAX = 20, 1000
-CONCURRENT_DEFAULT, CONCURRENT_MAX = 1, 5
-MINUTES_DEFAULT, MINUTES_MAX = 5, 15  # 15 minutes is Lambda's own ceiling
-RESULT_MAX_BYTES = 100 * 1024
-PAYLOAD_MAX_BYTES = 64 * 1024
-LIST_LIMIT = 20
-STALE_GRACE_SECONDS = 300
+PER_DAY_DEFAULT = platform_settings.default("jobs.perDay")
+PER_DAY_MAX = platform_settings.maximum("jobs.perDay")
+CONCURRENT_DEFAULT = platform_settings.default("jobs.concurrent")
+CONCURRENT_MAX = platform_settings.maximum("jobs.concurrent")
+MINUTES_DEFAULT = platform_settings.default("jobs.minutes")
+MINUTES_MAX = platform_settings.maximum("jobs.minutes")  # 15 minutes is Lambda's own ceiling
+RESULT_MAX_BYTES = platform_settings.kb("jobs.resultMaxKB")
+PAYLOAD_MAX_BYTES = platform_settings.kb("jobs.payloadMaxKB")
+LIST_LIMIT = platform_settings.value("jobs.listLimit")
+STALE_GRACE_SECONDS = platform_settings.value("jobs.staleGraceSeconds")
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 ID_RE = re.compile(r"^[0-9a-f]{32}$")
 JOB_ENV_FIELDS = ("jobs_enabled", "jobs_per_day", "jobs_concurrent", "jobs_minutes")
@@ -180,7 +184,7 @@ def _release(slug, now):
 
 
 def _global_cap():
-    return int(os.environ.get("INFLIGHT_JOBS_GLOBAL", "2"))
+    return platform_settings.value("jobs.globalInflight")
 
 
 # ---------- the gateway's reserved routes ----------

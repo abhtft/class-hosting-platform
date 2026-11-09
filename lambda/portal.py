@@ -55,17 +55,18 @@ import re
 import secrets
 import threading
 import time
+import platform_settings
 
 RESERVED = {"sites", "uploads", "archive", "deploy", "www", "api", "admin", "mail", "ftp", "app", "apps", "static", "assets", "bs", "lenden"}
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,29}$")
-GRACE_DAYS = int(os.environ.get("OFFLINE_GRACE_DAYS", "3"))
-WARN_DAYS = int(os.environ.get("WARN_DAYS", "3"))
-MAX_DAYS = 365
+GRACE_DAYS = platform_settings.value("tokens.graceDays")
+WARN_DAYS = platform_settings.value("tokens.warnDays")
+MAX_DAYS = platform_settings.value("tokens.maxDays")
 ROOT_DOMAIN = os.environ.get("ROOT_DOMAIN", "")
-TEACHER_SESSION_SECONDS = 8 * 3600
-STUDENT_SESSION_SECONDS = 12 * 3600
-MAX_FAILED_LOGINS = 5
-LOCKOUT_SECONDS = 15 * 60
+TEACHER_SESSION_SECONDS = platform_settings.hours("sessions.teacherHours")
+STUDENT_SESSION_SECONDS = platform_settings.hours("sessions.studentHours")
+MAX_FAILED_LOGINS = platform_settings.value("sessions.maxFailedLogins")
+LOCKOUT_SECONDS = platform_settings.minutes("sessions.lockoutMinutes")
 DAY = 86400
 
 

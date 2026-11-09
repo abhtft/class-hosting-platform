@@ -39,7 +39,8 @@ Everything runs against in-memory fakes (and a fake AWS CLI for the installer). 
 1. One change per pull request, with a test. New behaviour that touches `template.yaml` needs a guard test (see `tests/test_template_*.py`).
 2. New CloudFormation parameters must have a safe default that changes nothing.
 3. Update the documentation that describes it (`docs/TECHNICAL_SPECIFICATION.md` facts are checked by `tests/test_spec.py`) and add a line to `CHANGELOG.md`.
-4. Never commit keys, account ids, domains or email addresses; `tests/test_no_identifiers.py` and the secret scan will fail the build.
+4. **A new limit, default or time is a setting.** Do not write the number in a Lambda file. Add it to `config/settings.json` (a plain explanation, the default, the range, the scope, the risk), run `python tools/gen_settings.py`, and read it in the code with `platform_settings.value("group.name")`. `tests/test_settings.py` fails if a Lambda file holds a number of its own, or if the registry, `template.yaml` and the generated `docs/SETTINGS.md` disagree. The full list of settings is in [docs/SETTINGS.md](docs/SETTINGS.md).
+5. Never commit keys, account ids, domains or email addresses; `tests/test_no_identifiers.py` and the secret scan will fail the build.
 
 ## How releases are made (maintainers)
 

@@ -27,19 +27,20 @@ import urllib.request
 
 import gemini
 import knowledge_core as kc
+import platform_settings
 
-DEFAULT_MODEL = "gemini-embedding-001"
-DEFAULT_DIMS = 768
-MAX_DIMS = 3072
-BATCH = 50                  # texts per request (Google accepts 100)
-MAX_TEXT_CHARS = 12000      # about 3000 tokens: a passage is far smaller; anything bigger is a mistake upstream
+DEFAULT_MODEL = platform_settings.default("knowledge.embeddingModel")
+DEFAULT_DIMS = platform_settings.default("knowledge.embeddingDims")
+MAX_DIMS = platform_settings.maximum("knowledge.embeddingDims")
+BATCH = platform_settings.value("knowledge.embedBatch")  # texts per request (Google accepts 100)
+MAX_TEXT_CHARS = platform_settings.value("knowledge.embedMaxTextChars")  # about 3000 tokens: a passage is far smaller; anything bigger is a mistake upstream
 RETRY_DELAYS = (1, 2, 4)
 GOOGLE_URL = os.environ.get("EMBEDDING_GOOGLE_URL", "https://generativelanguage.googleapis.com/v1beta")
 OPENROUTER_URL = os.environ.get("EMBEDDING_OPENROUTER_URL", "https://openrouter.ai/api/v1")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,79}$")
 # USD per million input tokens. Override or add with EMBEDDING_PRICES, a JSON object such as {"google/gemini-embedding-001": 0.15}.
 DEFAULT_PRICES = {"gemini-embedding-001": 0.15, "google/gemini-embedding-001": 0.15}
-KEY_CACHE_SECONDS = 300
+KEY_CACHE_SECONDS = platform_settings.value("ai.keyCacheSeconds")
 
 transport = None  # tests: fake(provider, url, headers, body) -> (status, json)
 _openrouter_secret = {"value": None, "at": 0.0}

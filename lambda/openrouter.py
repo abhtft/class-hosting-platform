@@ -14,10 +14,11 @@ import os
 import time
 import urllib.error
 import urllib.request
+import platform_settings
 
 BASE_URL = os.environ.get("AI_BASE_URL", "https://openrouter.ai/api/v1")
 PERIOD_RESET = {"day": "daily", "month": "monthly", "total": None}
-KEY_CACHE_SECONDS = 300
+KEY_CACHE_SECONDS = platform_settings.value("ai.keyCacheSeconds")
 
 transport = None  # tests: fake(method, path, token, body) -> (status, json)
 _secret = {"value": None, "at": 0.0}

@@ -10,7 +10,7 @@
 | Product | Class Hosting Platform: a controlled place where a teacher gives students expiring tokens, and students publish a website, a small backend and (optionally) an AI key, mostly by pushing to GitHub |
 | Code base | this repository, branch `main` (releases are tags `vX.Y.Z`; the baseline was the commit that first added this document) |
 | Production | AWS account of the owner, region `us-east-1`, CloudFormation stack `student-hosting` (status `UPDATE_COMPLETE`), portal `https://deploy.example.edu`, student sites `https://<name>.example.edu` |
-| Student kit | version `2.4.0` in the repository (one number for the platform, the kit and the editor package: `VERSION`) (`starter/template/platform.json`); the portal serves what `node admin.mjs portal-publish` last published (the kit zip and `kit-version.json`, the MCP package `class-platform-mcp-<version>.tgz`, the alias `class-platform-mcp.tgz` and `mcp-version.json`). MCP package version `2.4.0` (`starter/mcp/package.json`). **Until `portal-publish` is run the portal still serves kit 1.5.1 and no package** |
+| Student kit | version `2.5.0` in the repository (one number for the platform, the kit and the editor package: `VERSION`) (`starter/template/platform.json`); the portal serves what `node admin.mjs portal-publish` last published (the kit zip and `kit-version.json`, the MCP package `class-platform-mcp-<version>.tgz`, the alias `class-platform-mcp.tgz` and `mcp-version.json`). MCP package version `2.5.0` (`starter/mcp/package.json`). **Until `portal-publish` is run the portal still serves kit 1.5.1 and no package** |
 | Audience | the owner/operator, future maintainers, anyone reviewing the design or the security |
 | Change rule | any change to behaviour, limits, resources or flows updates this document **in the same commit**; the machine-checked block (section 14) fails the test run if a number drifts |
 | Changes since the baseline | See `CHANGELOG.md` (every release) and the feature rows F1 to F19 in section 13. Added after the baseline: the student kit and editor tools, class AI (OpenRouter and Gemini), class storage, background jobs, class knowledge, the agent and quality helpers, traces, and the optional compute worker |
@@ -1156,9 +1156,9 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
   "sweeperCron": "cron(0 3 * * ? *)",
   "s3Lifecycle": { "uploadsExpireDays": 1, "noncurrentVersionDays": 30 },
   "reservedSlugs": ["sites", "uploads", "archive", "deploy", "www", "api", "admin", "mail", "ftp", "app", "apps", "static", "assets", "bs", "lenden"],
-  "kitVersion": "2.4.0",
-  "mcpPackage": { "version": "2.4.0" },
-  "testSteps": 48,
+  "kitVersion": "2.5.0",
+  "mcpPackage": { "version": "2.5.0" },
+  "testSteps": 49,
   "teacherTools": 11,
   "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors"]
 }

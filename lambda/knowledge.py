@@ -30,6 +30,7 @@ import knowledge_store as ks
 import portal
 from botocore.exceptions import ClientError
 from portal import DAY, PortalError, db
+import platform_settings
 
 ENV_NAMES = ("CLASS_KNOWLEDGE_URL", "CLASS_KNOWLEDGE_KEY")
 PERIODS = ("day", "month", "total")
@@ -37,15 +38,16 @@ MB = 1024 * 1024
 KEY_RE = re.compile(r"^ks_([a-z0-9][a-z0-9-]{0,29})\.([A-Za-z0-9_-]{20,})$")
 FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ ()-]{0,99}$")
 EXTENSIONS = ("pdf", "txt", "text", "md", "markdown", "html", "htm")
-DEFAULTS = {"collections": 5, "documents": 20, "passages": 5000, "stored_mb": 50, "upload_mb": 25, "searches_limit": 500, "searches_period": "day", "embed_tokens": 2_000_000}
-BOUNDS = {"collections": (1, 20), "documents": (1, 200), "passages": (100, 60000), "stored_mb": (1, 500), "upload_mb": (1, 50), "searches_limit": (0, 1_000_000),
-          "embed_tokens": (0, 100_000_000)}
-LIBRARY = {"collections": 20, "documents": 200, "passages": 60000, "stored_mb": 1000, "upload_mb": 50}  # the class library's own caps (teacher only)
-MAX_SEARCH_COLLECTIONS, MAX_K, MAX_QUERY_CHARS = 4, 10, 500
-UPLOAD_SECONDS = 600
-STALE_UPLOAD_SECONDS = 3600     # an upload form nobody used is forgotten (and its document slot freed) after an hour
-STALE_WORK_SECONDS = 1200       # work that has not finished long after the worker's own time limit is failed
-CACHE_DAYS = 90
+DEFAULTS = platform_settings.defaults("knowledge.student")
+BOUNDS = platform_settings.bounds("knowledge.student")
+LIBRARY = platform_settings.defaults("knowledge.library")  # the class library's own caps (teacher only)
+MAX_SEARCH_COLLECTIONS = platform_settings.value("knowledge.maxSearchShelves")
+MAX_K = platform_settings.value("knowledge.maxK")
+MAX_QUERY_CHARS = platform_settings.value("knowledge.maxQueryChars")
+UPLOAD_SECONDS = platform_settings.value("knowledge.uploadSeconds")
+STALE_UPLOAD_SECONDS = platform_settings.value("knowledge.staleUploadSeconds")     # an upload form nobody used is forgotten (and its document slot freed) after an hour
+STALE_WORK_SECONDS = platform_settings.value("knowledge.staleWorkSeconds")       # work that has not finished long after the worker's own time limit is failed
+CACHE_DAYS = platform_settings.value("knowledge.cacheDays")
 
 
 class ApiError(Exception):
@@ -70,14 +72,14 @@ def worker_name():
 
 def ceiling_micro():
     try:
-        return int(float(os.environ.get("KNOWLEDGE_MONTHLY_CAP_USD", "3")) * 1_000_000)
+        return int(platform_settings.value("knowledge.monthlyCapUsd") * 1_000_000)
     except ValueError:
         return 3_000_000
 
 
 def embedding_settings():
     """The embedding model and vector size new collections are created with (the owner's choice; one per collection, stored with it)."""
-    return os.environ.get("KNOWLEDGE_EMBEDDING_MODEL", em.DEFAULT_MODEL), int(os.environ.get("KNOWLEDGE_EMBEDDING_DIMS", em.DEFAULT_DIMS))
+    return platform_settings.value("knowledge.embeddingModel"), platform_settings.value("knowledge.embeddingDims")
 
 
 def settings(item):
@@ -392,7 +394,7 @@ WORKERS_KEY = "kwork#global"
 
 
 def _workers_cap():
-    return int(os.environ.get("KNOWLEDGE_WORKERS", "2"))
+    return platform_settings.value("knowledge.workers")
 
 
 def _acquire_slot(now):

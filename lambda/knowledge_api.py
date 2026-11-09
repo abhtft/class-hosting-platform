@@ -27,13 +27,14 @@ import portal
 import trace_core
 import traces
 from knowledge import ApiError
+import platform_settings
 
 COLLECTIONS = re.compile(r"^/v1/collections$")
 COLLECTION = re.compile(r"^/v1/collections/([^/]+)$")
 DOCUMENTS = re.compile(r"^/v1/collections/([^/]+)/documents$")
 DOCUMENT = re.compile(r"^/v1/collections/([^/]+)/documents/([^/]+)$")
 START = re.compile(r"^/v1/collections/([^/]+)/documents/([^/]+)/start$")
-MAX_BODY_CHARS = 20_000
+MAX_BODY_CHARS = platform_settings.value("knowledge.apiMaxBodyChars")
 
 
 def reply(status, **body):
@@ -67,7 +68,7 @@ def trace_search(item, trace_id, body, result, started, now):
         ts_ms=int(started * 1000), dur_ms=int((time.time() - started) * 1000), tokens=int(result.get("tokens") or 0), now=now)
 
 
-MAX_APP_SPANS = 30
+MAX_APP_SPANS = platform_settings.value("knowledge.maxAppSpans")
 
 
 def record_app_spans(item, body, now):

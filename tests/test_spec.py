@@ -1,8 +1,9 @@
 """docs/TECHNICAL_SPECIFICATION.md is the source of truth, so its numbers must be the code's numbers.
 
-The specification carries a JSON block (```json spec-facts). This test extracts it and compares every value with the Lambda code, the
-CloudFormation template, samconfig.toml, the kit and the test runner. Change a limit, a timeout, a default, the kit version or the number
-of test steps without updating the specification and this test fails, naming the fact that drifted."""
+The specification carries a JSON block (```json spec-facts). This test extracts it and compares every value with the settings registry
+(config/settings.json, which tests/test_settings.py proves equals the Lambda code and the CloudFormation template), the template itself, samconfig.toml,
+the kit and the test runner. Change a limit, a timeout, a default, the kit version or the number of test steps without updating the specification and
+this test fails, naming the fact that drifted."""
 import json
 import os
 import re
@@ -19,6 +20,7 @@ block = re.search(r"```json spec-facts\n(.*?)\n```", spec, re.S)
 assert block, "the specification must contain a ```json spec-facts block"
 facts = json.loads(block.group(1))
 failures = []
+registry = {s["key"]: s for s in json.loads(read("config/settings.json"))["settings"]}
 
 
 def check(name, expected, actual):
@@ -26,92 +28,77 @@ def check(name, expected, actual):
         failures.append(f"{name}: the specification says {expected!r}, the code says {actual!r}")
 
 
-def num(expression):
-    product = 1
-    for part in expression.split("*"):
-        product *= int(part.strip().replace("_", ""))
-    return product
-
-
-def const(text, name):
-    match = re.search(rf"^{name} = ([\d_ *]+)", text, re.M)
-    assert match, f"constant {name} not found"
-    return num(match.group(1))
+def setting(key, field="default", scale=1):
+    value = registry[key][field]
+    return value * scale if scale != 1 else value
 
 
 MB = 1024 * 1024
-app, backends, gateway, portal, ai = (read(f"lambda/{n}.py") for n in ("app", "backends", "gateway", "portal", "ai"))
 template = read("template.yaml")
 
-# ---- Lambda constants ----
+# ---- limits (the registry; tests/test_settings.py ties it to the code) ----
 f = facts["frontend"]
-check("frontend.maxZipMB", f["maxZipMB"], const(app, "MAX_ZIP_BYTES") // MB)
-check("frontend.maxUnzippedMB", f["maxUnzippedMB"], const(app, "MAX_UNZIPPED_BYTES") // MB)
-check("frontend.maxFiles", f["maxFiles"], const(app, "MAX_FILES"))
+check("frontend.maxZipMB", f["maxZipMB"], setting("frontend.maxZipMB"))
+check("frontend.maxUnzippedMB", f["maxUnzippedMB"], setting("frontend.maxUnzippedMB"))
+check("frontend.maxFiles", f["maxFiles"], setting("frontend.maxFiles"))
 
 b = facts["backend"]
-check("backend.maxZipMB", b["maxZipMB"], const(backends, "MAX_ZIP_BYTES") // MB)
-check("backend.maxUnzippedMB", b["maxUnzippedMB"], const(backends, "MAX_UNZIPPED_BYTES") // MB)
-check("backend.maxFiles", b["maxFiles"], const(backends, "MAX_FILES"))
-check("backend.memoryMB", b["memoryMB"], const(backends, "MEMORY_MB"))
-check("backend.timeoutSeconds", b["timeoutSeconds"], const(backends, "TIMEOUT_SECONDS"))
-check("backend.logRetentionDays", b["logRetentionDays"], const(backends, "LOG_RETENTION_DAYS"))
-env_limits = re.search(r"^MAX_ENV_VARS, MAX_ENV_BYTES = (\d+), (\d+)", backends, re.M)
-check("backend.maxEnvVars", b["maxEnvVars"], int(env_limits.group(1)))
-check("backend.maxEnvBytes", b["maxEnvBytes"], int(env_limits.group(2)))
+for fact, key in (("maxZipMB", "backend.maxZipMB"), ("maxUnzippedMB", "backend.maxUnzippedMB"), ("maxFiles", "backend.maxFiles"), ("memoryMB", "backend.memoryMB"),
+                  ("timeoutSeconds", "backend.timeoutSeconds"), ("logRetentionDays", "backend.logRetentionDays"), ("maxEnvVars", "backend.maxEnvVars"), ("maxEnvBytes", "backend.maxEnvBytes")):
+    check(f"backend.{fact}", b[fact], setting(key))
 
 g = facts["gateway"]
-check("gateway.maxBodyBytes", g["maxBodyBytes"], const(gateway, "MAX_BODY_CHARS"))
-check("gateway.maxResponseBytes", g["maxResponseBytes"], const(gateway, "MAX_RESPONSE_BYTES"))
-check("gateway.leakSeconds", g["leakSeconds"], const(gateway, "LEAK_SECONDS"))
 globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
+check("gateway.maxBodyBytes", g["maxBodyBytes"], setting("gateway.maxBodyKB", scale=1024))
+check("gateway.maxResponseBytes", g["maxResponseBytes"], setting("gateway.maxResponseKB", scale=1024))
+check("gateway.leakSeconds", g["leakSeconds"], setting("gateway.leakSeconds"))
+check("gateway.perIpPerMinute", g["perIpPerMinute"], setting("gateway.perIpPerMinute"))
+check("gateway.inflightGlobal", g["inflightGlobal"], setting("gateway.inflightGlobal"))
+check("gateway.inflightPerStudent", g["inflightPerStudent"], setting("gateway.inflightPerStudent"))
 check("gateway.inflightGlobal (template parameter default)", str(g["inflightGlobal"]), re.search(r"  BackendInflightGlobal:\n    Type: Number\n    Default: (\d+)", template).group(1))
 check("gateway.inflightPerStudent (template parameter default)", str(g["inflightPerStudent"]), re.search(r"  BackendInflightPerStudent:\n    Type: Number\n    Default: (\d+)", template).group(1))
 assert "INFLIGHT_GLOBAL: !Ref BackendInflightGlobal" in globals_ and "INFLIGHT_STUDENT: !Ref BackendInflightPerStudent" in globals_
 check("gateway.perIpPerMinute (template Globals)", str(g["perIpPerMinute"]), re.search(r"PER_IP_PER_MINUTE: '(\d+)'", globals_).group(1))
-check("gateway.inflightGlobal (gateway default)", g["inflightGlobal"], int(re.search(r'setting\("INFLIGHT_GLOBAL", (\d+)\)', gateway).group(1)))
-check("gateway.inflightPerStudent (gateway default)", g["inflightPerStudent"], int(re.search(r'setting\("INFLIGHT_STUDENT", (\d+)\)', gateway).group(1)))
-check("gateway.perIpPerMinute (gateway default)", g["perIpPerMinute"], int(re.search(r'setting\("PER_IP_PER_MINUTE", (\d+)\)', gateway).group(1)))
 
 s = facts["sessions"]
-check("sessions.teacherHours", s["teacherHours"], const(portal, "TEACHER_SESSION_SECONDS") // 3600)
-check("sessions.studentHours", s["studentHours"], const(portal, "STUDENT_SESSION_SECONDS") // 3600)
-check("sessions.maxFailedLogins", s["maxFailedLogins"], const(portal, "MAX_FAILED_LOGINS"))
-check("sessions.lockoutMinutes", s["lockoutMinutes"], const(portal, "LOCKOUT_SECONDS") // 60)
+check("sessions.teacherHours", s["teacherHours"], setting("sessions.teacherHours"))
+check("sessions.studentHours", s["studentHours"], setting("sessions.studentHours"))
+check("sessions.maxFailedLogins", s["maxFailedLogins"], setting("sessions.maxFailedLogins"))
+check("sessions.lockoutMinutes", s["lockoutMinutes"], setting("sessions.lockoutMinutes"))
 
 t = facts["tokens"]
-check("tokens.maxDays", t["maxDays"], const(portal, "MAX_DAYS"))
-check("tokens.graceDays", t["graceDays"], int(re.search(r'GRACE_DAYS = int\(os\.environ\.get\("OFFLINE_GRACE_DAYS", "(\d+)"\)\)', portal).group(1)))
-check("tokens.warnDays", t["warnDays"], int(re.search(r'WARN_DAYS = int\(os\.environ\.get\("WARN_DAYS", "(\d+)"\)\)', portal).group(1)))
+check("tokens.maxDays", t["maxDays"], setting("tokens.maxDays"))
+check("tokens.graceDays", t["graceDays"], setting("tokens.graceDays"))
+check("tokens.warnDays", t["warnDays"], setting("tokens.warnDays"))
+portal = read("lambda/portal.py")
 reserved = set(re.findall(r'"([a-z]+)"', re.search(r"^RESERVED = \{(.*?)\}", portal, re.M).group(1)))
 check("reservedSlugs", sorted(facts["reservedSlugs"]), sorted(reserved))
 
 a = facts["ai"]
-limits = re.search(r"^MIN_LIMIT_USD, MAX_LIMIT_USD = ([\d.]+), ([\d.]+)", ai, re.M)
-check("ai.minUsd", a["minUsd"], float(limits.group(1)))
-check("ai.maxUsd", a["maxUsd"], float(limits.group(2)))
-check("ai.defaultUsd (ai.py)", a["defaultUsd"], float(re.search(r'AI_DEFAULT_LIMIT_USD", "([\d.]+)"', ai).group(1)))
-check("ai.refreshSeconds", a["refreshSeconds"], const(ai, "REFRESH_SECONDS"))
-check("ai.studentTimeoutSeconds (ai.py)", a["studentTimeoutSeconds"], int(re.search(r'AI_STUDENT_TIMEOUT", "(\d+)"', ai).group(1)))
+ai = read("lambda/ai.py")
+check("ai.minUsd", a["minUsd"], setting("ai.defaultLimitUsd", "min"))
+check("ai.maxUsd", a["maxUsd"], setting("ai.defaultLimitUsd", "max"))
+check("ai.defaultUsd", a["defaultUsd"], setting("ai.defaultLimitUsd"))
+check("ai.refreshSeconds", a["refreshSeconds"], setting("ai.refreshSeconds"))
+check("ai.studentTimeoutSeconds", a["studentTimeoutSeconds"], setting("ai.studentTimeoutSeconds"))
 check("ai.studentTimeoutSeconds (template)", str(a["studentTimeoutSeconds"]), re.search(r"AI_STUDENT_TIMEOUT: '(\d+)'", globals_).group(1))
-check("ai.defaultModel (ai.py)", a["defaultModel"], re.search(r'AI_DEFAULT_MODEL", "([^"]+)"', ai).group(1))
+check("ai.defaultModel", a["defaultModel"], setting("ai.defaultModel"))
 check("ai.envNames", a["envNames"], re.findall(r'"([A-Z_]+)"', re.search(r"^AI_ENV_NAMES = \((.*?)\)", ai, re.M).group(1)))
 
 st = facts["storage"]
 storage_src = read("lambda/storage.py")
-check("storage.maxValueKB", st["maxValueKB"], const(storage_src, "MAX_VALUE_BYTES") // 1024)
-check("storage.maxItems", st["maxItems"], const(storage_src, "MAX_ITEMS"))
-check("storage.maxFileMB", st["maxFileMB"], int(re.search(r"^MAX_FILE_BYTES = (\d+) \* MB", storage_src, re.M).group(1)))
-check("storage.maxFiles", st["maxFiles"], const(storage_src, "MAX_FILES"))
-check("storage.maxCollections", st["maxCollections"], const(storage_src, "MAX_COLLECTIONS"))
-defaults = lambda name: tuple(int(x.strip().replace("_", "")) for x in re.search(rf"^{name} = ([\d_, ]+)", storage_src, re.M).group(1).split(","))  # noqa: E731
-check("storage.defaultDataMB", st["defaultDataMB"], defaults("DEFAULT_DATA_MB, MAX_DATA_MB")[0])
-check("storage.maxDataMB", st["maxDataMB"], defaults("DEFAULT_DATA_MB, MAX_DATA_MB")[1])
-check("storage.defaultFilesMB", st["defaultFilesMB"], defaults("DEFAULT_FILES_MB, MAX_FILES_MB")[0])
-check("storage.maxFilesMB", st["maxFilesMB"], defaults("DEFAULT_FILES_MB, MAX_FILES_MB")[1])
-check("storage.defaultOps", st["defaultOps"], defaults("DEFAULT_OPS, MAX_OPS")[0])
+check("storage.maxValueKB", st["maxValueKB"], setting("storage.maxValueKB"))
+check("storage.maxItems", st["maxItems"], setting("storage.maxItems"))
+check("storage.maxFileMB", st["maxFileMB"], setting("storage.maxFileMB"))
+check("storage.maxFiles", st["maxFiles"], setting("storage.maxFiles"))
+check("storage.maxCollections", st["maxCollections"], setting("storage.maxCollections"))
+check("storage.defaultDataMB", st["defaultDataMB"], setting("storage.dataMB"))
+check("storage.maxDataMB", st["maxDataMB"], setting("storage.dataMB", "max"))
+check("storage.defaultFilesMB", st["defaultFilesMB"], setting("storage.filesMB"))
+check("storage.maxFilesMB", st["maxFilesMB"], setting("storage.filesMB", "max"))
+check("storage.defaultOps", st["defaultOps"], setting("storage.ops"))
 check("storage.defaultPeriod", st["defaultPeriod"], re.search(r'^DEFAULT_PERIOD = "(\w+)"', storage_src, re.M).group(1))
-check("storage.listPageItems", st["listPageItems"], defaults("LIST_PAGE_ITEMS, LIST_PAGE_BYTES")[0])
+check("storage.listPageItems", st["listPageItems"], setting("storage.listPageItems"))
 check("storage.envNames", st["envNames"], re.findall(r'"([A-Z_]+)"', re.search(r"^ENV_NAMES = \((.*?)\)", storage_src, re.M).group(1)))
 
 
@@ -170,4 +157,4 @@ for er in re.findall(r"```mermaid\nerDiagram\n(.*?)```", spec, re.S):
     assert not bad, f"an entity attribute is named pk, fk or uk, which Mermaid rejects: {bad}"
 
 assert not failures, "the specification has drifted from the code:\n  " + "\n  ".join(failures)
-print("test_spec.py: every machine-checked fact in the specification matches the code")
+print("test_spec.py: every machine-checked fact in the specification matches the registry, the template and the code")

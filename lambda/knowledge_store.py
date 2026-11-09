@@ -23,14 +23,15 @@ from collections import OrderedDict
 
 import embeddings as em
 import knowledge_core as kc
+import platform_settings
 
 ROOT = "knowledge"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 SCOPES = ("class", "student")
-CACHE_COLLECTIONS = 6          # collections kept in memory by one warm container
-CACHE_PASSAGES = 60000         # and never more passages than this in total
-REBUILD_TRIES = 3
-DEFAULT_THRESHOLDS = {"min_similarity": 0.55, "min_coverage": 0.6}  # starting points: calibrated per collection from an evaluation set on real books
+CACHE_COLLECTIONS = platform_settings.value("knowledge.cacheShelves")          # collections kept in memory by one warm container
+CACHE_PASSAGES = platform_settings.value("knowledge.cachePassages")         # and never more passages than this in total
+REBUILD_TRIES = platform_settings.value("knowledge.rebuildTries")
+DEFAULT_THRESHOLDS = {"min_similarity": platform_settings.value("knowledge.minSimilarity"), "min_coverage": platform_settings.value("knowledge.minCoverage")}  # starting points: calibrated per collection from an evaluation set on real books
 
 
 class StoreError(Exception):

@@ -20,12 +20,15 @@ import time
 
 import portal
 from portal import DAY, PortalError
+import platform_settings
 
 MODES = ("run", "keep")
-DEFAULT_CAP_MINUTES, MIN_CAP_MINUTES, MAX_CAP_MINUTES = 2400, 60, 14400  # the class-wide monthly cap on machine minutes: 40 hours
+DEFAULT_CAP_MINUTES = platform_settings.default("worker.capMinutes")  # the class-wide monthly cap on machine minutes: 40 hours
+MIN_CAP_MINUTES = platform_settings.minimum("worker.capMinutes")
+MAX_CAP_MINUTES = platform_settings.maximum("worker.capMinutes")
 HOUR_CHOICES = tuple(range(24))
-DEFAULT_MAX_MINUTES = 60
-MAX_MINUTES = 360
+DEFAULT_MAX_MINUTES = platform_settings.default("worker.maxMinutes")
+MAX_MINUTES = platform_settings.maximum("worker.maxMinutes")
 # On-demand price per hour in us-east-1 (an ESTIMATE shown to the teacher; the AWS bill is the truth) and the disk per GB-month.
 PRICES = {"m7i-flex.large": 0.0958, "c7i-flex.large": 0.0848, "t3.small": 0.0208, "t4g.small": 0.0168, "c7g.large": 0.0725, "c7g.xlarge": 0.145, "c7g.2xlarge": 0.29}
 DISK_PER_GB_MONTH = 0.08
@@ -61,7 +64,7 @@ def _db():
 # ---------------------------------------------------------------- settings and lease
 def settings():
     raw = _db().get("worker#settings") or {}
-    cap = int(os.environ.get("WORKER_MAX_MINUTES") or DEFAULT_MAX_MINUTES)
+    cap = int(platform_settings.value("worker.maxMinutes"))
     minutes = raw.get("max_minutes")
     minutes = minutes if isinstance(minutes, int) and not isinstance(minutes, bool) and 15 <= minutes <= MAX_MINUTES else cap
     hour = raw.get("hour_utc")

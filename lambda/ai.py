@@ -21,14 +21,16 @@ import gemini
 import openrouter
 import portal
 from portal import PortalError, db
+import platform_settings
 
 AI_ENV_NAMES = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "AI_MODEL")
 PERIODS = ("day", "month", "total")
 PROVIDERS = ("openrouter", "gemini")
 MICRO = 1_000_000
-MIN_LIMIT_USD, MAX_LIMIT_USD = 0.01, 20.0
+MIN_LIMIT_USD = platform_settings.minimum("ai.defaultLimitUsd")
+MAX_LIMIT_USD = platform_settings.maximum("ai.defaultLimitUsd")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,79}$")
-REFRESH_SECONDS = 20  # the student page asks again at most this often
+REFRESH_SECONDS = platform_settings.value("ai.refreshSeconds")  # the student page asks again at most this often
 
 
 def available():
@@ -36,7 +38,7 @@ def available():
 
 
 def default_model():
-    return os.environ.get("AI_DEFAULT_MODEL", "anthropic/claude-haiku-5.5")
+    return platform_settings.value("ai.defaultModel")
 
 
 def proxy_url():
@@ -90,7 +92,7 @@ def add_gemini_usage(item, micro, now):
 
 
 def default_limit_usd():
-    return float(os.environ.get("AI_DEFAULT_LIMIT_USD", "0.25"))
+    return platform_settings.value("ai.defaultLimitUsd")
 
 
 def base_url():
@@ -98,12 +100,12 @@ def base_url():
 
 
 def student_timeout():
-    return int(os.environ.get("AI_STUDENT_TIMEOUT", "25"))
+    return platform_settings.value("ai.studentTimeoutSeconds")
 
 
 def typical_call_usd():
     """Rough price of one ordinary answer (about 1,000 tokens in, 500 out) with the default model. Shown only as a hint."""
-    return float(os.environ.get("AI_TYPICAL_CALL_USD", "0.00035"))
+    return platform_settings.value("ai.typicalCallUsd")
 
 
 def settings(item):

@@ -1,0 +1,2735 @@
+{
+  "formatVersion": 1,
+  "note": "The one place every platform setting is described. Edit it, then run  python tools/gen_settings.py  (see docs/SETTINGS.md).",
+  "groups": [
+    {
+      "id": "frontend",
+      "title": "Publishing a site (frontend)",
+      "help": "How big a student's published site may be, and how long visitors' browsers and the CDN keep it."
+    },
+    {
+      "id": "backend",
+      "title": "Student backends",
+      "help": "The small server-side function each student may publish: its size, memory, time, logs and environment variables."
+    },
+    {
+      "id": "gateway",
+      "title": "Gateway and rate limits",
+      "help": "The front door every student backend request passes through: size limits, requests at once, requests per visitor."
+    },
+    {
+      "id": "sessions",
+      "title": "Sessions and logins",
+      "help": "How long teacher and student sessions last and when repeated wrong passwords lock a login."
+    },
+    {
+      "id": "tokens",
+      "title": "Student tokens",
+      "help": "How long a token can live and what happens when it runs out."
+    },
+    {
+      "id": "ai",
+      "title": "Class AI",
+      "help": "The AI connector: spending cap range, default model, answer size and time."
+    },
+    {
+      "id": "storage",
+      "title": "Student storage",
+      "help": "The small database and file area a student's backend may use."
+    },
+    {
+      "id": "knowledge",
+      "title": "Class knowledge (books)",
+      "help": "Books a student's backend can search: caps per student and for the class library, reading limits, search rules."
+    },
+    {
+      "id": "jobs",
+      "title": "Background jobs",
+      "help": "Work that runs after the request has answered."
+    },
+    {
+      "id": "traces",
+      "title": "Traces",
+      "help": "The step-by-step record of answers: what is kept, for how long, and the drift alerts."
+    },
+    {
+      "id": "projects",
+      "title": "Project sync",
+      "help": "Students' source files kept on the platform: sizes, counts, history."
+    },
+    {
+      "id": "worker",
+      "title": "Worker machine (optional)",
+      "help": "The optional small EC2 machine for platform-owned checks."
+    },
+    {
+      "id": "alerts",
+      "title": "Alerts and monitoring",
+      "help": "When the platform tells the teacher something is wrong."
+    },
+    {
+      "id": "apiThrottles",
+      "title": "API request throttles",
+      "help": "How many requests per second each platform API accepts."
+    },
+    {
+      "id": "lambdas",
+      "title": "Platform functions",
+      "help": "Memory and time of the platform's own functions."
+    },
+    {
+      "id": "storageLifecycle",
+      "title": "Stored files and clean-up",
+      "help": "How long the platform keeps leftovers."
+    },
+    {
+      "id": "features",
+      "title": "Feature switches",
+      "help": "Which optional parts of the platform exist at all. Off by default; with a feature off nothing about it is created."
+    },
+    {
+      "id": "install",
+      "title": "Installation (set by the installer)",
+      "help": "Names and ids the installer fills in. Normally changed only with the install and domain commands."
+    }
+  ],
+  "settings": [
+    {
+      "key": "frontend.maxZipMB",
+      "group": "frontend",
+      "title": "Largest upload (zip)",
+      "help": "The biggest zip file a student may publish as their site. Bigger sites are refused with a clear message.",
+      "unit": "MB",
+      "default": 50,
+      "min": 1,
+      "max": 500,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "app.MAX_ZIP_BYTES"
+      ]
+    },
+    {
+      "key": "frontend.maxUnzippedMB",
+      "group": "frontend",
+      "title": "Largest site once unpacked",
+      "help": "The total size of all files in a published site after unzipping. Protects against zip bombs and storage growth.",
+      "unit": "MB",
+      "default": 200,
+      "min": 1,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Raising it raises S3 storage and CloudFront transfer.",
+      "code": [
+        "app.MAX_UNZIPPED_BYTES"
+      ]
+    },
+    {
+      "key": "frontend.maxFiles",
+      "group": "frontend",
+      "title": "Most files in a site",
+      "help": "The number of files in one published site.",
+      "unit": "files",
+      "default": 2000,
+      "min": 10,
+      "max": 20000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "app.MAX_FILES"
+      ]
+    },
+    {
+      "key": "frontend.cdnCacheSeconds",
+      "group": "frontend",
+      "title": "How long the CDN keeps a file",
+      "help": "CloudFront keeps a file at most this long. A publish clears it at once, so this only matters if that clearing ever fails.",
+      "unit": "seconds",
+      "default": 86400,
+      "min": 60,
+      "max": 2592000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "app.CDN_SECONDS"
+      ]
+    },
+    {
+      "key": "backend.maxZipMB",
+      "group": "backend",
+      "title": "Largest backend upload (zip)",
+      "help": "The biggest zip a student may publish as their backend.",
+      "unit": "MB",
+      "default": 5,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.MAX_ZIP_BYTES"
+      ]
+    },
+    {
+      "key": "backend.maxUnzippedMB",
+      "group": "backend",
+      "title": "Largest backend once unpacked",
+      "help": "Total size of a backend's files after unzipping. AWS itself allows at most 250 MB.",
+      "unit": "MB",
+      "default": 50,
+      "min": 1,
+      "max": 250,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.MAX_UNZIPPED_BYTES"
+      ]
+    },
+    {
+      "key": "backend.maxFiles",
+      "group": "backend",
+      "title": "Most files in a backend",
+      "help": "The number of files in one backend upload.",
+      "unit": "files",
+      "default": 500,
+      "min": 10,
+      "max": 5000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.MAX_FILES"
+      ]
+    },
+    {
+      "key": "backend.memoryMB",
+      "group": "backend",
+      "title": "Memory of a student's backend",
+      "help": "The memory each student backend function is given when it is published (applies to backends published after the change).",
+      "unit": "MB",
+      "default": 256,
+      "min": 128,
+      "max": 1024,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Memory is billed per second of running time; double the memory is about double the cost per request.",
+      "code": [
+        "backends.MEMORY_MB"
+      ]
+    },
+    {
+      "key": "backend.timeoutSeconds",
+      "group": "backend",
+      "title": "Time a backend request may take",
+      "help": "How long one backend request may run before it is stopped. The HTTP front door itself stops at 29 seconds.",
+      "unit": "seconds",
+      "default": 10,
+      "min": 1,
+      "max": 29,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Longer requests cost more and hold platform capacity longer.",
+      "code": [
+        "backends.TIMEOUT_SECONDS"
+      ]
+    },
+    {
+      "key": "backend.logRetentionDays",
+      "group": "backend",
+      "title": "How long backend logs are kept",
+      "help": "Days a student backend's log lines stay available (the logs command and the teacher view).",
+      "unit": "days",
+      "default": 7,
+      "min": 1,
+      "max": 365,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Logs are billed per stored GB.",
+      "code": [
+        "backends.LOG_RETENTION_DAYS"
+      ]
+    },
+    {
+      "key": "backend.runs",
+      "group": "backend",
+      "title": "Backend runs allowance",
+      "help": "Default runs allowance a student gets when the teacher enables the backend (maximum a teacher may set is the upper range).",
+      "unit": "runs",
+      "default": 5000,
+      "min": 0,
+      "max": 1000000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Each run costs a small amount of Lambda time.",
+      "code": [
+        "backends.DEFAULT_RUNS",
+        "backends.MAX_RUNS"
+      ]
+    },
+    {
+      "key": "backend.maxEnvVars",
+      "group": "backend",
+      "title": "Most environment variables",
+      "help": "How many environment variables a student may set on their backend.",
+      "unit": "variables",
+      "default": 20,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.MAX_ENV_VARS"
+      ]
+    },
+    {
+      "key": "backend.maxEnvBytes",
+      "group": "backend",
+      "title": "Size of all environment variables",
+      "help": "Total size of a backend's environment variables. AWS allows at most 4096 bytes.",
+      "unit": "bytes",
+      "default": 4096,
+      "min": 256,
+      "max": 4096,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.MAX_ENV_BYTES"
+      ]
+    },
+    {
+      "key": "backend.logLines",
+      "group": "backend",
+      "title": "Log lines returned",
+      "help": "Default and largest number of log lines returned by one logs request.",
+      "unit": "lines",
+      "default": 50,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.LOG_LIMIT_DEFAULT",
+        "backends.LOG_LIMIT_MAX"
+      ]
+    },
+    {
+      "key": "backend.logMinutes",
+      "group": "backend",
+      "title": "Log look-back window",
+      "help": "Default and largest number of minutes of log history one request looks at.",
+      "unit": "minutes",
+      "default": 60,
+      "min": 1,
+      "max": 180,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.LOG_MINUTES_DEFAULT",
+        "backends.LOG_MINUTES_MAX"
+      ]
+    },
+    {
+      "key": "backend.logPageEvents",
+      "group": "backend",
+      "title": "Log events read per page",
+      "help": "Events read from the log service in one call (up to pages x this many are read, then the newest are kept).",
+      "unit": "events",
+      "default": 500,
+      "min": 50,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.LOG_PAGE"
+      ]
+    },
+    {
+      "key": "backend.logPages",
+      "group": "backend",
+      "title": "Log pages read",
+      "help": "How many pages of log events one logs request reads.",
+      "unit": "pages",
+      "default": 6,
+      "min": 1,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.LOG_PAGES"
+      ]
+    },
+    {
+      "key": "backend.logCutChars",
+      "group": "backend",
+      "title": "Longest log message",
+      "help": "A longer message keeps its end (the real error is at the end of a traceback).",
+      "unit": "characters",
+      "default": 1500,
+      "min": 200,
+      "max": 10000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "backends.LOG_CUT"
+      ]
+    },
+    {
+      "key": "backend.logMinSecretChars",
+      "group": "backend",
+      "title": "Shortest environment value that is masked",
+      "help": "An environment variable value shorter than this is not hidden in logs (too many false hits).",
+      "unit": "characters",
+      "default": 6,
+      "min": 3,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "backends.LOG_MIN_SECRET"
+      ]
+    },
+    {
+      "key": "backend.reservedConcurrency",
+      "group": "backend",
+      "title": "Reserved concurrency per student backend",
+      "help": "0 means none. On a new AWS account the limit is 10 so nothing can be reserved; the gateway's request limits protect the account instead.",
+      "unit": "executions",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "scope": "deploy",
+      "risk": "careful",
+      "env": "BACKEND_RESERVED_CONCURRENCY",
+      "template": "Globals:BACKEND_RESERVED_CONCURRENCY",
+      "code": [
+        "backends.reservedConcurrency"
+      ]
+    },
+    {
+      "key": "gateway.maxBodyKB",
+      "group": "gateway",
+      "title": "Largest request body",
+      "help": "The biggest request a visitor may send to a student's backend.",
+      "unit": "KB",
+      "default": 1024,
+      "min": 1,
+      "max": 5120,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "gateway.MAX_BODY_CHARS"
+      ]
+    },
+    {
+      "key": "gateway.maxResponseKB",
+      "group": "gateway",
+      "title": "Largest response",
+      "help": "The biggest answer a student backend may return. AWS functions can return at most about 6 MB.",
+      "unit": "KB",
+      "default": 1024,
+      "min": 1,
+      "max": 5120,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "gateway.MAX_RESPONSE_BYTES"
+      ]
+    },
+    {
+      "key": "gateway.leakSeconds",
+      "group": "gateway",
+      "title": "When a stuck request counter is freed",
+      "help": "A requests-in-flight counter untouched this long while above zero is treated as leaked and reset.",
+      "unit": "seconds",
+      "default": 60,
+      "min": 10,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "gateway.LEAK_SECONDS"
+      ]
+    },
+    {
+      "key": "gateway.perIpPerMinute",
+      "group": "gateway",
+      "title": "Requests per visitor per minute",
+      "help": "How many requests one visitor address may send to student backends per minute.",
+      "unit": "requests",
+      "default": 120,
+      "min": 10,
+      "max": 10000,
+      "scope": "runtime",
+      "risk": "careful",
+      "env": "PER_IP_PER_MINUTE",
+      "template": "Globals:PER_IP_PER_MINUTE",
+      "code": [
+        "gateway.perIpPerMinute"
+      ]
+    },
+    {
+      "key": "gateway.inflightGlobal",
+      "group": "gateway",
+      "title": "Requests at once, whole platform",
+      "help": "Student backend requests that may run at the same time on the whole platform. The installer sets it from your AWS account's real Lambda concurrency limit (see Capacity).",
+      "unit": "requests",
+      "default": 3,
+      "min": 1,
+      "max": 500,
+      "scope": "deploy",
+      "risk": "careful",
+      "note": "Derived from the AWS Lambda concurrency quota by the installer.",
+      "env": "INFLIGHT_GLOBAL",
+      "template": "Parameter:BackendInflightGlobal",
+      "code": [
+        "gateway.inflightGlobal"
+      ]
+    },
+    {
+      "key": "gateway.inflightPerStudent",
+      "group": "gateway",
+      "title": "Requests at once, per student",
+      "help": "Student backend requests that may run at once for one student.",
+      "unit": "requests",
+      "default": 2,
+      "min": 1,
+      "max": 50,
+      "scope": "deploy",
+      "risk": "careful",
+      "note": "Derived from the AWS Lambda concurrency quota by the installer.",
+      "env": "INFLIGHT_STUDENT",
+      "template": "Parameter:BackendInflightPerStudent",
+      "code": [
+        "gateway.inflightPerStudent"
+      ]
+    },
+    {
+      "key": "gateway.waitMs",
+      "group": "gateway",
+      "title": "How long a busy request waits",
+      "help": "When every slot is busy, how long the gateway waits for one to free up before answering busy. 0 answers at once.",
+      "unit": "milliseconds",
+      "default": 0,
+      "min": 0,
+      "max": 1500,
+      "scope": "deploy",
+      "risk": "careful",
+      "note": "Derived from the AWS Lambda concurrency quota by the installer.",
+      "env": "INFLIGHT_WAIT_MS",
+      "template": "Parameter:BackendWaitMs",
+      "code": [
+        "gateway.waitMs"
+      ]
+    },
+    {
+      "key": "gateway.cacheSeconds",
+      "group": "gateway",
+      "title": "How long a backend lookup is remembered",
+      "help": "The gateway remembers which backend belongs to a site for this long.",
+      "unit": "seconds",
+      "default": 10,
+      "min": 0,
+      "max": 300,
+      "scope": "runtime",
+      "risk": "low",
+      "env": "GATEWAY_CACHE_SECONDS",
+      "code": [
+        "gateway.cacheSeconds"
+      ]
+    },
+    {
+      "key": "gateway.negativeCacheSeconds",
+      "group": "gateway",
+      "title": "How long a missing backend is remembered",
+      "help": "How long the gateway remembers that a site has no backend.",
+      "unit": "seconds",
+      "default": 2,
+      "min": 0,
+      "max": 60,
+      "scope": "runtime",
+      "risk": "low",
+      "env": "GATEWAY_NEGATIVE_CACHE_SECONDS",
+      "code": [
+        "gateway.negativeCacheSeconds"
+      ]
+    },
+    {
+      "key": "sessions.teacherHours",
+      "group": "sessions",
+      "title": "Teacher session length",
+      "help": "How long a teacher stays signed in.",
+      "unit": "hours",
+      "default": 8,
+      "min": 1,
+      "max": 24,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "portal.TEACHER_SESSION_SECONDS"
+      ]
+    },
+    {
+      "key": "sessions.studentHours",
+      "group": "sessions",
+      "title": "Student session length",
+      "help": "How long a student stays signed in to the student page.",
+      "unit": "hours",
+      "default": 12,
+      "min": 1,
+      "max": 72,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "portal.STUDENT_SESSION_SECONDS"
+      ]
+    },
+    {
+      "key": "sessions.maxFailedLogins",
+      "group": "sessions",
+      "title": "Wrong passwords before a lock",
+      "help": "After this many wrong teacher passwords in a row the login is locked.",
+      "unit": "attempts",
+      "default": 5,
+      "min": 3,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "portal.MAX_FAILED_LOGINS"
+      ]
+    },
+    {
+      "key": "sessions.lockoutMinutes",
+      "group": "sessions",
+      "title": "How long a lock lasts",
+      "help": "How long the login stays locked after too many wrong passwords.",
+      "unit": "minutes",
+      "default": 15,
+      "min": 1,
+      "max": 240,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "portal.LOCKOUT_SECONDS"
+      ]
+    },
+    {
+      "key": "tokens.maxDays",
+      "group": "tokens",
+      "title": "Longest token life",
+      "help": "The most days a student token can be valid when it is created or renewed.",
+      "unit": "days",
+      "default": 365,
+      "min": 1,
+      "max": 730,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "portal.MAX_DAYS"
+      ]
+    },
+    {
+      "key": "tokens.graceDays",
+      "group": "tokens",
+      "title": "Days a site keeps working offline",
+      "help": "After a token expires, how many days the student's site and backend keep working before they go offline.",
+      "unit": "days",
+      "default": 3,
+      "min": 0,
+      "max": 30,
+      "scope": "deploy",
+      "risk": "low",
+      "env": "OFFLINE_GRACE_DAYS",
+      "template": "Parameter:OfflineGraceDays",
+      "code": [
+        "portal.GRACE_DAYS"
+      ]
+    },
+    {
+      "key": "tokens.warnDays",
+      "group": "tokens",
+      "title": "Days of warning before a token expires",
+      "help": "How many days before expiry the student is warned.",
+      "unit": "days",
+      "default": 3,
+      "min": 0,
+      "max": 30,
+      "scope": "runtime",
+      "risk": "low",
+      "env": "WARN_DAYS",
+      "code": [
+        "portal.WARN_DAYS"
+      ]
+    },
+    {
+      "key": "ai.defaultLimitUsd",
+      "group": "ai",
+      "title": "Default AI spending cap per student",
+      "help": "The cap a student gets when the teacher turns the class AI on for them. The lowest and highest cap a teacher can set for one student are this setting's range.",
+      "unit": "US dollars",
+      "default": 0.25,
+      "min": 0.01,
+      "max": 20.0,
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "This is real money per student per period.",
+      "env": "AI_DEFAULT_LIMIT_USD",
+      "template": "Parameter:AiDefaultLimitUsd",
+      "code": [
+        "ai.MIN_LIMIT_USD",
+        "ai.MAX_LIMIT_USD",
+        "ai.defaultLimitUsd"
+      ]
+    },
+    {
+      "key": "ai.defaultModel",
+      "group": "ai",
+      "title": "Default AI model",
+      "help": "The model a student gets when the teacher does not choose one.",
+      "unit": "model name",
+      "default": "anthropic/claude-haiku-5.5",
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "Models differ a lot in price.",
+      "env": "AI_DEFAULT_MODEL",
+      "template": "Parameter:AiDefaultModel",
+      "code": [
+        "ai.defaultModel"
+      ]
+    },
+    {
+      "key": "ai.refreshSeconds",
+      "group": "ai",
+      "title": "How often the student page refreshes usage",
+      "help": "The student page asks for AI usage at most this often.",
+      "unit": "seconds",
+      "default": 20,
+      "min": 5,
+      "max": 300,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "ai.REFRESH_SECONDS"
+      ]
+    },
+    {
+      "key": "ai.studentTimeoutSeconds",
+      "group": "ai",
+      "title": "Time an AI answer may take",
+      "help": "How long a student's backend may wait for the AI. The front door stops at 29 seconds.",
+      "unit": "seconds",
+      "default": 25,
+      "min": 5,
+      "max": 28,
+      "scope": "deploy",
+      "risk": "careful",
+      "env": "AI_STUDENT_TIMEOUT",
+      "template": "Globals:AI_STUDENT_TIMEOUT",
+      "code": [
+        "ai.studentTimeoutSeconds"
+      ]
+    },
+    {
+      "key": "ai.typicalCallUsd",
+      "group": "ai",
+      "title": "Typical cost of one AI call",
+      "help": "Used to estimate how many calls a cap allows when showing a student their allowance.",
+      "unit": "US dollars",
+      "default": 0.00035,
+      "min": 0.0001,
+      "max": 1.0,
+      "scope": "runtime",
+      "risk": "low",
+      "env": "AI_TYPICAL_CALL_USD",
+      "code": [
+        "ai.typicalCallUsd"
+      ]
+    },
+    {
+      "key": "ai.maxTokens",
+      "group": "ai",
+      "title": "Answer length of the Gemini proxy",
+      "help": "Default and largest number of answer tokens one request may ask for through the Gemini proxy.",
+      "unit": "tokens",
+      "default": 2048,
+      "min": 16,
+      "max": 8192,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Longer answers cost more.",
+      "code": [
+        "ai_proxy.DEFAULT_MAX_TOKENS",
+        "ai_proxy.MAX_MAX_TOKENS"
+      ]
+    },
+    {
+      "key": "ai.proxyMaxBodyChars",
+      "group": "ai",
+      "title": "Largest request to the Gemini proxy",
+      "help": "The biggest request body the Gemini proxy accepts.",
+      "unit": "characters",
+      "default": 1000000,
+      "min": 1000,
+      "max": 5000000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "ai_proxy.MAX_BODY_CHARS"
+      ]
+    },
+    {
+      "key": "ai.keyCacheSeconds",
+      "group": "ai",
+      "title": "How long AI provider keys are remembered",
+      "help": "A function remembers a provider key it read from the secret store for this long.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 0,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "openrouter.KEY_CACHE_SECONDS",
+        "gemini.KEY_CACHE_SECONDS",
+        "embeddings.KEY_CACHE_SECONDS"
+      ]
+    },
+    {
+      "key": "storage.maxValueKB",
+      "group": "storage",
+      "title": "Largest stored value",
+      "help": "The biggest single item a student may save in the class database.",
+      "unit": "KB",
+      "default": 64,
+      "min": 1,
+      "max": 380,
+      "scope": "runtime",
+      "risk": "low",
+      "note": "DynamoDB items cannot exceed 400 KB.",
+      "code": [
+        "storage.MAX_VALUE_BYTES"
+      ]
+    },
+    {
+      "key": "storage.maxItems",
+      "group": "storage",
+      "title": "Most items in one collection",
+      "help": "The number of items one collection may hold.",
+      "unit": "items",
+      "default": 5000,
+      "min": 10,
+      "max": 100000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.MAX_ITEMS"
+      ]
+    },
+    {
+      "key": "storage.maxFileMB",
+      "group": "storage",
+      "title": "Largest stored file",
+      "help": "The biggest single file a student may save.",
+      "unit": "MB",
+      "default": 5,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.MAX_FILE_BYTES"
+      ]
+    },
+    {
+      "key": "storage.maxFiles",
+      "group": "storage",
+      "title": "Most stored files",
+      "help": "The number of files one student may keep.",
+      "unit": "files",
+      "default": 100,
+      "min": 1,
+      "max": 10000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.MAX_FILES"
+      ]
+    },
+    {
+      "key": "storage.maxCollections",
+      "group": "storage",
+      "title": "Most collection names",
+      "help": "How many different collection names a student may ever use (each is remembered so the teacher can clear them).",
+      "unit": "collections",
+      "default": 50,
+      "min": 1,
+      "max": 500,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.MAX_COLLECTIONS"
+      ]
+    },
+    {
+      "key": "storage.dataMB",
+      "group": "storage",
+      "title": "Database space per student",
+      "help": "Default database space a student gets; the upper range is the most a teacher may give one student.",
+      "unit": "MB",
+      "default": 5,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Stored data is billed per GB-month.",
+      "code": [
+        "storage.DEFAULT_DATA_MB",
+        "storage.MAX_DATA_MB"
+      ]
+    },
+    {
+      "key": "storage.filesMB",
+      "group": "storage",
+      "title": "File space per student",
+      "help": "Default file space a student gets; the upper range is the most a teacher may give one student.",
+      "unit": "MB",
+      "default": 50,
+      "min": 1,
+      "max": 500,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Stored files are billed per GB-month.",
+      "code": [
+        "storage.DEFAULT_FILES_MB",
+        "storage.MAX_FILES_MB"
+      ]
+    },
+    {
+      "key": "storage.ops",
+      "group": "storage",
+      "title": "Storage operations allowance",
+      "help": "Default number of storage operations per period a student gets; the upper range is the most a teacher may give.",
+      "unit": "operations",
+      "default": 10000,
+      "min": 0,
+      "max": 1000000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Each operation costs a small amount.",
+      "code": [
+        "storage.DEFAULT_OPS",
+        "storage.MAX_OPS"
+      ]
+    },
+    {
+      "key": "storage.listPageItems",
+      "group": "storage",
+      "title": "Items per list page",
+      "help": "How many items one list request returns.",
+      "unit": "items",
+      "default": 100,
+      "min": 1,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.LIST_PAGE_ITEMS"
+      ]
+    },
+    {
+      "key": "storage.listPageKB",
+      "group": "storage",
+      "title": "Size of a list page",
+      "help": "A list answer stays below this size (AWS allows 6 MB per answer).",
+      "unit": "KB",
+      "default": 400,
+      "min": 10,
+      "max": 4096,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.LIST_PAGE_BYTES"
+      ]
+    },
+    {
+      "key": "storage.uploadSeconds",
+      "group": "storage",
+      "title": "Upload link life",
+      "help": "How long a file upload link stays valid.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 30,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.UPLOAD_SECONDS"
+      ]
+    },
+    {
+      "key": "storage.downloadSeconds",
+      "group": "storage",
+      "title": "Download link life",
+      "help": "How long a file download link stays valid.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 30,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.DOWNLOAD_SECONDS"
+      ]
+    },
+    {
+      "key": "storage.rememberSeconds",
+      "group": "storage",
+      "title": "How long a function trusts its own memory",
+      "help": "A warm function remembers a collection list for this long, so one deleted elsewhere is rebuilt within a minute.",
+      "unit": "seconds",
+      "default": 60,
+      "min": 0,
+      "max": 600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "storage.REMEMBER_SECONDS"
+      ]
+    },
+    {
+      "key": "knowledge.student.collections",
+      "group": "knowledge",
+      "title": "Shelves per student",
+      "help": "Default number of shelves a student gets; the upper range is the most a teacher may give one student.",
+      "unit": "shelves",
+      "default": 5,
+      "min": 1,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.DEFAULTS",
+        "knowledge.BOUNDS"
+      ]
+    },
+    {
+      "key": "knowledge.student.documents",
+      "group": "knowledge",
+      "title": "Books per student",
+      "help": "Default number of books a student gets; the upper range is the most a teacher may give.",
+      "unit": "books",
+      "default": 20,
+      "min": 1,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.DEFAULTS",
+        "knowledge.BOUNDS"
+      ]
+    },
+    {
+      "key": "knowledge.student.passages",
+      "group": "knowledge",
+      "title": "Passages per student",
+      "help": "Default number of searchable passages a student's books may produce.",
+      "unit": "passages",
+      "default": 5000,
+      "min": 100,
+      "max": 60000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Passages are stored and searched; more passages cost more to read and keep.",
+      "code": [
+        "knowledge.DEFAULTS",
+        "knowledge.BOUNDS"
+      ]
+    },
+    {
+      "key": "knowledge.student.stored_mb",
+      "group": "knowledge",
+      "title": "Book space per student",
+      "help": "Default storage for a student's books.",
+      "unit": "MB",
+      "default": 50,
+      "min": 1,
+      "max": 500,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Stored books are billed per GB-month.",
+      "code": [
+        "knowledge.DEFAULTS",
+        "knowledge.BOUNDS"
+      ]
+    },
+    {
+      "key": "knowledge.student.upload_mb",
+      "group": "knowledge",
+      "title": "Largest book per student",
+      "help": "Default size limit of one book a student uploads.",
+      "unit": "MB",
+      "default": 25,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.DEFAULTS",
+        "knowledge.BOUNDS"
+      ]
+    },
+    {
+      "key": "knowledge.student.searches_limit",
+      "group": "knowledge",
+      "title": "Searches allowance",
+      "help": "Default searches per period a student gets.",
+      "unit": "searches",
+      "default": 500,
+      "min": 0,
+      "max": 1000000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Each search of meaning uses a small amount of embedding cost.",
+      "code": [
+        "knowledge.DEFAULTS",
+        "knowledge.BOUNDS"
+      ]
+    },
+    {
+      "key": "knowledge.student.searches_period",
+      "group": "knowledge",
+      "title": "Searches period",
+      "help": "The period the searches allowance counts over (day, month or total).",
+      "default": "day",
+      "choices": [
+        "day",
+        "month",
+        "total"
+      ],
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.DEFAULTS"
+      ]
+    },
+    {
+      "key": "knowledge.student.embed_tokens",
+      "group": "knowledge",
+      "title": "Reading allowance (embedding tokens)",
+      "help": "Default amount of text, in tokens, a student's books may have turned into search data.",
+      "unit": "tokens",
+      "default": 2000000,
+      "min": 0,
+      "max": 100000000,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Embedding is billed per million tokens.",
+      "code": [
+        "knowledge.DEFAULTS",
+        "knowledge.BOUNDS"
+      ]
+    },
+    {
+      "key": "knowledge.library.collections",
+      "group": "knowledge",
+      "title": "Class library: shelves",
+      "help": "Most shelves the shared class library may have (teacher only).",
+      "unit": "shelves",
+      "default": 20,
+      "min": 1,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.LIBRARY"
+      ]
+    },
+    {
+      "key": "knowledge.library.documents",
+      "group": "knowledge",
+      "title": "Class library: books",
+      "help": "Most books the class library may hold.",
+      "unit": "books",
+      "default": 200,
+      "min": 1,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.LIBRARY"
+      ]
+    },
+    {
+      "key": "knowledge.library.passages",
+      "group": "knowledge",
+      "title": "Class library: passages",
+      "help": "Most passages the class library may hold.",
+      "unit": "passages",
+      "default": 60000,
+      "min": 100,
+      "max": 600000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.LIBRARY"
+      ]
+    },
+    {
+      "key": "knowledge.library.stored_mb",
+      "group": "knowledge",
+      "title": "Class library: space",
+      "help": "Storage of the class library.",
+      "unit": "MB",
+      "default": 1000,
+      "min": 1,
+      "max": 10000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Stored books are billed per GB-month.",
+      "code": [
+        "knowledge.LIBRARY"
+      ]
+    },
+    {
+      "key": "knowledge.library.upload_mb",
+      "group": "knowledge",
+      "title": "Class library: largest book",
+      "help": "Largest book the teacher may add to the class library.",
+      "unit": "MB",
+      "default": 50,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.LIBRARY"
+      ]
+    },
+    {
+      "key": "knowledge.maxSearchShelves",
+      "group": "knowledge",
+      "title": "Shelves in one search",
+      "help": "How many shelves one search may name.",
+      "unit": "shelves",
+      "default": 4,
+      "min": 1,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.MAX_SEARCH_COLLECTIONS"
+      ]
+    },
+    {
+      "key": "knowledge.maxK",
+      "group": "knowledge",
+      "title": "Most passages returned by one search",
+      "help": "The largest number of passages a search may ask for.",
+      "unit": "passages",
+      "default": 10,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.MAX_K"
+      ]
+    },
+    {
+      "key": "knowledge.maxQueryChars",
+      "group": "knowledge",
+      "title": "Longest search question",
+      "help": "The longest question a search accepts.",
+      "unit": "characters",
+      "default": 500,
+      "min": 50,
+      "max": 5000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.MAX_QUERY_CHARS"
+      ]
+    },
+    {
+      "key": "knowledge.uploadSeconds",
+      "group": "knowledge",
+      "title": "Book upload link life",
+      "help": "How long a book upload link stays valid.",
+      "unit": "seconds",
+      "default": 600,
+      "min": 60,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.UPLOAD_SECONDS"
+      ]
+    },
+    {
+      "key": "knowledge.staleUploadSeconds",
+      "group": "knowledge",
+      "title": "When an unused upload is forgotten",
+      "help": "An upload form nobody used is forgotten (and its book slot freed) after this long.",
+      "unit": "seconds",
+      "default": 3600,
+      "min": 300,
+      "max": 86400,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.STALE_UPLOAD_SECONDS"
+      ]
+    },
+    {
+      "key": "knowledge.staleWorkSeconds",
+      "group": "knowledge",
+      "title": "When unfinished reading is failed",
+      "help": "Work that has not finished long after the worker's own time limit is marked failed.",
+      "unit": "seconds",
+      "default": 1200,
+      "min": 300,
+      "max": 86400,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge.STALE_WORK_SECONDS"
+      ]
+    },
+    {
+      "key": "knowledge.cacheDays",
+      "group": "knowledge",
+      "title": "How long search data is cached",
+      "help": "Days a computed search vector is reused instead of being bought again.",
+      "unit": "days",
+      "default": 90,
+      "min": 0,
+      "max": 365,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "A shorter time means more embedding cost.",
+      "code": [
+        "knowledge.CACHE_DAYS"
+      ]
+    },
+    {
+      "key": "knowledge.apiMaxBodyChars",
+      "group": "knowledge",
+      "title": "Largest knowledge API request",
+      "help": "The biggest request the knowledge API accepts from a student's backend.",
+      "unit": "characters",
+      "default": 20000,
+      "min": 1000,
+      "max": 1000000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_api.MAX_BODY_CHARS"
+      ]
+    },
+    {
+      "key": "knowledge.maxAppSpans",
+      "group": "knowledge",
+      "title": "Steps an app may report per search",
+      "help": "How many trace steps an app may report along with one search.",
+      "unit": "steps",
+      "default": 30,
+      "min": 0,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_api.MAX_APP_SPANS"
+      ]
+    },
+    {
+      "key": "knowledge.maxFileMB",
+      "group": "knowledge",
+      "title": "Largest book the reader accepts",
+      "help": "The largest file the book reader will process.",
+      "unit": "MB",
+      "default": 50,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_ingest.MAX_FILE_BYTES"
+      ]
+    },
+    {
+      "key": "knowledge.maxPages",
+      "group": "knowledge",
+      "title": "Most pages in a book",
+      "help": "A book with more pages is refused.",
+      "unit": "pages",
+      "default": 1500,
+      "min": 10,
+      "max": 10000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_ingest.MAX_PAGES"
+      ]
+    },
+    {
+      "key": "knowledge.maxPassages",
+      "group": "knowledge",
+      "title": "Most passages in a book",
+      "help": "A book that would produce more passages is refused.",
+      "unit": "passages",
+      "default": 6000,
+      "min": 100,
+      "max": 60000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_ingest.MAX_PASSAGES"
+      ]
+    },
+    {
+      "key": "knowledge.minPageChars",
+      "group": "knowledge",
+      "title": "Smallest real PDF page",
+      "help": "A PDF page with fewer characters than this is treated as a scan with no text.",
+      "unit": "characters",
+      "default": 40,
+      "min": 1,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_ingest.MIN_PAGE_CHARS"
+      ]
+    },
+    {
+      "key": "knowledge.pseudoPageChars",
+      "group": "knowledge",
+      "title": "Size of a pseudo-page",
+      "help": "Text, Markdown and HTML have no pages, so they are cut into pieces of about this size for citing.",
+      "unit": "characters",
+      "default": 3000,
+      "min": 500,
+      "max": 20000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_ingest.PSEUDO_PAGE_CHARS"
+      ]
+    },
+    {
+      "key": "knowledge.cacheShelves",
+      "group": "knowledge",
+      "title": "Shelves kept in memory",
+      "help": "How many shelves one warm search function keeps in memory.",
+      "unit": "shelves",
+      "default": 6,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_store.CACHE_COLLECTIONS"
+      ]
+    },
+    {
+      "key": "knowledge.cachePassages",
+      "group": "knowledge",
+      "title": "Passages kept in memory",
+      "help": "Never more passages than this are kept in memory in total.",
+      "unit": "passages",
+      "default": 60000,
+      "min": 1000,
+      "max": 600000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_store.CACHE_PASSAGES"
+      ]
+    },
+    {
+      "key": "knowledge.rebuildTries",
+      "group": "knowledge",
+      "title": "Tries to rebuild a search index",
+      "help": "How often a failed rebuild is retried before giving up.",
+      "unit": "tries",
+      "default": 3,
+      "min": 1,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "knowledge_store.REBUILD_TRIES"
+      ]
+    },
+    {
+      "key": "knowledge.minSimilarity",
+      "group": "knowledge",
+      "title": "Meaning match needed to answer",
+      "help": "How close in meaning the best passage must be for the books to answer. Higher means the app says it does not know more often.",
+      "unit": "0 to 1",
+      "default": 0.55,
+      "min": 0.1,
+      "max": 0.95,
+      "scope": "runtime",
+      "risk": "careful",
+      "note": "A starting point; calibrate per shelf from an evaluation set on real books.",
+      "code": [
+        "knowledge_store.DEFAULT_THRESHOLDS"
+      ]
+    },
+    {
+      "key": "knowledge.minCoverage",
+      "group": "knowledge",
+      "title": "Word match needed to answer",
+      "help": "Share of the question's words the best passage must contain for the books to answer.",
+      "unit": "0 to 1",
+      "default": 0.6,
+      "min": 0.1,
+      "max": 1.0,
+      "scope": "runtime",
+      "risk": "careful",
+      "note": "A starting point; calibrate per shelf from an evaluation set on real books.",
+      "code": [
+        "knowledge_store.DEFAULT_THRESHOLDS"
+      ]
+    },
+    {
+      "key": "knowledge.embedBatch",
+      "group": "knowledge",
+      "title": "Texts per embedding request",
+      "help": "How many passages are sent to the embedding service at once (Google accepts 100).",
+      "unit": "texts",
+      "default": 50,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "embeddings.BATCH"
+      ]
+    },
+    {
+      "key": "knowledge.embedMaxTextChars",
+      "group": "knowledge",
+      "title": "Longest text to embed",
+      "help": "About 3000 tokens; a passage is far smaller, so anything bigger is a mistake upstream.",
+      "unit": "characters",
+      "default": 12000,
+      "min": 1000,
+      "max": 100000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "embeddings.MAX_TEXT_CHARS"
+      ]
+    },
+    {
+      "key": "knowledge.workers",
+      "group": "knowledge",
+      "title": "Book readers at once",
+      "help": "How many books may be read at the same time on the whole platform.",
+      "unit": "readers",
+      "default": 2,
+      "min": 1,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Each reader holds a function execution for minutes.",
+      "env": "KNOWLEDGE_WORKERS",
+      "code": [
+        "knowledge.workers"
+      ]
+    },
+    {
+      "key": "knowledge.monthlyCapUsd",
+      "group": "knowledge",
+      "title": "Monthly embedding budget",
+      "help": "The most the whole platform spends per month on turning books and questions into search data.",
+      "unit": "US dollars",
+      "default": 3.0,
+      "min": 0.0,
+      "max": 1000.0,
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "This is real money per month.",
+      "env": "KNOWLEDGE_MONTHLY_CAP_USD",
+      "template": "Parameter:KnowledgeMonthlyCapUsd",
+      "code": [
+        "knowledge.monthlyCapUsd"
+      ]
+    },
+    {
+      "key": "knowledge.embeddingModel",
+      "group": "knowledge",
+      "title": "Embedding model",
+      "help": "The model that turns text into search data. Changing it means every book must be read again.",
+      "unit": "model name",
+      "default": "gemini-embedding-001",
+      "scope": "deploy",
+      "risk": "careful",
+      "env": "KNOWLEDGE_EMBEDDING_MODEL",
+      "template": "Parameter:KnowledgeEmbeddingModel",
+      "code": [
+        "embeddings.DEFAULT_MODEL",
+        "knowledge.embeddingModel"
+      ]
+    },
+    {
+      "key": "knowledge.embeddingDims",
+      "group": "knowledge",
+      "title": "Embedding size",
+      "help": "The number of numbers per passage. Changing it means every book must be read again. The upper range is the model's limit.",
+      "unit": "dimensions",
+      "default": 768,
+      "min": 64,
+      "max": 3072,
+      "scope": "deploy",
+      "risk": "careful",
+      "env": "KNOWLEDGE_EMBEDDING_DIMS",
+      "template": "Parameter:KnowledgeEmbeddingDims",
+      "code": [
+        "embeddings.DEFAULT_DIMS",
+        "embeddings.MAX_DIMS",
+        "knowledge.embeddingDims"
+      ]
+    },
+    {
+      "key": "jobs.perDay",
+      "group": "jobs",
+      "title": "Background jobs per day",
+      "help": "Default jobs per day a student gets; the upper range is the most a teacher may give.",
+      "unit": "jobs",
+      "default": 20,
+      "min": 0,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Each job holds a function for minutes.",
+      "code": [
+        "jobs.PER_DAY_DEFAULT",
+        "jobs.PER_DAY_MAX"
+      ]
+    },
+    {
+      "key": "jobs.concurrent",
+      "group": "jobs",
+      "title": "Jobs at once per student",
+      "help": "Default number of jobs one student may run at once; the upper range is the most a teacher may give.",
+      "unit": "jobs",
+      "default": 1,
+      "min": 1,
+      "max": 5,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "jobs.CONCURRENT_DEFAULT",
+        "jobs.CONCURRENT_MAX"
+      ]
+    },
+    {
+      "key": "jobs.minutes",
+      "group": "jobs",
+      "title": "Minutes a job may run",
+      "help": "Default minutes one job may run; the upper range is the most a teacher may give. AWS stops any function at 15 minutes.",
+      "unit": "minutes",
+      "default": 5,
+      "min": 1,
+      "max": 15,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Longer jobs cost more.",
+      "code": [
+        "jobs.MINUTES_DEFAULT",
+        "jobs.MINUTES_MAX"
+      ]
+    },
+    {
+      "key": "jobs.resultMaxKB",
+      "group": "jobs",
+      "title": "Largest job result",
+      "help": "The biggest result a job may save.",
+      "unit": "KB",
+      "default": 100,
+      "min": 1,
+      "max": 380,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "jobs.RESULT_MAX_BYTES"
+      ]
+    },
+    {
+      "key": "jobs.payloadMaxKB",
+      "group": "jobs",
+      "title": "Largest job input",
+      "help": "The biggest input a job may be started with.",
+      "unit": "KB",
+      "default": 64,
+      "min": 1,
+      "max": 380,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "jobs.PAYLOAD_MAX_BYTES"
+      ]
+    },
+    {
+      "key": "jobs.listLimit",
+      "group": "jobs",
+      "title": "Jobs per list",
+      "help": "How many jobs one list request returns.",
+      "unit": "jobs",
+      "default": 20,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "jobs.LIST_LIMIT"
+      ]
+    },
+    {
+      "key": "jobs.staleGraceSeconds",
+      "group": "jobs",
+      "title": "When a silent job is failed",
+      "help": "A job that has not reported for this long past its time limit is marked failed.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 60,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "jobs.STALE_GRACE_SECONDS"
+      ]
+    },
+    {
+      "key": "jobs.globalInflight",
+      "group": "jobs",
+      "title": "Jobs at once, whole platform",
+      "help": "Jobs that may run at once on the whole platform. Each holds a function execution for minutes, and a new AWS account allows only 10.",
+      "unit": "jobs",
+      "default": 2,
+      "min": 1,
+      "max": 100,
+      "scope": "deploy",
+      "risk": "careful",
+      "env": "INFLIGHT_JOBS_GLOBAL",
+      "template": "Env:INFLIGHT_JOBS_GLOBAL",
+      "code": [
+        "jobs.globalInflight"
+      ]
+    },
+    {
+      "key": "traces.retentionDays",
+      "group": "traces",
+      "title": "Default trace retention",
+      "help": "Default days a trace is kept before it is deleted automatically. The choices are 30, 60 or 90.",
+      "unit": "days",
+      "default": 90,
+      "min": 30,
+      "max": 90,
+      "choices": [
+        30,
+        60,
+        90
+      ],
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "trace_core.DEFAULT_RETENTION"
+      ]
+    },
+    {
+      "key": "traces.dailyLimit",
+      "group": "traces",
+      "title": "Traces per day per student",
+      "help": "Default number of traces a student's app may record per day; the upper range is the most a teacher may give.",
+      "unit": "traces",
+      "default": 2000,
+      "min": 0,
+      "max": 100000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Each trace is stored in the database.",
+      "code": [
+        "trace_core.DEFAULT_DAILY_LIMIT",
+        "trace_core.MAX_DAILY_LIMIT"
+      ]
+    },
+    {
+      "key": "traces.maxTextChars",
+      "group": "traces",
+      "title": "Longest stored text",
+      "help": "One stored text value is cut to this length.",
+      "unit": "characters",
+      "default": 4000,
+      "min": 100,
+      "max": 20000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "trace_core.MAX_TEXT_CHARS"
+      ]
+    },
+    {
+      "key": "traces.maxItemBytes",
+      "group": "traces",
+      "title": "Largest stored step",
+      "help": "A stored step stays far below the database's 400 KB item limit.",
+      "unit": "bytes",
+      "default": 60000,
+      "min": 1000,
+      "max": 300000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "trace_core.MAX_ITEM_BYTES"
+      ]
+    },
+    {
+      "key": "traces.maxAttrKeys",
+      "group": "traces",
+      "title": "Most details per step",
+      "help": "How many named details one step may carry.",
+      "unit": "details",
+      "default": 40,
+      "min": 1,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "trace_core.MAX_ATTR_KEYS"
+      ]
+    },
+    {
+      "key": "traces.maxSafeString",
+      "group": "traces",
+      "title": "Longest short detail",
+      "help": "A short detail kept even at the lowest privacy level is cut to this length.",
+      "unit": "characters",
+      "default": 80,
+      "min": 10,
+      "max": 500,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "trace_core.MAX_SAFE_STRING"
+      ]
+    },
+    {
+      "key": "traces.maxSpansPerTrace",
+      "group": "traces",
+      "title": "Most steps in one trace",
+      "help": "How many steps one trace may hold.",
+      "unit": "steps",
+      "default": 200,
+      "min": 5,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.MAX_SPANS_PER_TRACE"
+      ]
+    },
+    {
+      "key": "traces.spansPerTraceBudget",
+      "group": "traces",
+      "title": "Steps allowed per trace",
+      "help": "An app may report this many steps per allowed trace per day (daily limit times this), counted atomically.",
+      "unit": "steps",
+      "default": 20,
+      "min": 1,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.SPANS_PER_TRACE_BUDGET"
+      ]
+    },
+    {
+      "key": "traces.clearBatch",
+      "group": "traces",
+      "title": "Traces removed per call",
+      "help": "Traces removed per call of delete all of a student's traces (the teacher page repeats until done).",
+      "unit": "traces",
+      "default": 100,
+      "min": 10,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.CLEAR_BATCH"
+      ]
+    },
+    {
+      "key": "traces.remindDays",
+      "group": "traces",
+      "title": "Days between retention reminders",
+      "help": "How often the teacher is reminded to download or clear old traces.",
+      "unit": "days",
+      "default": 30,
+      "min": 1,
+      "max": 365,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.REMIND_DAYS"
+      ]
+    },
+    {
+      "key": "traces.exportMaxTraces",
+      "group": "traces",
+      "title": "Traces per download page",
+      "help": "How many traces one page of a download holds (AWS allows 6 MB per answer).",
+      "unit": "traces",
+      "default": 150,
+      "min": 10,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.EXPORT_MAX_TRACES"
+      ]
+    },
+    {
+      "key": "traces.exportMaxBytes",
+      "group": "traces",
+      "title": "Size of a download page",
+      "help": "The size of one page of a trace download.",
+      "unit": "bytes",
+      "default": 3000000,
+      "min": 100000,
+      "max": 5000000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.EXPORT_MAX_BYTES"
+      ]
+    },
+    {
+      "key": "traces.rollupKeepDays",
+      "group": "traces",
+      "title": "How long daily summaries are kept",
+      "help": "Days the per-day summaries (counts, cost, refusals) are kept.",
+      "unit": "days",
+      "default": 400,
+      "min": 30,
+      "max": 3650,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.ROLLUP_KEEP_DAYS"
+      ]
+    },
+    {
+      "key": "traces.driftMinAnswers",
+      "group": "traces",
+      "title": "Answers needed to judge a rate",
+      "help": "A rate over fewer answers than this says nothing, so no alert is raised.",
+      "unit": "answers",
+      "default": 20,
+      "min": 1,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.DRIFT_MIN_ANSWERS"
+      ]
+    },
+    {
+      "key": "traces.driftRefusalJump",
+      "group": "traces",
+      "title": "Rise in refusals that raises an alert",
+      "help": "Alert when the share of the books do not say answers is this much above last week's.",
+      "unit": "0 to 1",
+      "default": 0.15,
+      "min": 0.01,
+      "max": 1.0,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "traces.DRIFT_REFUSAL_JUMP"
+      ]
+    },
+    {
+      "key": "traces.driftErrorRate",
+      "group": "traces",
+      "title": "Error share that raises an alert",
+      "help": "Alert when this share of answers had an error.",
+      "unit": "0 to 1",
+      "default": 0.2,
+      "min": 0.01,
+      "max": 1.0,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "traces.DRIFT_ERROR_RATE"
+      ]
+    },
+    {
+      "key": "traces.baselineDays",
+      "group": "traces",
+      "title": "Days of history for the baseline",
+      "help": "How many past days the usual rates are computed from.",
+      "unit": "days",
+      "default": 7,
+      "min": 1,
+      "max": 60,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "traces.BASELINE_DAYS"
+      ]
+    },
+    {
+      "key": "projects.maxFiles",
+      "group": "projects",
+      "title": "Most files in a project",
+      "help": "The number of files a synced project may hold.",
+      "unit": "files",
+      "default": 500,
+      "min": 10,
+      "max": 5000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.MAX_FILES"
+      ]
+    },
+    {
+      "key": "projects.maxFileMB",
+      "group": "projects",
+      "title": "Largest project file",
+      "help": "The biggest single file in a synced project.",
+      "unit": "MB",
+      "default": 5,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.MAX_FILE_BYTES"
+      ]
+    },
+    {
+      "key": "projects.maxLiveMB",
+      "group": "projects",
+      "title": "Project size now",
+      "help": "What a project may hold right now.",
+      "unit": "MB",
+      "default": 50,
+      "min": 1,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Stored files are billed per GB-month.",
+      "code": [
+        "projects.MAX_LIVE_BYTES"
+      ]
+    },
+    {
+      "key": "projects.maxStoredMB",
+      "group": "projects",
+      "title": "Everything ever stored for a project",
+      "help": "Everything ever uploaded to a project; old versions stay until the teacher compacts it.",
+      "unit": "MB",
+      "default": 150,
+      "min": 1,
+      "max": 3000,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Stored files are billed per GB-month.",
+      "code": [
+        "projects.MAX_STORED_BYTES"
+      ]
+    },
+    {
+      "key": "projects.maxChanges",
+      "group": "projects",
+      "title": "Paths in one push",
+      "help": "How many file changes one push may carry.",
+      "unit": "paths",
+      "default": 100,
+      "min": 1,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.MAX_CHANGES"
+      ]
+    },
+    {
+      "key": "projects.maxMembers",
+      "group": "projects",
+      "title": "Members of a team project",
+      "help": "How many students a team project may have.",
+      "unit": "students",
+      "default": 30,
+      "min": 1,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.MAX_MEMBERS"
+      ]
+    },
+    {
+      "key": "projects.historyDays",
+      "group": "projects",
+      "title": "How long project history is kept",
+      "help": "Days each earlier version stays listed so it can be put back.",
+      "unit": "days",
+      "default": 180,
+      "min": 1,
+      "max": 3650,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.HISTORY_DAYS"
+      ]
+    },
+    {
+      "key": "projects.uploadSeconds",
+      "group": "projects",
+      "title": "Project upload link life",
+      "help": "How long an upload link for project files stays valid.",
+      "unit": "seconds",
+      "default": 900,
+      "min": 60,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.UPLOAD_SECONDS"
+      ]
+    },
+    {
+      "key": "projects.downloadSeconds",
+      "group": "projects",
+      "title": "Project download link life",
+      "help": "How long a download link for project files stays valid.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 60,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.DOWNLOAD_SECONDS"
+      ]
+    },
+    {
+      "key": "projects.commitTries",
+      "group": "projects",
+      "title": "Tries when two people push at once",
+      "help": "How often a push is retried when someone else's push lands first.",
+      "unit": "tries",
+      "default": 3,
+      "min": 1,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "projects.COMMIT_TRIES"
+      ]
+    },
+    {
+      "key": "worker.capMinutes",
+      "group": "worker",
+      "title": "Monthly machine minutes (class cap)",
+      "help": "The most minutes the worker machine may run per month for the whole class. The range is the lowest and highest cap a teacher may set.",
+      "unit": "minutes",
+      "default": 2400,
+      "min": 60,
+      "max": 14400,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "The machine is billed per second while it runs.",
+      "code": [
+        "worker.DEFAULT_CAP_MINUTES",
+        "worker.MIN_CAP_MINUTES",
+        "worker.MAX_CAP_MINUTES"
+      ]
+    },
+    {
+      "key": "worker.maxMinutes",
+      "group": "worker",
+      "title": "Longest single run",
+      "help": "The longest one run of the worker machine may last; a watchdog stops it after this. The range is the lowest and highest value allowed.",
+      "unit": "minutes",
+      "default": 60,
+      "min": 15,
+      "max": 360,
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "Longer runs cost more.",
+      "env": "WORKER_MAX_MINUTES",
+      "template": "Parameter:WorkerMaxMinutes",
+      "code": [
+        "worker.DEFAULT_MAX_MINUTES",
+        "worker.MAX_MINUTES"
+      ]
+    },
+    {
+      "key": "worker.instanceType",
+      "group": "worker",
+      "title": "Machine size",
+      "help": "The size of the worker machine. The default is one a Free plan AWS account may use; the c7g sizes need a paid plan.",
+      "unit": "EC2 type",
+      "default": "m7i-flex.large",
+      "choices": [
+        "m7i-flex.large",
+        "c7i-flex.large",
+        "t3.small",
+        "t4g.small",
+        "c7g.large",
+        "c7g.xlarge",
+        "c7g.2xlarge"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "Bigger machines cost more per hour.",
+      "template": "Parameter:WorkerInstanceType"
+    },
+    {
+      "key": "worker.diskGb",
+      "group": "worker",
+      "title": "Machine disk",
+      "help": "Disk size of the worker machine. The disk is billed all month, even when the machine is off.",
+      "unit": "GB",
+      "default": 30,
+      "min": 20,
+      "max": 200,
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "About 8 cents per GB per month.",
+      "template": "Parameter:WorkerDiskGb"
+    },
+    {
+      "key": "worker.amiId",
+      "group": "worker",
+      "title": "Machine image",
+      "help": "The machine image the installer picked (x86 or ARM). Filled in by the installer.",
+      "unit": "image id",
+      "default": "",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:WorkerAmiId"
+    },
+    {
+      "key": "alerts.concurrencyThreshold",
+      "group": "alerts",
+      "title": "Concurrency alarm level",
+      "help": "The alarm fires when this many function executions run at once (your AWS account limit is the ceiling).",
+      "unit": "executions",
+      "default": 8,
+      "min": 1,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:ConcurrencyAlarmThreshold"
+    },
+    {
+      "key": "alerts.emailParameter",
+      "group": "alerts",
+      "title": "Alert address (parameter name)",
+      "help": "The name of the AWS parameter that holds the e-mail address for alerts. The address itself stays in AWS. Empty means no alerts.",
+      "unit": "parameter name",
+      "default": "",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:AlertEmailParameter"
+    },
+    {
+      "key": "apiThrottles.backendRate",
+      "group": "apiThrottles",
+      "title": "Backend API: requests per second",
+      "help": "Steady requests per second the student backend API accepts. The installer sets it from the account's concurrency limit.",
+      "unit": "requests/second",
+      "default": 10,
+      "min": 1,
+      "max": 2000,
+      "scope": "deploy",
+      "risk": "careful",
+      "note": "Derived from the AWS Lambda concurrency quota by the installer.",
+      "template": "Parameter:BackendApiRate"
+    },
+    {
+      "key": "apiThrottles.backendBurst",
+      "group": "apiThrottles",
+      "title": "Backend API: burst",
+      "help": "Short burst of requests the student backend API accepts.",
+      "unit": "requests",
+      "default": 20,
+      "min": 1,
+      "max": 4000,
+      "scope": "deploy",
+      "risk": "careful",
+      "note": "Derived from the AWS Lambda concurrency quota by the installer.",
+      "template": "Parameter:BackendApiBurst"
+    },
+    {
+      "key": "apiThrottles.deployRate",
+      "group": "apiThrottles",
+      "title": "Deploy API: requests per second",
+      "help": "Steady requests per second the portal and deploy API accept.",
+      "unit": "requests/second",
+      "default": 20,
+      "min": 1,
+      "max": 2000,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Api:DeployApi.ThrottlingRateLimit"
+    },
+    {
+      "key": "apiThrottles.deployBurst",
+      "group": "apiThrottles",
+      "title": "Deploy API: burst",
+      "help": "Short burst the portal and deploy API accept.",
+      "unit": "requests",
+      "default": 50,
+      "min": 1,
+      "max": 4000,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Api:DeployApi.ThrottlingBurstLimit"
+    },
+    {
+      "key": "apiThrottles.storageRate",
+      "group": "apiThrottles",
+      "title": "Storage API: requests per second",
+      "help": "Steady requests per second the class storage API accepts.",
+      "unit": "requests/second",
+      "default": 20,
+      "min": 1,
+      "max": 2000,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Api:StorageApi.ThrottlingRateLimit"
+    },
+    {
+      "key": "apiThrottles.storageBurst",
+      "group": "apiThrottles",
+      "title": "Storage API: burst",
+      "help": "Short burst the class storage API accepts.",
+      "unit": "requests",
+      "default": 40,
+      "min": 1,
+      "max": 4000,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Api:StorageApi.ThrottlingBurstLimit"
+    },
+    {
+      "key": "lambdas.deployMemoryMB",
+      "group": "lambdas",
+      "title": "Portal function memory",
+      "help": "Memory of the function that serves the portal and the deploy API.",
+      "unit": "MB",
+      "default": 1024,
+      "min": 128,
+      "max": 10240,
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "Billed per second of running time.",
+      "template": "Lambda:DeployFunction.MemorySize"
+    },
+    {
+      "key": "lambdas.deployTimeoutSeconds",
+      "group": "lambdas",
+      "title": "Portal function time limit",
+      "help": "Time limit of the portal function. The API front door stops at 29 seconds.",
+      "unit": "seconds",
+      "default": 29,
+      "min": 3,
+      "max": 29,
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Lambda:DeployFunction.Timeout"
+    },
+    {
+      "key": "lambdas.gatewayMemoryMB",
+      "group": "lambdas",
+      "title": "Gateway function memory",
+      "help": "Memory of the gateway function.",
+      "unit": "MB",
+      "default": 256,
+      "min": 128,
+      "max": 3008,
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "Billed per second of running time.",
+      "template": "Lambda:GatewayFunction.MemorySize"
+    },
+    {
+      "key": "lambdas.gatewayTimeoutSeconds",
+      "group": "lambdas",
+      "title": "Gateway function time limit",
+      "help": "Time limit of the gateway function. The API front door stops at 29 seconds.",
+      "unit": "seconds",
+      "default": 29,
+      "min": 3,
+      "max": 29,
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Lambda:GatewayFunction.Timeout"
+    },
+    {
+      "key": "lambdas.storageMemoryMB",
+      "group": "lambdas",
+      "title": "Storage function memory",
+      "help": "Memory of the class storage function.",
+      "unit": "MB",
+      "default": 256,
+      "min": 128,
+      "max": 3008,
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Lambda:StorageFunction.MemorySize"
+    },
+    {
+      "key": "lambdas.storageTimeoutSeconds",
+      "group": "lambdas",
+      "title": "Storage function time limit",
+      "help": "Time limit of the class storage function.",
+      "unit": "seconds",
+      "default": 10,
+      "min": 3,
+      "max": 29,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Lambda:StorageFunction.Timeout"
+    },
+    {
+      "key": "lambdas.sweeperMemoryMB",
+      "group": "lambdas",
+      "title": "Nightly clean-up memory",
+      "help": "Memory of the nightly clean-up function.",
+      "unit": "MB",
+      "default": 512,
+      "min": 128,
+      "max": 3008,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Lambda:SweeperFunction.MemorySize"
+    },
+    {
+      "key": "lambdas.sweeperTimeoutSeconds",
+      "group": "lambdas",
+      "title": "Nightly clean-up time limit",
+      "help": "Time limit of the nightly clean-up function.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 30,
+      "max": 900,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Lambda:SweeperFunction.Timeout"
+    },
+    {
+      "key": "lambdas.sweeperCron",
+      "group": "lambdas",
+      "title": "Nightly clean-up time",
+      "help": "When the nightly clean-up runs (AWS cron format, in UTC).",
+      "unit": "cron",
+      "default": "cron(0 3 * * ? *)",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Schedule:SweeperFunction"
+    },
+    {
+      "key": "storageLifecycle.uploadsExpireDays",
+      "group": "storageLifecycle",
+      "title": "Days an upload zip is kept",
+      "help": "Uploaded zip files are deleted after this many days.",
+      "unit": "days",
+      "default": 1,
+      "min": 1,
+      "max": 30,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Bucket:ExpireUploadedZips.ExpirationInDays"
+    },
+    {
+      "key": "storageLifecycle.noncurrentVersionDays",
+      "group": "storageLifecycle",
+      "title": "Days an old file version is kept",
+      "help": "Replaced or deleted file versions are kept this many days so a mistake can be undone.",
+      "unit": "days",
+      "default": 30,
+      "min": 1,
+      "max": 365,
+      "scope": "deploy",
+      "risk": "low",
+      "cost": "Old versions are billed as storage.",
+      "template": "Bucket:ExpireOldVersions.NoncurrentDays"
+    },
+    {
+      "key": "features.backend",
+      "group": "features",
+      "title": "Student backends",
+      "help": "Turns on student backends, the gateway and the /api route. Off creates and changes nothing about backends.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Parameter:BackendEnabled"
+    },
+    {
+      "key": "features.ai",
+      "group": "features",
+      "title": "Class AI connector",
+      "help": "Lets the teacher give a student's backend a capped, revocable AI key. Needs student backends.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Parameter:AiEnabled"
+    },
+    {
+      "key": "features.aiGemini",
+      "group": "features",
+      "title": "Google Gemini for the class AI",
+      "help": "Lets the teacher give a student Google Gemini instead of OpenRouter. Needs the class AI.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Parameter:AiGeminiEnabled"
+    },
+    {
+      "key": "features.storage",
+      "group": "features",
+      "title": "Class storage connector",
+      "help": "Gives students' backends a small database and file area with hard caps. Needs student backends.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Parameter:StorageEnabled"
+    },
+    {
+      "key": "features.knowledge",
+      "group": "features",
+      "title": "Class knowledge connector",
+      "help": "Gives students' backends searchable books, and the class one shared library. Needs student backends.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Parameter:KnowledgeEnabled"
+    },
+    {
+      "key": "features.traces",
+      "group": "features",
+      "title": "Traces",
+      "help": "A step-by-step record of answers, stored per student and deleted automatically. Needs student backends.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Parameter:TracesEnabled"
+    },
+    {
+      "key": "features.worker",
+      "group": "features",
+      "title": "Compute worker",
+      "help": "One small machine that is off by default, for platform-owned checks. With it off nothing is created.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "A few dollars a month when used.",
+      "template": "Parameter:WorkerEnabled"
+    },
+    {
+      "key": "install.rootDomain",
+      "group": "install",
+      "title": "Platform domain",
+      "help": "The domain student sites are served from (for example apps.example.com). Empty serves them from the CDN address instead.",
+      "unit": "domain",
+      "default": "",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:RootDomain"
+    },
+    {
+      "key": "install.certificateArn",
+      "group": "install",
+      "title": "Certificate",
+      "help": "The certificate for the platform domain (must be in us-east-1). Required when a domain is set.",
+      "unit": "certificate id",
+      "default": "",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:CertificateArn"
+    },
+    {
+      "key": "install.portalAlias",
+      "group": "install",
+      "title": "Portal address on the domain",
+      "help": "Attaches deploy.<domain> to the portal. Keep false on the first install until the DNS record exists.",
+      "unit": "true or false",
+      "default": "false",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:PortalAlias"
+    },
+    {
+      "key": "install.keysParameter",
+      "group": "install",
+      "title": "Parameter holding the signing keys",
+      "help": "The name of the AWS parameter that holds the students' access keys.",
+      "unit": "parameter name",
+      "default": "/student-deploy/keys",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:KeysParameterName"
+    },
+    {
+      "key": "install.teacherParameter",
+      "group": "install",
+      "title": "Parameter holding the teacher password",
+      "help": "The name of the AWS parameter that holds the teacher's password hash.",
+      "unit": "parameter name",
+      "default": "/student-deploy/teacher",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:TeacherParameterName"
+    },
+    {
+      "key": "install.tenantDistributionId",
+      "group": "install",
+      "title": "Custom-domain distribution",
+      "help": "The CloudFront multi-tenant distribution used for students' own domains. Empty switches the custom-domain feature off.",
+      "unit": "id",
+      "default": "",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:TenantDistributionId"
+    },
+    {
+      "key": "install.routingEndpoint",
+      "group": "install",
+      "title": "Custom-domain routing endpoint",
+      "help": "The routing endpoint of the custom-domain pieces. Filled in by the installer.",
+      "unit": "address",
+      "default": "",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:RoutingEndpoint"
+    },
+    {
+      "key": "install.connectionGroupId",
+      "group": "install",
+      "title": "Custom-domain connection group",
+      "help": "The CloudFront connection group the student domains join. Empty uses the default one.",
+      "unit": "id",
+      "default": "",
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Parameter:ConnectionGroupId"
+    },
+    {
+      "key": "ai.secretName",
+      "group": "ai",
+      "title": "Secret holding the AI keys",
+      "help": "The name of the AWS secret that holds the OpenRouter management key and the Google key.",
+      "unit": "secret name",
+      "default": "openrouter",
+      "scope": "deploy",
+      "risk": "security",
+      "env": "AI_SECRET_NAME",
+      "template": "Parameter:AiSecretName"
+    }
+  ],
+  "fixed": [
+    {
+      "code": "ai.MICRO",
+      "reason": "Unit conversion (one US dollar is a million micro-dollars), not a choice."
+    },
+    {
+      "code": "portal.DAY",
+      "reason": "Unit conversion (seconds in a day), not a choice."
+    },
+    {
+      "code": "knowledge.MB",
+      "reason": "Unit conversion (bytes in a megabyte), not a choice."
+    },
+    {
+      "code": "storage.MB",
+      "reason": "Unit conversion (bytes in a megabyte), not a choice."
+    },
+    {
+      "code": "projects.MB",
+      "reason": "Unit conversion (bytes in a megabyte), not a choice."
+    },
+    {
+      "code": "traces.MS",
+      "reason": "Unit conversion (milliseconds in a second), not a choice."
+    },
+    {
+      "code": "storage_api.MAX_BODY_CHARS",
+      "reason": "Derived: twice the largest stored value (storage.maxValueKB), so it follows that setting."
+    },
+    {
+      "code": "embeddings.RETRY_DELAYS",
+      "reason": "The back-off schedule (1, 2 and 4 seconds) for a failing embedding call: a design choice, not a limit."
+    },
+    {
+      "code": "embeddings.DEFAULT_PRICES",
+      "reason": "A price table for embedding models: facts from the providers, kept in code (or in the EMBEDDING_PRICES environment variable)."
+    },
+    {
+      "code": "gemini.DEFAULT_PRICES",
+      "reason": "A price table for Gemini models: facts from the provider, kept in code (or in the AI_GEMINI_PRICES environment variable)."
+    },
+    {
+      "code": "worker.PRICES",
+      "reason": "AWS hourly prices of the worker machine sizes: facts from AWS."
+    },
+    {
+      "code": "worker.DISK_PER_GB_MONTH",
+      "reason": "The AWS price of a disk per GB and month: a fact from AWS."
+    },
+    {
+      "code": "worker.HOUR_CHOICES",
+      "reason": "The 24 hours of a day (the daily start hour choices): not a choice."
+    },
+    {
+      "code": "trace_core.RETENTION_CHOICES",
+      "reason": "The retention choices the teacher page offers (30, 60 or 90 days): the values the format allows. The default is traces.retentionDays."
+    }
+  ]
+}

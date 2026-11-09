@@ -24,19 +24,16 @@ import backends
 import jobs
 import portal
 from portal import db
+import platform_settings
 
 SLUG_PATH = re.compile(r"^/b/([a-z0-9][a-z0-9-]{0,29})(/.*)?$")
-MAX_BODY_CHARS = 1024 * 1024
-MAX_RESPONSE_BYTES = 1024 * 1024
-LEAK_SECONDS = 60  # an in-flight counter untouched for this long while above zero is considered leaked
+MAX_BODY_CHARS = platform_settings.kb("gateway.maxBodyKB")
+MAX_RESPONSE_BYTES = platform_settings.kb("gateway.maxResponseKB")
+LEAK_SECONDS = platform_settings.value("gateway.leakSeconds")  # an in-flight counter untouched for this long while above zero is considered leaked
 STRIP_REQUEST_HEADERS = {"x-origin-secret", "x-viewer-ip"}
 DROP_RESPONSE_HEADERS = {"transfer-encoding", "connection", "content-length", "keep-alive"}
 
 _cache = {}
-
-
-def setting(name, default):
-    return int(os.environ.get(name, default))
 
 
 def reply(status, headers=None, **body):
@@ -76,16 +73,16 @@ def handler(event, context=None, now=None):
 
     ip = headers.get("x-viewer-ip") or (event.get("requestContext", {}).get("http", {}).get("sourceIp")) or "unknown"
     ip_key = f"ip#{slug}#{hashlib.sha1(ip.encode()).hexdigest()[:12]}#{now // 60}"
-    if db().counter_add(ip_key, 1, limit=setting("PER_IP_PER_MINUTE", 120), ttl=now + 120, now=now) is None:
+    if db().counter_add(ip_key, 1, limit=platform_settings.value("gateway.perIpPerMinute"), ttl=now + 120, now=now) is None:
         return reply(429, {"retry-after": "30"}, error="too_many_requests", message="Too many requests. Please slow down.")
 
     if rest == "/_jobs" or rest.startswith("/_jobs/"):  # background jobs (jobs.py): answered here, never passed to the student's web function
         return jobs.handle(item, event, rest, now)
 
-    slots = [("inflight#global", setting("INFLIGHT_GLOBAL", 3)), (f"inflight#{slug}", setting("INFLIGHT_STUDENT", 2))]
+    slots = [("inflight#global", platform_settings.value("gateway.inflightGlobal")), (f"inflight#{slug}", platform_settings.value("gateway.inflightPerStudent"))]
     taken = []
     try:
-        deadline = time.time() + setting("INFLIGHT_WAIT_MS", 0) / 1000
+        deadline = time.time() + platform_settings.value("gateway.waitMs") / 1000
         for key, cap in slots:
             if not acquire_waiting(key, cap, now, deadline):
                 return reply(429, {"retry-after": "1"}, error="busy", message="The backend is busy. Please retry in a moment.")
@@ -112,7 +109,7 @@ def load_token(slug, now):
     cached = _cache.get(slug)
     if cached:
         ready = cached[1] is not None and backends.settings(cached[1]).get("state") == "ready"
-        ttl = setting("GATEWAY_CACHE_SECONDS", 10) if ready else setting("GATEWAY_NEGATIVE_CACHE_SECONDS", 2)
+        ttl = platform_settings.value("gateway.cacheSeconds") if ready else platform_settings.value("gateway.negativeCacheSeconds")
         if 0 <= now - cached[0] < ttl:  # a negative age (clock skew) is never treated as fresh
             return cached[1]
     lock = db().get(f"slug#{slug}")

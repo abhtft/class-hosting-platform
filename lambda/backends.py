@@ -21,6 +21,7 @@ from botocore.exceptions import ClientError
 
 import portal
 from portal import DAY, PortalError, db
+import platform_settings
 
 NOT_ENABLED = "Owner not enabled for you. Please contact site owner."
 FUNCTION_PREFIX = "sd-"
@@ -29,17 +30,20 @@ ENTRY_FILES = {  # entry file at the top of the zip -> (Lambda runtime, handler)
     "index.js": ("nodejs22.x", "index.handler"),
     "app.py": ("python3.12", "app.handler"),
 }
-MAX_ZIP_BYTES = 5 * 1024 * 1024
-MAX_UNZIPPED_BYTES = 50 * 1024 * 1024
-MAX_FILES = 500
-MEMORY_MB = 256
-TIMEOUT_SECONDS = 10
-LOG_RETENTION_DAYS = 7
-DEFAULT_RUNS, MAX_RUNS, PERIODS = 5000, 1_000_000, ("day", "month", "total")
+MAX_ZIP_BYTES = platform_settings.mb("backend.maxZipMB")
+MAX_UNZIPPED_BYTES = platform_settings.mb("backend.maxUnzippedMB")
+MAX_FILES = platform_settings.value("backend.maxFiles")
+MEMORY_MB = platform_settings.value("backend.memoryMB")
+TIMEOUT_SECONDS = platform_settings.value("backend.timeoutSeconds")
+LOG_RETENTION_DAYS = platform_settings.value("backend.logRetentionDays")
+DEFAULT_RUNS = platform_settings.default("backend.runs")
+MAX_RUNS = platform_settings.maximum("backend.runs")
+PERIODS = ("day", "month", "total")
 ENV_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 ENV_RESERVED = ("AWS_", "LAMBDA_", "_")
 ENV_RESERVED_NAMES = {"TZ"}
-MAX_ENV_VARS, MAX_ENV_BYTES = 20, 4096
+MAX_ENV_VARS = platform_settings.value("backend.maxEnvVars")
+MAX_ENV_BYTES = platform_settings.value("backend.maxEnvBytes")
 
 _clients = {}  # tests plug in fakes here
 
@@ -149,7 +153,7 @@ def set_backend(item, body, now):
 def _apply_concurrency(name, enabled):
     """Belt and braces for OFF: ask AWS itself to refuse invocations (reserved concurrency 0). Best effort."""
     try:
-        reserved = int(os.environ.get("BACKEND_RESERVED_CONCURRENCY", "0") or 0)
+        reserved = platform_settings.value("backend.reservedConcurrency")
         if not enabled:
             client("lambda").put_function_concurrency(FunctionName=name, ReservedConcurrentExecutions=0)
         elif reserved > 0:
@@ -263,7 +267,7 @@ def _prepare_function(name, enabled):
         client("logs").put_retention_policy(logGroupName=f"/aws/lambda/{name}", retentionInDays=LOG_RETENTION_DAYS)
     except ClientError as e:
         print(f"could not set log retention for {name}: {e}")
-    if int(os.environ.get("BACKEND_RESERVED_CONCURRENCY", "0") or 0) > 0 or not enabled:
+    if platform_settings.value("backend.reservedConcurrency") > 0 or not enabled:
         _apply_concurrency(name, enabled)
 
 
@@ -342,11 +346,14 @@ def delete_env(item, var, now):
     return _write_env(item, name, variables)
 
 
-LOG_LIMIT_DEFAULT, LOG_LIMIT_MAX = 50, 100
-LOG_MINUTES_DEFAULT, LOG_MINUTES_MAX = 60, 180
-LOG_PAGE, LOG_PAGES = 500, 6  # up to 3000 events are read per request, then the newest ones are kept
-LOG_CUT = 1500                # a long message keeps its END (the real error is at the end of a traceback)
-LOG_MIN_SECRET = 6            # an environment variable value shorter than this is not masked (too many false hits)
+LOG_LIMIT_DEFAULT = platform_settings.default("backend.logLines")
+LOG_LIMIT_MAX = platform_settings.maximum("backend.logLines")
+LOG_MINUTES_DEFAULT = platform_settings.default("backend.logMinutes")
+LOG_MINUTES_MAX = platform_settings.maximum("backend.logMinutes")
+LOG_PAGE = platform_settings.value("backend.logPageEvents")
+LOG_PAGES = platform_settings.value("backend.logPages")  # up to LOG_PAGE x LOG_PAGES events are read per request, then the newest ones are kept
+LOG_CUT = platform_settings.value("backend.logCutChars")  # a long message keeps its END (the real error is at the end of a traceback)
+LOG_MIN_SECRET = platform_settings.value("backend.logMinSecretChars")  # an environment variable value shorter than this is not masked (too many false hits)
 # CloudWatch filter syntax: any of these words (case matters). The current Python and Node runtimes report a timeout ONLY as `REPORT ... Status: timeout`
 # (seen on a real account: there is no "Task timed out" line), so the Status words are what finds it; the older wording stays for older runtimes.
 LOG_ERRORS_PATTERN = '?ERROR ?Error ?Exception ?Traceback ?Unhandled ?"Task timed out" ?"Runtime.OutOfMemory" ?"Status: timeout" ?"Status: error"'
