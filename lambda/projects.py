@@ -41,15 +41,16 @@ def available():
 
 
 # ---------- names ----------
-def clean_path(value):
-    """A project path: relative, forward slashes, no '..', and never a secret or a dependency folder. Raises PortalError(400)."""
+def clean_path(value, deleting=False):
+    """A project path: relative, forward slashes, no '..', and never a secret or a dependency folder. Raises PortalError(400). Deleting a path that is now on the
+    never-synced list is allowed (older versions of the kit sent such files, and they must be removable)."""
     if not isinstance(value, str) or not 1 <= len(value) <= 200 or value != value.strip() or "\\" in value or value.startswith("/") or re.search(r"[\x00-\x1f\x7f]", value):
         raise PortalError(400, f"Not a valid project path: {str(value)[:60]!r}.")
     parts = value.split("/")
     for part in parts:
         if part in ("", ".", "..") or len(part) > 100:
             raise PortalError(400, f"Not a valid project path: {value[:60]!r}.")
-    if any(p in BLOCKED_DIRS for p in parts[:-1]) or parts[-1] in BLOCKED_DIRS or BLOCKED_NAME.match(parts[-1]):
+    if not deleting and (any(p in BLOCKED_DIRS for p in parts[:-1]) or parts[-1] in BLOCKED_DIRS or BLOCKED_NAME.match(parts[-1])):
         raise PortalError(400, f"{value} is never synced (secrets, dependencies and editor folders stay on your computer).")
     return value
 
@@ -122,7 +123,7 @@ def _changes(body):
     for change in raw:
         if not isinstance(change, dict):
             raise PortalError(400, "Each change is an object.")
-        path = clean_path(change.get("path"))
+        path = clean_path(change.get("path"), deleting=change.get("op") == "delete")
         if path in seen:
             raise PortalError(400, f"{path} appears twice.")
         seen.add(path)

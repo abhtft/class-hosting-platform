@@ -123,6 +123,14 @@ for changes in ([], [{"path": "a", "op": "rename"}], [{"path": "a", "op": "put",
 assert call("POST", "/api/student/projects/personal/prepare", {"changes": [put_change(f"f{i}", b"x") for i in range(projects.MAX_CHANGES + 1)]}, alice)[0] == 400
 print("  ok  paths: no '..', no absolute or backslash paths, no secrets, keys or dependency folders; malformed pushes refused")
 
+# a file that is on the never-synced list now (an older kit sent it) can still be DELETED from the project, but never put
+manifest = projects.load("p", alice_slug)
+portal.db().put({**manifest, "files": {**manifest["files"], ".kit-backup/old/x.mjs": {"sha": sha(b"old"), "size": 3, "by": alice_slug, "ts": NOW, "rev": 1}}})
+status, body = call("POST", "/api/student/projects/personal/commit", {"changes": [{"path": ".kit-backup/old/x.mjs", "op": "delete", "base": sha(b"old")}]}, alice)
+assert status == 200 and ".kit-backup/old/x.mjs" not in files_of(alice, "personal")["files"], body
+assert call("POST", "/api/student/projects/personal/prepare", {"changes": [put_change(".kit-backup/old/x.mjs", b"old")]}, alice)[0] == 400
+print("  ok  an old never-synced file can be removed from a project but not added")
+
 # ---------------------------------------------------------------- a team: made by the teacher only
 assert call("POST", "/api/admin/projects", {"id": "team-1", "members": []})[0] == 401
 assert call("POST", "/api/admin/projects", {"id": "Bad Id"}, admin)[0] == 400
