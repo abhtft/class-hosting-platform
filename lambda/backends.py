@@ -284,6 +284,16 @@ def advance(item, now):
     if state == "Failed" or update == "Failed":
         return _save(item, state="failed", error=config.get("StateReason") or config.get("LastUpdateStatusReason") or "Deployment failed.")
     if state == "Active" and update in (None, "Successful"):
+        # a function made before the limits changed keeps its old memory and time until now: bring both in line with today's settings (once the code update has
+        # finished: Lambda refuses two updates at the same moment), and stay "creating" until the next poll sees that change finish too
+        import ai
+        want = {"MemorySize": MEMORY_MB, "Timeout": ai.timeout_for(item)}
+        if any(config.get(k) is not None and config[k] != v for k, v in want.items()):
+            try:
+                client("lambda").update_function_configuration(FunctionName=b["function_name"], **want)
+                return item
+            except ClientError as e:
+                print(f"could not bring the limits of {b['function_name']} up to date: {e}")  # not fatal: the backend still works with its old limits
         return _save(item, state="ready", deployed_at=now, code_sha256=b.get("pending_sha", ""), error="")
     return item
 

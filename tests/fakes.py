@@ -235,7 +235,7 @@ class FakeLambda:
     def get_function_configuration(self, FunctionName):
         return dict(self._get(FunctionName)["config"])
 
-    def update_function_configuration(self, FunctionName, Environment=None, Timeout=None):
+    def update_function_configuration(self, FunctionName, Environment=None, Timeout=None, MemorySize=None):
         function = self._get(FunctionName)
         if function["updating"]:
             raise self._error("ResourceConflictException", "update in progress")
@@ -243,6 +243,8 @@ class FakeLambda:
             function["config"]["Environment"] = Environment
         if Timeout is not None:
             function["config"]["Timeout"] = Timeout
+        if MemorySize is not None:
+            function["config"]["MemorySize"] = MemorySize
         self.calls.append(("update_function_configuration", FunctionName))
 
     def delete_function(self, FunctionName):

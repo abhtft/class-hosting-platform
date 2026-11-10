@@ -145,6 +145,13 @@ for _ in range(3):
     call("GET", "/api/student/backend", session=alice)
 assert backend_of(alice)["state"] == "ready" and backend_of(alice)["runtime"] == "python3.12"
 
+# a function made when the limits were lower is brought up to today's memory and time on its next publish (the first version only set them at creation)
+lam.functions["sd-alice"]["config"].update(MemorySize=256, Timeout=10)
+assert deploy(alice, "alice", {"app.py": APP}, polls=1) == "ready"
+assert lam.functions["sd-alice"]["config"]["MemorySize"] == 3008 and lam.functions["sd-alice"]["config"]["Timeout"] == 27, "an older function gets the current limits"
+assert ("update_function_configuration", "sd-alice") in lam.calls
+print("  ok  an older backend gets today's memory and time on its next publish")
+
 # ===================== gateway: happy path, hygiene =====================
 status, body, headers = gw("/b/alice/hello?x=1", headers={"authorization": "Bearer student-own-auth"})
 assert status == 200 and body == {"path": "/hello", "query": "x=1", "method": "GET", "ip": "9.9.9.9", "leaked": [], "greeting": None}, body
