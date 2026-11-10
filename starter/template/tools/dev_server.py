@@ -154,8 +154,8 @@ class Handler(BaseHTTPRequestHandler):
             result = {"statusCode": 200, "headers": {"content-type": "application/json"}, "body": json.dumps(result)}
         body_out = result.get("body", "")
         data = base64.b64decode(body_out) if result.get("isBase64Encoded") else (body_out if isinstance(body_out, str) else json.dumps(body_out)).encode()
-        if time.time() - started > 10:
-            print("  (!) this request took more than 10 s: the platform would stop it", flush=True)
+        if time.time() - started > 27:
+            print("  (!) this request took more than 27 s: the platform would stop it", flush=True)
         self.reply(int(result["statusCode"]), result.get("headers") or {}, data)
 
     def reply(self, status, headers, data):

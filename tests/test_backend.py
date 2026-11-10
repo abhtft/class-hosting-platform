@@ -135,7 +135,7 @@ assert teacher(alice_id, runs_limit=2000, runs_period="month")[1]["token"]["back
 # ===================== deploy =====================
 assert deploy(alice, "alice", {"app.py": APP}, polls=2) == "ready"
 function = lam.functions["sd-alice"]
-assert function["config"]["Role"] == "arn:aws:iam::1:role/sandbox" and function["config"]["Timeout"] == 10 and function["config"]["MemorySize"] == 256
+assert function["config"]["Role"] == "arn:aws:iam::1:role/sandbox" and function["config"]["Timeout"] == 27 and function["config"]["MemorySize"] == 3008
 assert function["tags"]["managed-by"] == "student-deploy" and logs.retention["/aws/lambda/sd-alice"] == 7
 mid = call("POST", "/api/student/backend/publish", session=alice)[1]["token"]["backend"]["state"]
 assert mid == "creating", "an update shows creating until Lambda finishes"
@@ -372,7 +372,7 @@ publish_expect({"app.py": "x", ".env": "SECRET=1"}, "Remove .env")
 publish_expect({"app.py": "x", "sub/.env.local": "S=1"}, "Remove sub/.env.local")
 publish_expect({"app.py": "x", "../evil.py": "x"}, "Unsafe path")
 publish_expect({"app.py": "x", **{f"f{i}.py": "x" for i in range(501)}}, "Too many files")
-publish_expect({}, "limit is 5 MB", size=6 * 1024 * 1024)  # oversize zip
+publish_expect({}, "limit is 50 MB", size=51 * 1024 * 1024)  # oversize zip
 assert "uploads/frank-backend.zip" not in store, "an oversize upload is deleted"
 store["uploads/frank-backend.zip"] = {"Body": b"not a zip"}
 assert call("POST", "/api/student/backend/publish", session=frank)[1]["error"] == "Upload is not a valid zip file."

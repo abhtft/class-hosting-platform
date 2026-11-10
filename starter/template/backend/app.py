@@ -7,7 +7,7 @@ The contract: define handler(event, context). `event` is an API Gateway HTTP API
   event["body"], event["isBase64Encoded"]  the request body as a string
 Return {"statusCode": ..., "headers": {...}, "body": "<string>"}.
 
-Rules (see AGENTS.md): standard library only (nothing is pip-installed on the platform), at most 10 s per request (25 s while the
+Rules (see AGENTS.md): standard library only (nothing is pip-installed on the platform), at most 27 s per request (27 s while the
 class AI is on; longer work is a background job, see run_job below), secrets only in the portal's "Environment variables" (never in code or a .env file inside backend/).
 
 Run it on your computer with `npm run dev` (or `npm run dev -- --backend-only`).

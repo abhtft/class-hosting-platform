@@ -190,7 +190,7 @@ print("  ok  usage comes from OpenRouter and is cached for 20 s")
 status, body = ai_set(tid, enabled=False)
 assert status == 200 and body["token"]["ai"]["enabled"] is False and not body["token"]["ai"]["key_active"]
 assert key["disabled"] is True
-assert not any(n in env(slug) for n in ai.AI_ENV_NAMES) and env(slug)["GREETING"] == "hi" and function(slug)["Timeout"] == 10
+assert not any(n in env(slug) for n in ai.AI_ENV_NAMES) and env(slug)["GREETING"] == "hi" and function(slug)["Timeout"] == 27
 assert call("PUT", "/api/student/backend/env", {"name": "OPENAI_API_KEY", "value": "my-own"}, session)[0] == 200, "own key allowed again"
 print("  ok  switch-off: key disabled, variables removed, timeout back to 10 s, the student may use their own key")
 

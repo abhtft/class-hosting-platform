@@ -75,7 +75,7 @@ flowchart TD
 <!-- /diagram -->
 
 1. **Scaffold:** the AI edits something that already builds and deploys; it does not invent a project.
-2. **Rules** (`starter/rules/AGENTS.md`): static frontend plus one function; relative `/api` calls; standard library only (nothing is installed on the platform); limits (10 s, 25 s with AI, 256 MB, 5 MB zip); secrets only in portal environment variables; AI only through the backend with `class_ai`; the token never in a file; no databases or server rendering.
+2. **Rules** (`starter/rules/AGENTS.md`): static frontend plus one function; relative `/api` calls; standard library only (nothing is installed on the platform); limits (27 s, 3008 MB, 50 MB zip); secrets only in portal environment variables; AI only through the backend with `class_ai`; the token never in a file; no databases or server rendering.
 3. **`npm run check`** fails the build when the rules are broken (table below). It prints a `fix:` line for each problem and tells the student to paste the output to their AI.
 4. **The platform** still validates every upload (paths, symlinks, `.env`, entry file, sizes) and refuses bad ones.
 
@@ -84,7 +84,7 @@ flowchart TD
 | Area | Error (blocks the deploy) | Warning |
 |---|---|---|
 | Layout | no `frontend/package.json`, no `build` script, no `index.html`, neither folder | no lockfile, backend-only project |
-| Backend | no or two entry files, a `.env` file, over 500 files / 50 MB / 5 MB zipped, non-standard-library imports (Python, via the real parser), imports of packages that are not bundled (Node), syntax errors | Python not found (imports unchecked) |
+| Backend | no or two entry files, a `.env` file, over 500 files / 250 MB / 50 MB zipped, non-standard-library imports (Python, via the real parser), imports of packages that are not bundled (Node), syntax errors | Python not found (imports unchecked) |
 | Frontend | an AI service called from the browser (OpenAI, OpenRouter, Anthropic, Google, ...), `localhost` URLs, `VITE_` variables holding a key/secret/token/password | |
 | Secrets anywhere | portal token (`mds_...`), AI keys, AWS keys, GitHub tokens, private keys | |
 | Git | `.gitignore` missing or not excluding `.env`, a tracked `.env` or `*.local` | `node_modules` tracked |
@@ -128,7 +128,7 @@ Books go in `knowledge/<shelf>/` (PDF, text, Markdown, HTML) and `npm run knowle
 
 ## 4c. Background jobs (work longer than a request)
 
-A web request stops after 10 seconds (25 with the class AI). When the teacher has switched **Background jobs** on, the page can start a job and wait for it: `const result = await runJob('report', { notes })` (the helper is in `frontend/src/api.ts`). The backend handles the same call in `run_job(job)` (Python, `backend/app.py`) or `runJob(job)` (Node, `backend/index.mjs`): `job` is `{id, name, payload}`, and what the function returns (JSON, at most 100 KB) is the result. A crash shows the page a plain message; the details are in `npm run logs` (job lines are marked `[job]`). `npm run dev` runs jobs locally, one at a time, with the same routes and the same answers, and prints a crash's details in its terminal. The rules for AI editors, the interview and `status` all know about jobs. Details: the API reference, "Background jobs".
+A web request stops after 27 seconds. When the teacher has switched **Background jobs** on, the page can start a job and wait for it: `const result = await runJob('report', { notes })` (the helper is in `frontend/src/api.ts`). The backend handles the same call in `run_job(job)` (Python, `backend/app.py`) or `runJob(job)` (Node, `backend/index.mjs`): `job` is `{id, name, payload}`, and what the function returns (JSON, at most 100 KB) is the result. A crash shows the page a plain message; the details are in `npm run logs` (job lines are marked `[job]`). `npm run dev` runs jobs locally, one at a time, with the same routes and the same answers, and prints a crash's details in its terminal. The rules for AI editors, the interview and `status` all know about jobs. Details: the API reference, "Background jobs".
 
 ## 5. The class AI helper (`class_ai`)
 

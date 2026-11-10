@@ -38,11 +38,11 @@ The small server-side function each student may publish: its size, memory, time,
 
 | Setting | Default | Range | Scope | Risk | What it does |
 |---|---|---|---|---|---|
-| `backend.maxZipMB`<br>Largest backend upload (zip) | 5 MB | 1 to 50 | runtime | low | The biggest zip a student may publish as their backend. |
-| `backend.maxUnzippedMB`<br>Largest backend once unpacked | 50 MB | 1 to 250 | runtime | low | Total size of a backend's files after unzipping. AWS itself allows at most 250 MB. |
+| `backend.maxZipMB`<br>Largest backend upload (zip) | 50 MB | 1 to 50 | runtime | low | The biggest zip a student may publish as their backend. AWS allows at most 50 MB zipped (and 250 MB unzipped) for a function. |
+| `backend.maxUnzippedMB`<br>Largest backend once unpacked | 250 MB | 1 to 250 | runtime | low | Total size of a backend's files after unzipping. AWS itself allows at most 250 MB. |
 | `backend.maxFiles`<br>Most files in a backend | 500 files | 10 to 5,000 | runtime | low | The number of files in one backend upload. |
-| `backend.memoryMB`<br>Memory of a student's backend | 256 MB | 128 to 1,024 | runtime | careful | The memory each student backend function is given when it is published (applies to backends published after the change). **Cost:** Memory is billed per second of running time; double the memory is about double the cost per request. |
-| `backend.timeoutSeconds`<br>Time a backend request may take | 10 seconds | 1 to 29 | runtime | careful | How long one backend request may run before it is stopped. The HTTP front door itself stops at 29 seconds. **Cost:** Longer requests cost more and hold platform capacity longer. |
+| `backend.memoryMB`<br>Memory of a student's backend | 3,008 MB | 128 to 3,008 | runtime | careful | The memory each student backend function is given when it is published (applies to backends published after the change). AWS accounts start with a cap of 3,008 MB per function (this account was checked); a quota increase raises it. **Cost:** Memory is billed per second of running time; double the memory is about double the cost per request. |
+| `backend.timeoutSeconds`<br>Time a backend request may take | 27 seconds | 1 to 29 | runtime | careful | How long one backend request may run before it is stopped. AWS's HTTP front door ends every request at 30 seconds; the platform keeps 2 seconds of margin for the hop through its gateway, so 27 is the highest safe value. **Cost:** Longer requests cost more and hold platform capacity longer. |
 | `backend.logRetentionDays`<br>How long backend logs are kept | 7 days | 1 to 365 | runtime | low | Days a student backend's log lines stay available (the logs command and the teacher view). **Cost:** Logs are billed per stored GB. |
 | `backend.runs`<br>Backend runs allowance | 5,000 runs | 0 to 1,000,000 | runtime | low | Default runs allowance a student gets when the teacher enables the backend (maximum a teacher may set is the upper range). **Cost:** Each run costs a small amount of Lambda time. |
 | `backend.maxEnvVars`<br>Most environment variables | 20 variables | 1 to 50 | runtime | low | How many environment variables a student may set on their backend. |
@@ -101,7 +101,7 @@ The AI connector: spending cap range, default model, answer size and time.
 | `ai.defaultLimitUsd`<br>Default AI spending cap per student | 0.25 US dollars | 0.01 to 20 | deploy | careful | The cap a student gets when the teacher turns the class AI on for them. The lowest and highest cap a teacher can set for one student are this setting's range. **Cost:** This is real money per student per period. |
 | `ai.defaultModel`<br>Default AI model | anthropic/claude-haiku-5.5 | any | deploy | careful | The model a student gets when the teacher does not choose one. **Cost:** Models differ a lot in price. |
 | `ai.refreshSeconds`<br>How often the student page refreshes usage | 20 seconds | 5 to 300 | runtime | low | The student page asks for AI usage at most this often. |
-| `ai.studentTimeoutSeconds`<br>Time an AI answer may take | 25 seconds | 5 to 28 | deploy | careful | How long a student's backend may wait for the AI. The front door stops at 29 seconds. |
+| `ai.studentTimeoutSeconds`<br>Time an AI answer may take | 27 seconds | 5 to 28 | deploy | careful | How long a student's backend may wait for the AI. The front door stops at 29 seconds. |
 | `ai.typicalCallUsd`<br>Typical cost of one AI call | 0.00035 US dollars | 0.0001 to 1 | runtime | low | Used to estimate how many calls a cap allows when showing a student their allowance. |
 | `ai.maxTokens`<br>Answer length of the Gemini proxy | 2,048 tokens | 16 to 8,192 | runtime | careful | Default and largest number of answer tokens one request may ask for through the Gemini proxy. **Cost:** Longer answers cost more. |
 | `ai.proxyMaxBodyChars`<br>Largest request to the Gemini proxy | 1,000,000 characters | 1,000 to 5,000,000 | runtime | low | The biggest request body the Gemini proxy accepts. |

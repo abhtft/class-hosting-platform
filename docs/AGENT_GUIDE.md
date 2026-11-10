@@ -220,10 +220,10 @@ How it works and why:
 | **AI allowance** | a dollar cap per period (default 0.25 per month) | **The teacher**, per student | Teacher page, Class AI card |
 | **Which model** | the platform's (for example Gemini flash-lite) | The teacher at install | Platform settings |
 | **One AI call timeout** | 20 seconds | The student's function environment (`AI_TIMEOUT`) | Portal environment variables |
-| **A web request** | 10 s, or **25 s** while the class AI is on | The platform | Fixed |
+| **A web request** | **27 s** (the same while the class AI is on) | The platform | Fixed |
 | **A background job** | default 5 minutes, at most 15 | **The teacher**, per student | Teacher page, Background jobs card |
 
-How to choose `max_seconds`: a real model needs about **2 to 5 seconds per step**, and the platform stops a web request at 25 s. So an agent inside a web request should use **`max_seconds` of 16 to 18** and **`max_steps` of 4 to 5** (the starter uses 16 and 5). Anything longer belongs in a **background job** (section 9).
+How to choose `max_seconds`: a real model needs about **2 to 5 seconds per step**, and the platform stops a web request at 27 s. So an agent inside a web request should use **`max_seconds` of 16 to 18** and **`max_steps` of 4 to 5** (the starter uses 16 and 5). Anything longer belongs in a **background job** (section 9).
 
 ### 7.5 In the starter example (the student's own file)
 

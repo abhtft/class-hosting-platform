@@ -24,7 +24,7 @@ assert "UseAi: !Equals [!Ref AiEnabled, 'true']" in template
 
 globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
 for name in ("AI_ENABLED: !Ref AiEnabled", "AI_SECRET_NAME: !Ref AiSecretName", "AI_DEFAULT_MODEL: !Ref AiDefaultModel",
-             "AI_DEFAULT_LIMIT_USD: !Ref AiDefaultLimitUsd", "AI_STUDENT_TIMEOUT: '25'"):
+             "AI_DEFAULT_LIMIT_USD: !Ref AiDefaultLimitUsd", "AI_STUDENT_TIMEOUT: '27'"):
     assert name in globals_, name
 
 # ---- who can read the management key ----
@@ -48,7 +48,7 @@ assert not re.search(r"secretsmanager:\*|secretsmanager:GetSecretValue\n\s+Resou
 # ---- long AI answers must fit: student function 25 s, gateway 29 s, HTTP API limit 30 s ----
 gateway_timeout = int(re.search(r"\n      Timeout: (\d+)", block("GatewayFunction")).group(1))
 assert 28 <= gateway_timeout < 30, gateway_timeout
-assert 25 < gateway_timeout and "AI_STUDENT_TIMEOUT: '25'" in globals_
+assert 25 < gateway_timeout and "AI_STUDENT_TIMEOUT: '27'" in globals_
 
 # ---- no OpenRouter key may be committed (the management key lives in Secrets Manager) ----
 KEY = re.compile(r"sk-or-v1-(?!x+\b)[A-Za-z0-9]{16,}")

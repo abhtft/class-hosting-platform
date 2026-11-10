@@ -155,7 +155,7 @@ print("  ok  off by default: no second function, the gateway refuses, invalid li
 status, body = teacher(dana_id, jobs_enabled=True, jobs_minutes=3)
 assert status == 200 and body["token"]["backend"]["jobs"]["enabled"] is True and body["token"]["backend"]["jobs"]["ready"] is True
 web, job = lam.functions["sd-dana"], lam.functions["sd-dana_job"]
-assert job["config"]["Timeout"] == 180 and web["config"]["Timeout"] == 10, "the web function keeps its hard limit; only the job function is long"
+assert job["config"]["Timeout"] == 180 and web["config"]["Timeout"] == 27, "the web function keeps its hard limit; only the job function is long"
 assert job["config"]["Runtime"] == web["config"]["Runtime"] and job["config"]["Handler"] == web["config"]["Handler"] and job["config"]["Role"] == web["config"]["Role"]
 assert job["tags"]["kind"] == "job" and job["zip"] == web["zip"] and logs.retention["/aws/lambda/sd-dana_job"] == 7
 assert teacher(dana_id, jobs_minutes=7)[0] == 200 and lam.functions["sd-dana_job"]["config"]["Timeout"] == 420, "the time limit follows the teacher's setting"

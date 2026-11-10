@@ -36,7 +36,7 @@ route, `localStorage`, class storage (`class_storage`) or an external HTTP servi
    - For **structured answers (JSON)** see "Structured AI answers" below.
    - **Do not edit `class_ai.py` / `class_ai.mjs`** (they are refreshed with the kit), do not write your own AI client, do not read the AI key yourself.
 5. **Backend uses only the standard library** (Python) or Node 22 built-ins (Node). The platform installs nothing. If a package is truly needed, bundle it into the backend folder. Use `urllib.request` / `fetch` for HTTP.
-6. **Backend limits:** 10 seconds per request (25 s while the class AI is on; anything longer is a **background job**, see below), 256 MB, request and response at most 1 MB, the backend folder at most 500 files and 5 MB zipped. Keep text answers short (`max_tokens` 200-400); lists or JSON may need up to 800.
+6. **Backend limits:** 27 seconds per request (the same while the class AI is on; anything longer is a **background job**, see below), 3008 MB of memory, request and response at most 1 MB, the backend folder at most 500 files and 50 MB zipped (250 MB unzipped). Keep text answers short (`max_tokens` 200-400); lists or JSON may need up to 800.
 7. **Secrets:** a backend secret (a database URL, another service's key) is set by the student in the portal (Backend card > Environment variables) and read with `os.environ["NAME"]` / `process.env.NAME`. Never write a secret into any file, never create `.env` inside `backend/`. For local runs only, `.env.local` at the project root is allowed (it is git-ignored).
 8. **The portal token lives in exactly two places:** the GitHub repository secret `PORTAL_TOKEN`, and `.env.local` (git-ignored), which only `npm run login` writes. Never write it into any other file, never print it, **never open or read `.env.local`**, and never ask the student to paste it to you. **If the student pastes a real key or token into the chat, do not use it and do not store it anywhere**; tell them to revoke or regenerate it (an AI key at its provider, the portal token via the teacher) and explain where such a value belongs.
 9. **One backend language.** `app.py` **or** `index.mjs`, not both. To switch to Node: delete `backend/app.py`, `backend/class_ai.py`, `backend/class_storage.py`, `backend/class_knowledge.py`, `backend/class_agent.py`, `backend/class_quality.py` and `backend/study.py`, then move the files from `variants/node-backend/` into `backend/` (and delete the `variants/` folder).
@@ -96,7 +96,7 @@ Models wrap JSON in words or code fences and sometimes get it wrong, and the off
 
 ## Work that takes longer than a request (background jobs)
 
-A web request stops after 10 seconds (25 with the class AI). For work that takes longer (several AI calls in a row, summarising many notes, building a report) use a **background job**, **only if `status` shows Background jobs on (✔)**; otherwise say the teacher must switch it on and build the part that fits in one request.
+A web request stops after 27 seconds. For work that takes longer (several AI calls in a row, summarising many notes, building a report) use a **background job**, **only if `status` shows Background jobs on (✔)**; otherwise say the teacher must switch it on and build the part that fits in one request.
 
 How it works (the same locally and on the platform):
 1. The page starts it and waits: `const result = await runJob('report', { notes })` (from `frontend/src/api.ts`; the 3rd argument has `onStatus` for a progress message). It POSTs `/api/_jobs/<name>` (a lowercase name, the input is JSON, at most 64 KB) and polls `GET /api/_jobs/<id>` until `status` is `done` (with `result`) or `failed` (with a plain `error`).
@@ -126,7 +126,7 @@ The teacher approved a short list of **add-ons**: *skills* (guides for you, such
 
 ## Calling other services
 
-- The **backend** may call public HTTPS APIs (`urllib.request` / `fetch`). Use a timeout of 8 seconds or less per call: the total request limit is 10 s (25 s with the class AI). Never send private data.
+- The **backend** may call public HTTPS APIs (`urllib.request` / `fetch`). Use a timeout of 15 seconds or less per call: the total request limit is 27 s. Never send private data.
 - The **browser** may call a keyless public API directly only if that API allows browser calls (CORS) and needs no key. Otherwise route it through the backend.
 - Anything that needs a key goes through the backend with the key in a portal environment variable, never in the code.
 

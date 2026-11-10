@@ -1,6 +1,6 @@
 # Background jobs: how they work, in detail
 
-A web request to a student's backend stops after **10 seconds** (25 with the class AI). Background jobs are for the work that takes longer: a chain of AI calls, summarising many notes, building a report, a big import. The page **starts** a job and **asks for the result later**; the student's own code runs it in a second function with a longer time limit.
+A web request to a student's backend stops after **27 seconds**. Background jobs are for the work that takes longer: a chain of AI calls, summarising many notes, building a report, a big import. The page **starts** a job and **asks for the result later**; the student's own code runs it in a second function with a longer time limit.
 
 This document explains the whole design: what the student and the teacher see, the parts and how they fit, every state and limit, the security model, what happens when something fails, what it costs, and how it was tested. The route and field tables are also in [API_REFERENCE.md](API_REFERENCE.md) ("Background jobs"); the specification entry is section 4.6b of [TECHNICAL_SPECIFICATION.md](TECHNICAL_SPECIFICATION.md). The code is in [`lambda/jobs.py`](../lambda/jobs.py).
 

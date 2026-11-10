@@ -118,7 +118,7 @@ const server = createServer(async (req, res) => {
     }
     const body = typeof result.body === 'string' ? result.body : JSON.stringify(result.body ?? '');
     const data = result.isBase64Encoded ? Buffer.from(body, 'base64') : body;
-    if (Date.now() - started > 10000) console.log('  (!) this request took more than 10 s: the platform would stop it');
+    if (Date.now() - started > 27000) console.log('  (!) this request took more than 27 s: the platform would stop it');
     console.log(`  ${req.method} ${req.url} -> ${result.statusCode}`);
     send(Number(result.statusCode), result.headers ?? {}, data);
   } catch (error) { // the platform would answer 502 function_error; here you see why

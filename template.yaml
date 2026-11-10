@@ -268,7 +268,7 @@ Globals:
         AI_SECRET_NAME: !Ref AiSecretName
         AI_DEFAULT_MODEL: !Ref AiDefaultModel
         AI_DEFAULT_LIMIT_USD: !Ref AiDefaultLimitUsd
-        AI_STUDENT_TIMEOUT: '25' # AI answers take seconds; the gateway below waits up to 29 (the HTTP API's own limit is 30)
+        AI_STUDENT_TIMEOUT: '27' # a student's function may run this long; the gateway below waits up to 29 (the HTTP API's own limit is 30), so 27 keeps a safe margin
 
 Resources:
   # ---------- Storage ----------

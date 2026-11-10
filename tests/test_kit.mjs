@@ -121,7 +121,7 @@ fixture('backend-python-syntax', 'error', append('backend/app.py', '\ndef broken
 fixture('backend-node-import', 'error', (d) => { toNode(d); append('backend/index.mjs', "\nimport _ from 'lodash';\n")(d); });
 fixture('backend-node-syntax', 'error', (d) => { toNode(d); append('backend/index.mjs', '\nconst = ;\n')(d); });
 fixture('backend-too-many-files', 'error', (d) => { for (let i = 0; i < 501; i++) writeFileSync(join(d, 'backend', `f${i}.txt`), 'x'); });
-fixture('backend-zip-too-large', 'error', (d) => writeFileSync(join(d, 'backend', 'big.bin'), randomBytes(6 * 1024 * 1024)));
+fixture('backend-zip-too-large', 'error', (d) => writeFileSync(join(d, 'backend', 'big.bin'), randomBytes(51 * 1024 * 1024)));
 say('backend: entry file, two languages, .env, non-stdlib imports (Python and Node), syntax errors, file count, zip size');
 
 fixture('frontend-direct-ai', 'error', append('frontend/src/App.tsx', "\nfetch('https://openrouter.ai/api/v1/chat/completions')\n"));
