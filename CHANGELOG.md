@@ -2,7 +2,7 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
-## 2.5.1 (unreleased)
+## 2.5.1
 
 - **Set up a class project from the terminal: `npx -y <portal address> init`.** Until now a project could only be created by asking the AI editor ("set up my class project"), so `npm run login` failed in any folder that was not a project yet. Now, in an empty folder, `class-platform-mcp init [folder]` writes the same starter the editor tool writes, installs the site's packages (about 10 seconds), and offers `npm run login` right away (paste the token your teacher gave you); then `npm run dev` and `npm run deploy` work. `--no-install` and `--no-login` skip those steps. It refuses a folder that already has files and never overwrites anything. The editor tool `init_project` and the terminal command share one piece of code. `setup` now mentions the command. **To apply:** a platform update (`publish`), nothing else; no AWS change.
 
