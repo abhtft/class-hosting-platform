@@ -14,13 +14,17 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const RECORD = 'addons.json';
 export const SKILLS_DIR = 'skills';
 export const MAX_SKILL_BYTES = 12 * 1024;
+/** An "app" add-on copies a few small files into the site and adds lines to its index.html. */
+export const MAX_APP_FILES = 10;
+export const MAX_APP_FILE_BYTES = 512 * 1024;
+const APP_LINE_LIMIT = 300;
 /** Licences the catalogue accepts. */
 export const LICENSES = ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'OFL-1.1', '0BSD', 'CC0-1.0', 'BlueOak-1.0.0'];
 /** A skill is text for an AI: it may advise, it may not give orders about commands, links, secrets or the AI's own rules. */
@@ -64,7 +68,7 @@ export function validateCatalog(catalog, read) {
     if (!ID_RE.test(id)) { add(id, 'the id must be lowercase letters, digits and - (2 to 40 characters).'); continue; }
     if (seen.has(id)) add(id, 'the id is used twice.');
     seen.add(id);
-    if (!['skill', 'module'].includes(entry.kind)) add(id, 'kind must be "skill" or "module".');
+    if (!['skill', 'module', 'app'].includes(entry.kind)) add(id, 'kind must be "skill", "module" or "app".');
     if (!entry.title || String(entry.title).length > 60) add(id, 'a title (up to 60 characters) is needed.');
     if (!entry.description || String(entry.description).length > 220) add(id, 'a description (up to 220 characters) is needed.');
     if (!licenseOk(entry.license)) add(id, `the licence "${entry.license}" is not accepted (accepted: ${LICENSES.join(', ')}).`);
@@ -93,6 +97,29 @@ export function validateCatalog(catalog, read) {
         if (!licenseOk(p.license)) add(id, `${p.name}@${p.version} has the licence "${p.license}", which is not accepted.`);
       }
       if (!Number.isFinite(entry.installedKb) || entry.installedKb <= 0) add(id, 'installedKb is missing (run node starter/addons/pin.mjs).');
+    }
+    if (entry.kind === 'app') {
+      const files = Array.isArray(entry.files) ? entry.files : [];
+      if (!files.length || files.length > MAX_APP_FILES) add(id, `between 1 and ${MAX_APP_FILES} files are needed.`);
+      for (const f of files) {
+        if (!/^frontend\/public\/[a-z0-9][a-z0-9._-]*$/.test(f.to || '')) { add(id, `${f.to} must be a file directly in the site's public folder.`); continue; }
+        if (!/^files\/[a-z0-9/._-]+$/.test(f.from || '') || f.from.includes('..')) { add(id, `${f.from} must be a file under files/.`); continue; }
+        const data = read(f.from);
+        if (!data) { add(id, `the file ${f.from} is missing.`); continue; }
+        if (data.length > MAX_APP_FILE_BYTES) add(id, `${f.from} is ${data.length} bytes; the limit is ${MAX_APP_FILE_BYTES}.`);
+        if (f.sha256 !== sha256(data)) add(id, `the checksum of ${f.from} does not match (run node starter/addons/pin.mjs after editing).`);
+      }
+      const page = entry.page || {};
+      if (page.file !== 'frontend/index.html') add(id, 'page.file must be frontend/index.html.');
+      const lines = [...(page.head ?? []), ...(page.body ?? [])];
+      if (!lines.length) add(id, 'page lines are needed (what to add to the site\'s index.html).');
+      for (const line of lines) {
+        if (typeof line !== 'string' || !line.trim() || line.length > APP_LINE_LIMIT) { add(id, 'every page line must be a short line of text.'); continue; }
+        for (const [pattern, what] of BANNED) if (pattern.test(line)) add(id, `a page line contains ${what}.`);
+      }
+      const howto = String(entry.howto || '');
+      if (howto.length < 40 || howto.length > 1800) add(id, 'howto (40 to 1800 characters) is needed: it tells the AI what the add-on does and what to change.');
+      for (const [pattern, what] of BANNED) if (pattern.test(howto)) add(id, `howto contains ${what}, which add-on text may not contain.`);
     }
   }
   return problems;
@@ -137,13 +164,80 @@ const sizeText = (kb) => (kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.
 export function describe(entry) {
   const what = entry.kind === 'module'
     ? `a package for your site (${entry.package} ${entry.version}, about ${sizeText(entry.installedKb)} installed) with a guide for your AI editor`
-    : 'a guide for your AI editor (it adds one file, skills/' + entry.id + '.md)';
+    : entry.kind === 'app'
+      ? `${entry.files.length} small files in your site's public folder and ${[...(entry.page.head ?? []), ...(entry.page.body ?? [])].length} lines in its index.html, with a guide for your AI editor`
+      : 'a guide for your AI editor (it adds one file, skills/' + entry.id + '.md)';
   return `${entry.title} [${entry.id}]: ${entry.description}\n    Adds ${what}. Licence ${entry.license}.${entry.with?.length ? ` Goes well with: ${entry.with.join(', ')}.` : ''}`;
 }
 
 function guideText(entry) {
   const related = (entry.with ?? []).length ? `\nRelated add-ons: ${entry.with.join(', ')}.\n` : '';
-  return `# ${entry.title} (add-on)\n\nThis project uses ${entry.package}@${entry.version} (licence ${entry.license}). It was added from the class platform's approved add-ons.\n\n${entry.howto}\n${related}`;
+  const origin = entry.kind === 'app'
+    ? `This add-on was added from the class platform's approved add-ons (licence ${entry.license}).`
+    : `This project uses ${entry.package}@${entry.version} (licence ${entry.license}). It was added from the class platform's approved add-ons.`;
+  return `# ${entry.title} (add-on)\n\n${origin}\n\n${entry.howto}\n${related}`;
+}
+
+const sha256Hex = (buffer) => createHash('sha256').update(buffer).digest('hex');
+
+/** The index.html lines an "app" add-on adds, placed before a closing tag, each only if the page does not have it yet. */
+function insertLines(html, marker, lines) {
+  const found = html.match(new RegExp(`^([ \\t]*)${marker}`, 'm'));
+  if (!found) return { error: `${marker} was not found in the page.` };
+  if (html.split(marker).length !== 2) return { error: `${marker} appears more than once in the page.` };
+  const present = new Set(html.split('\n').map((line) => line.trim()));
+  const fresh = lines.filter((line) => !present.has(line));
+  const indented = fresh.map((line) => `${found[1]}  ${line}`);
+  return { html: html.replace(new RegExp(`^[ \\t]*${marker}`, 'm'), (match) => `${indented.map((line) => `${line}\n`).join('')}${match}`), inserted: indented };
+}
+
+/** Add an "app" add-on: copy its files into the site's public folder and add its lines to index.html. Nothing is changed unless everything is possible. */
+function addApp(root, entry, record, guide, read) {
+  const frontend = platformFolder(root, 'frontend', 'frontend');
+  const indexFile = join(root, frontend, 'index.html');
+  if (!existsSync(indexFile)) return { ok: false, message: `${frontend}/index.html is needed. Set the site up first (npm run dev, or the AI editor's init), then add this again.` };
+  const original = readFileSync(indexFile, 'utf8');
+  const eol = original.includes('\r\n') ? '\r\n' : '\n';
+  const text = original.replace(/\r\n/g, '\n');
+  const files = [];
+  for (const f of entry.files) {
+    const rel = `${frontend}/public/${basename(f.to)}`;
+    const target = join(root, rel);
+    if (existsSync(target)) {
+      if (sha256Hex(readFileSync(target)) === f.sha256) { files.push({ rel, target, data: null, sha256: f.sha256, created: false }); continue; }
+      return { ok: false, message: `${rel} already exists in your project and is different, so it was not added. Move your own file somewhere else, then run the command again. Nothing was changed.` };
+    }
+    files.push({ rel, target, data: read(f.from), sha256: f.sha256, created: true });
+  }
+  let html = text;
+  const inserted = { head: [], body: [] };
+  for (const [marker, key] of [['</head>', 'head'], ['</body>', 'body']]) {
+    const result = insertLines(html, marker, entry.page[key] ?? []);
+    if (result.error) return { ok: false, message: `${entry.title} was NOT added: ${result.error} Nothing was changed.` };
+    html = result.html ?? html;
+    inserted[key] = result.inserted ?? [];
+  }
+  try {
+    for (const f of files) if (f.created) { mkdirSync(dirname(f.target), { recursive: true }); writeFileSync(f.target, f.data); }
+    if (html !== text) writeFileSync(indexFile, html.replace(/\n/g, eol));
+    mkdirSync(dirname(guide), { recursive: true });
+    writeFileSync(guide, guideText(entry));
+  } catch (error) {
+    for (const f of files) if (f.created) rmSync(f.target, { force: true });
+    writeFileSync(indexFile, original);
+    rmSync(guide, { force: true });
+    return { ok: false, message: `${entry.title} was NOT added (${error.message}). Your project is as it was before.` };
+  }
+  record.added[entry.id] = {
+    kind: 'app',
+    guide: `${SKILLS_DIR}/${entry.id}.md`,
+    sha256: sha256Hex(Buffer.from(guideText(entry))),
+    files: files.map((f) => ({ to: f.rel, sha256: f.sha256, created: f.created })),
+    page: { file: `${frontend}/index.html`, inserted },
+  };
+  saveRecord(root, record);
+  const count = files.filter((f) => f.created).length;
+  return { ok: true, message: `Added ${entry.title}: ${count} new file${count === 1 ? '' : 's'} in ${frontend}/public${files.length > count ? ` (${files.length - count} already there)` : ''}, and ${inserted.head.length + inserted.body.length} line${inserted.head.length + inserted.body.length === 1 ? '' : 's'} in ${frontend}/index.html. Your AI editor should read ${SKILLS_DIR}/${entry.id}.md. To try it, open the site on a phone: Android shows an Install app button, iPhone shows the Add to Home Screen steps. Change the name and icon in ${frontend}/public/manifest.webmanifest and ${frontend}/public/icon-512.png.` };
 }
 
 function findEntry(catalog, id) {
@@ -194,6 +288,7 @@ export function add(root, id, { npm = defaultNpm } = {}) {
   const guide = join(root, SKILLS_DIR, `${id}.md`);
   if (existsSync(guide)) return { ok: false, message: `${SKILLS_DIR}/${id}.md already exists in your project and is not from an add-on. Rename or move it, then run the command again.` };
 
+  if (entry.kind === 'app') return addApp(root, entry, record, guide, read);
   let note = '';
   if (entry.kind === 'module') {
     const frontend = join(root, platformFolder(root, 'frontend', 'frontend'));
@@ -237,6 +332,24 @@ export function remove(root, id, { npm = defaultNpm } = {}) {
   if (!have) return { ok: false, message: `${id} is not in this project (see  npm run addons ).` };
   const entry = catalog.addons.find((candidate) => candidate.id === id);
   let note = '';
+  if (have.kind === 'app') {
+    const kept = [];
+    for (const f of have.files ?? []) {
+      const target = join(root, f.to);
+      if (!existsSync(target)) continue;
+      if (f.created && sha256Hex(readFileSync(target)) === f.sha256) rmSync(target);
+      else kept.push(f.to);
+    }
+    const indexFile = join(root, have.page.file);
+    if (existsSync(indexFile)) {
+      const lines = new Set([...(have.page.inserted.head ?? []), ...(have.page.inserted.body ?? [])].map((line) => line.trim()));
+      const original = readFileSync(indexFile, 'utf8');
+      const keptLines = original.split('\n').filter((line) => !lines.has(line.trim()));
+      if (keptLines.length !== original.split('\n').length) writeFileSync(indexFile, keptLines.join('\n'));
+    }
+    note = ` The page lines it added to ${have.page.file} are removed.`;
+    if (kept.length) note += ` ${kept.join(', ')} ${kept.length === 1 ? 'was' : 'were'} changed by you, so ${kept.length === 1 ? 'it was' : 'they were'} kept.`;
+  }
   if (have.kind === 'module') {
     const frontend = join(root, platformFolder(root, 'frontend', 'frontend'));
     const done = npm.uninstall(frontend, have.package);
@@ -266,6 +379,16 @@ export function verify(root) {
     const entry = catalog.addons.find((candidate) => candidate.id === id);
     if (!entry) lines.push(`${id}: no longer in the teacher's catalogue (it keeps working; no new projects can add it).`);
     if (!existsSync(join(root, have.guide))) lines.push(`${id}: the guide ${have.guide} is missing. Run  npm run addons -- remove ${id}  and add it again.`);
+    if (have.kind === 'app') {
+      for (const f of have.files ?? []) {
+        const target = join(root, f.to);
+        if (!existsSync(target) || sha256Hex(readFileSync(target)) !== f.sha256) lines.push(`${id}: ${f.to} is missing or changed. Remove the add-on and add it again to restore it.`);
+      }
+      const html = existsSync(join(root, have.page.file)) ? readFileSync(join(root, have.page.file), 'utf8') : '';
+      const present = new Set(html.split('\n').map((line) => line.trim()));
+      const missing = [...(have.page.inserted.head ?? []), ...(have.page.inserted.body ?? [])].filter((line) => !present.has(line.trim()));
+      if (missing.length) lines.push(`${id}: ${have.page.file} no longer has ${missing.length} line${missing.length === 1 ? '' : 's'} the add-on added. Remove the add-on and add it again to restore ${missing.length === 1 ? 'it' : 'them'}.`);
+    }
     if (have.kind === 'module') {
       try {
         const frontend = join(root, platformFolder(root, 'frontend', 'frontend'));
@@ -289,8 +412,8 @@ function main(argv) {
     if (command === 'list') {
       const rows = list(root);
       out('Add-ons your teacher approved:\n');
-      for (const kind of ['skill', 'module']) {
-        out(kind === 'skill' ? 'Guides for your AI editor:' : '\nPackages for your site (each comes with a guide):');
+      for (const kind of ['skill', 'module', 'app']) {
+        out(kind === 'skill' ? 'Guides for your AI editor:' : kind === 'module' ? '\nPackages for your site (each comes with a guide):' : '\nFeatures for your site (files and a guide):');
         for (const { entry, state } of rows.filter((row) => row.entry.kind === kind)) out(`  ${state === 'added' ? '✔ added  ' : '          '}${describe(entry)}`);
       }
       out('\nAdd one with  npm run addons -- add <name>  (or ask your AI editor: "add the charts add-on").');

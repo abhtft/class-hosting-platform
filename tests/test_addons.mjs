@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -285,6 +285,105 @@ function fakeNpm(root, { extra = {}, topVersion, onlyTop = false, fail = false }
   const rules = readFileSync(join(kit, 'AGENTS.md'), 'utf8');
   for (const needle of ['## Add-ons (approved guides and packages)', 'list_addons', 'add_addon', 'confirm=true', 'skills/<name>.md', 'Never `npm install` anything else']) assert.ok(rules.includes(needle), needle);
   say('from a built kit: the tool, the catalogue and the skills are in the manifest; npm run addons lists, shows, adds, verifies and removes; wrong input exits with 1; the rules tell the AI to look first, ask first and read the guide');
+}
+
+// ---------- an "app" add-on: files in the site's public folder and lines in index.html ----------
+{
+  const OLD_PAGE = '<!DOCTYPE html>\n<html lang="en">\n  <head>\n    <meta charset="UTF-8" />\n    <title>My class project</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.tsx"></script>\n  </body>\n</html>\n';
+  const appProject = (name, page = OLD_PAGE) => {
+    const root = makeProject(name);
+    writeFileSync(join(root, 'frontend', 'index.html'), page);
+    return root;
+  };
+  const app = catalog.addons.find((e) => e.id === 'installable-app');
+  assert.equal(app.kind, 'app');
+  assert.equal(app.files.length, 5, 'the manifest, install script and three icons');
+
+  // the add-on's copies are the starter site's own files, byte for byte (one source for new and old projects)
+  for (const f of app.files) {
+    const starterCopy = join(repo, 'starter', 'template', 'frontend', 'public', basename(f.to));
+    assert.ok(readFileSync(starterCopy).equals(readFileSync(join(catalogDir, f.from))), `${f.to} is the same file in the starter site and in the add-on`);
+  }
+
+  // add to an old project
+  const root = appProject('app-add');
+  const added = addons.add(root, 'installable-app');
+  assert.equal(added.ok, true, added.message);
+  assert.match(added.message, /5 new files in frontend\/public/);
+  assert.match(added.message, /7 lines in frontend\/index.html/);
+  for (const f of app.files) assert.ok(existsSync(join(root, 'frontend', 'public', basename(f.to))), f.to);
+  const page = readFileSync(join(root, 'frontend', 'index.html'), 'utf8');
+  for (const line of [...app.page.head, ...app.page.body]) assert.ok(page.split('\n').some((l) => l.trim() === line), `page has ${line}`);
+  assert.ok(page.indexOf('rel="manifest"') < page.indexOf('</head>') && page.indexOf('install.js') < page.indexOf('</body>'), 'lines go before the closing tags');
+  assert.ok(page.includes('<div id="root"></div>') && page.includes('src="/src/main.tsx"'), 'the rest of the page is untouched');
+  const record = readJson(root, 'addons.json').added['installable-app'];
+  assert.equal(record.kind, 'app');
+  assert.equal(record.page.inserted.head.length, 6);
+  assert.equal(record.page.inserted.body.length, 1);
+  assert.equal(addons.verify(root).ok, true, addons.verify(root).lines.join('\n'));
+  assert.match(addons.add(root, 'installable-app').message, /already in this project/, 'a second add changes nothing');
+
+  // remove: the page goes back to exactly what it was, and the files the add-on made go
+  const removed = addons.remove(root, 'installable-app');
+  assert.equal(removed.ok, true, removed.message);
+  assert.equal(readFileSync(join(root, 'frontend', 'index.html'), 'utf8'), OLD_PAGE, 'index.html is exactly as before');
+  for (const f of app.files) assert.ok(!existsSync(join(root, 'frontend', 'public', basename(f.to))), `${f.to} removed`);
+  assert.ok(!existsSync(join(root, 'skills', 'installable-app.md')));
+  assert.ok(!existsSync(join(root, 'addons.json')));
+
+  // refused: a different file of the same name is never overwritten
+  const clash = appProject('app-clash');
+  mkdirSync(join(clash, 'frontend', 'public'), { recursive: true });
+  writeFileSync(join(clash, 'frontend', 'public', 'manifest.webmanifest'), '{"name": "mine"}');
+  const refusedFile = addons.add(clash, 'installable-app');
+  assert.equal(refusedFile.ok, false);
+  assert.match(refusedFile.message, /manifest\.webmanifest already exists in your project and is different/);
+  assert.equal(readFileSync(join(clash, 'frontend', 'index.html'), 'utf8'), OLD_PAGE, 'the page is untouched');
+  assert.ok(!existsSync(join(clash, 'frontend', 'public', 'install.js')), 'no other file is written either');
+  assert.equal(readFileSync(join(clash, 'frontend', 'public', 'manifest.webmanifest'), 'utf8'), '{"name": "mine"}');
+
+  // refused: no page to add to, or a page without the closing tag
+  const noPage = makeProject('app-nopage');
+  assert.equal(addons.add(noPage, 'installable-app').ok, false);
+  assert.match(addons.add(noPage, 'installable-app').message, /index\.html is needed/);
+  const noHead = appProject('app-nohead', OLD_PAGE.replace('</head>', ''));
+  const refusedHead = addons.add(noHead, 'installable-app');
+  assert.equal(refusedHead.ok, false);
+  assert.match(refusedHead.message, /<\/head> was not found/);
+  assert.ok(!existsSync(join(noHead, 'frontend', 'public', 'manifest.webmanifest')), 'nothing written when the page cannot take the lines');
+
+  // the starter site already has the lines: nothing is inserted twice, and removing leaves the page as it was
+  const current = appProject('app-current', readFileSync(join(repo, 'starter', 'template', 'frontend', 'index.html'), 'utf8'));
+  const before = readFileSync(join(current, 'frontend', 'index.html'), 'utf8');
+  assert.equal(addons.add(current, 'installable-app').ok, true);
+  assert.equal(readFileSync(join(current, 'frontend', 'index.html'), 'utf8'), before, 'the page already had every line: unchanged');
+  assert.deepEqual(readJson(current, 'addons.json').added['installable-app'].page.inserted, { head: [], body: [] });
+  assert.equal(addons.remove(current, 'installable-app').ok, true);
+  assert.equal(readFileSync(join(current, 'frontend', 'index.html'), 'utf8'), before, 'removing does not take out the lines the site had from the start');
+
+  // the student edited a file the add-on made: it is kept on remove, and verify says so when a page line is lost
+  const edited = appProject('app-edited');
+  assert.equal(addons.add(edited, 'installable-app').ok, true);
+  writeFileSync(join(edited, 'frontend', 'public', 'install.js'), '// my own version\n');
+  const kept = addons.remove(edited, 'installable-app');
+  assert.equal(kept.ok, true);
+  assert.match(kept.message, /frontend\/public\/install\.js was changed by you, so it was kept/);
+  assert.ok(existsSync(join(edited, 'frontend', 'public', 'install.js')));
+  const lost = appProject('app-lost');
+  assert.equal(addons.add(lost, 'installable-app').ok, true);
+  writeFileSync(join(lost, 'frontend', 'index.html'), readFileSync(join(lost, 'frontend', 'index.html'), 'utf8').replace(/.*install\.js.*\n/, ''));
+  const lostVerify = addons.verify(lost);
+  assert.equal(lostVerify.ok, false);
+  assert.match(lostVerify.lines.join('\n'), /frontend\/index\.html no longer has 1 line the add-on added/);
+
+  // the catalogue rules: a page line with a link, or a file outside the public folder, is refused
+  const tampered = clone(catalog);
+  tampered.addons.find((e) => e.id === 'installable-app').page.body = ['<script src="https://evil.example/x.js"></script>'];
+  assert.ok(addons.validateCatalog(tampered, readReal).some((p) => /installable-app: a page line contains a web link/.test(p)));
+  const outside = clone(catalog);
+  outside.addons.find((e) => e.id === 'installable-app').files[0].to = 'frontend/src/App.tsx';
+  assert.ok(addons.validateCatalog(outside, readReal).some((p) => /must be a file directly in the site's public folder/.test(p)));
+  say('an app add-on: the files and the page lines go in, the page keeps the rest; the second add changes nothing; remove puts the page back exactly; a different file of the same name, a missing page or a page without the closing tag is refused with nothing written; a site that already has the lines is not changed; edited files are kept; a lost line is reported; a link or a file outside the public folder is refused');
 }
 
 rmSync(work, { recursive: true, force: true });

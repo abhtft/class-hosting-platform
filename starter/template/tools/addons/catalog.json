@@ -473,6 +473,61 @@
         }
       ],
       "installedKb": 11714
+    },
+    {
+      "id": "installable-app",
+      "kind": "app",
+      "title": "Install as an app (home-screen icon)",
+      "description": "A home-screen icon and an Install button for the site: no app store, no account, nothing stored or cached.",
+      "license": "MIT",
+      "source": "written for this platform (docs/INSTALLABLE_PLAN.md)",
+      "howto": "Adds an install button and a home-screen icon for the site, with no app store. A manifest says how the app opens (full screen, the name and colours), default icons are included, and a small script shows an Install app button on Android, Chrome, Edge and computers when the browser offers it, and Add to Home Screen steps on iPhone and iPad. It stores nothing, caches nothing and asks for no permission. After adding: change the name in public/manifest.webmanifest and replace public/icon-512.png and public/icon-192.png with the class's own icon. Remove the install.js script line from index.html to turn the button off.",
+      "files": [
+        {
+          "from": "files/installable/manifest.webmanifest",
+          "to": "frontend/public/manifest.webmanifest",
+          "sha256": "6de2e33d973bf4abf01328424c07ab4f73c97718d5dab046319184858fc76331",
+          "bytes": 578
+        },
+        {
+          "from": "files/installable/install.js",
+          "to": "frontend/public/install.js",
+          "sha256": "bace73f1579ba21b6cf01e39383a5a89be8551b7fbe638ba174c392f8b9df322",
+          "bytes": 3411
+        },
+        {
+          "from": "files/installable/icon-192.png",
+          "to": "frontend/public/icon-192.png",
+          "sha256": "65697d9f06b1430ec0ce67673e33f697cae3165938dbd01f9858144dee101118",
+          "bytes": 798
+        },
+        {
+          "from": "files/installable/icon-512.png",
+          "to": "frontend/public/icon-512.png",
+          "sha256": "67ec8578ef4e61bb6cb41b71acfa04164818e69f29c0da0e626de19c0105d88f",
+          "bytes": 3606
+        },
+        {
+          "from": "files/installable/apple-touch-icon.png",
+          "to": "frontend/public/apple-touch-icon.png",
+          "sha256": "5a0dcc78d2d7a08c20411b9df15e452892a3503f0e47e0c699d1a32709f2c971",
+          "bytes": 744
+        }
+      ],
+      "page": {
+        "file": "frontend/index.html",
+        "head": [
+          "<link rel=\"manifest\" href=\"/manifest.webmanifest\" />",
+          "<meta name=\"theme-color\" content=\"#2563eb\" />",
+          "<meta name=\"mobile-web-app-capable\" content=\"yes\" />",
+          "<meta name=\"apple-mobile-web-app-capable\" content=\"yes\" />",
+          "<meta name=\"apple-mobile-web-app-title\" content=\"My class\" />",
+          "<link rel=\"apple-touch-icon\" href=\"/apple-touch-icon.png\" />"
+        ],
+        "body": [
+          "<script src=\"/install.js\"></script>"
+        ]
+      }
     }
   ]
 }

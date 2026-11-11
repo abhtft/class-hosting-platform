@@ -25,6 +25,7 @@ Kit 2.4.0. An **add-on** is something the teacher approved that a student's AI e
 | `motion` | module | Gentle animation (`motion` 14.6.0) | MIT |
 | `font-inter` | module | The Inter typeface, built into the site (`@fontsource-variable/inter` 5.3.0) | OFL-1.1 |
 | `day-picker` | module | An accessible calendar (`react-day-picker` 10.0.2) | MIT |
+| `installable-app` | app | Install button and home-screen icon: a manifest, the install script and default icons, plus six lines in `index.html` (`frontend/public`, no store) | written for this platform |
 
 Each module was added to a fresh kit with real npm, built with TypeScript and Vite using exactly the code in its guide, and removed again, before it went in.
 

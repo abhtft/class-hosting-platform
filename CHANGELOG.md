@@ -2,6 +2,10 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## 2.7.0
+
+- **Add the install-as-an-app feature to sites that were already built.** A new add-on, "Install as an app", copies the install files (a web app manifest, the install script and three default icons) into the site's public folder and adds six lines to its index.html. The student's AI editor adds it after a yes, with `add_addon`; the terminal does the same with `npm run addons -- add installable-app`. It never overwrites a file the student made: if a file of the same name exists and is different, nothing is changed. `remove_addon` puts the page back exactly as it was and removes the files it made (a file the student edited is kept). Nothing for a teacher to do; the add-on is in the kit's catalogue. Plan: docs/INSTALLABLE_PLAN.md (step I3).
+
 ## 2.6.0
 
 - **The student's site can be installed like an app (no app store).** The starter site now has a web app manifest, three default icons (a 512 and 192 pixel icon and an iPhone icon), and a small install script (`public/install.js`). On Android, Chrome, Edge and computers an **Install app** button appears when the browser offers it; on iPhone and iPad a button shows the three Add to Home Screen steps. Nothing is cached, nothing is stored and no permission is asked. New projects get it by default; the install is always a tap by the visitor. Plan: docs/INSTALLABLE_PLAN.md. **To apply:** nothing for a teacher; students get the files with the next kit sync. Older projects can add it later (planned, step I3).
