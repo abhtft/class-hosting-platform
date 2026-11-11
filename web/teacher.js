@@ -1,5 +1,6 @@
 import { capsText, classUsage } from './usage.js';
 import { api, ApiError, ask, copyText, date, duration, expiryBar, h, lifeText, now, session, statusPill, toast, usd } from './common.js';
+import { voiceRouteText } from './voice_route.js';
 
 const $ = (id) => document.getElementById(id);
 const DURATIONS = [[7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days'], [90, '90 days'], [180, '180 days']];
@@ -775,6 +776,7 @@ function drawerContent(t) {
       const a = t.ai;
       features.push(feature({ title: 'Class AI', hint: a.enabled ? `${a.model}${a.key_active ? '' : ' · paused while the token is not active'}` : 'A capped AI key, no key of their own needed', on: a.enabled, disabled: !live, onToggle: () => toggleAi(t),
         body: [meter('Spend', a.used_usd, a.limit_usd, `${usd(a.used_usd)} / ${usd(a.limit_usd)} ${PER[a.period]}${a.approx_calls ? ` · about ${a.approx_calls.toLocaleString()} answers` : ''}`),
+          h('div', { class: 'small muted' }, voiceRouteText(a, t.backend)),
           h('div', { class: 'btns' }, btn('Edit cap…', () => editAi(t)))] }));
     }
     if (t.storage?.available) features.push(storageFeature(t, live, btn));
