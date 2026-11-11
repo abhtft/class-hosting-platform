@@ -267,7 +267,7 @@ say('doctor reports Node, npm, git and Python');
 const again = join(work, 'kit-again');
 buildKit(again);
 assert.equal(read(join(again, 'kit-manifest.json')), read(join(kit, 'kit-manifest.json')), 'two builds give the same manifest');
-assert.deepEqual(listAll(kit).filter((f) => readFileSync(f).includes(Buffer.from([13, 10]))), [], 'no CRLF line endings in the kit');
+assert.deepEqual(listAll(kit).filter((f) => { const data = readFileSync(f); return !data.includes(0) && data.includes(Buffer.from([13, 10])); }), [], 'no CRLF line endings in the kit (binary files such as icons are left alone)');
 say('building twice gives the same manifest; every text file uses LF');
 
 // the short interview: the assistant asks a few plain questions and agrees a one-page SPEC.md before it builds

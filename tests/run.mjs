@@ -223,6 +223,11 @@ await step('settings registry: config/settings.json is well formed and tied to c
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('installable starter: the manifest, three real PNG icons of the sizes it names, the links in index.html, an install script that never writes HTML from text, caches nothing and asks for no permission, and a built kit carries all of it', () => {
+  const r = spawnSync('node', [join(here, 'test_installable.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('specification: the machine-checked facts in docs/TECHNICAL_SPECIFICATION.md equal the code', () => {
   const r = spawnSync(python, [join(here, 'test_spec.py')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);
