@@ -148,6 +148,7 @@ def student_event(event, headers, rest, ip):
         "headers": {k: v for k, v in headers.items() if k not in STRIP_REQUEST_HEADERS},
         "queryStringParameters": event.get("queryStringParameters"), "requestContext": {**event.get("requestContext", {}), "http": http},
         "body": event.get("body"), "isBase64Encoded": bool(event.get("isBase64Encoded")),
+        **({"cookies": [str(c) for c in event["cookies"]]} if isinstance(event.get("cookies"), list) else {}),  # payload v2 carries cookies apart from the headers
     }
 
 

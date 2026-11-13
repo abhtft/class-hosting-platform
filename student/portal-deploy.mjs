@@ -146,7 +146,7 @@ export function helpersUsed(dir) {
   const used = new Set();
   if (!existsSync(dir)) return used;
   for (const file of listFiles(dir)) {
-    if (!/\.(py|mjs|js)$/.test(file) || /(^|[\\/])(class_ai|class_storage|class_knowledge|class_agent|class_quality)\.(py|mjs)$/.test(file) || /node_modules/.test(file)) continue;
+    if (!/\.(py|mjs|js)$/.test(file) || /(^|[\\/])(class_ai|class_storage|class_knowledge|class_agent|class_quality|class_auth)\.(py|mjs)$/.test(file) || /node_modules/.test(file)) continue;
     const text = readFileSync(file, 'utf8');
     if (/\bclass_ai\b/.test(text)) used.add('ai');
     if (/\bclass_storage\b/.test(text)) used.add('storage');

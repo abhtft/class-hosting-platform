@@ -156,11 +156,13 @@ class Handler(BaseHTTPRequestHandler):
         data = base64.b64decode(body_out) if result.get("isBase64Encoded") else (body_out if isinstance(body_out, str) else json.dumps(body_out)).encode()
         if time.time() - started > 27:
             print("  (!) this request took more than 27 s: the platform would stop it", flush=True)
-        self.reply(int(result["statusCode"]), result.get("headers") or {}, data)
+        self.reply(int(result["statusCode"]), result.get("headers") or {}, data, [str(c) for c in result.get("cookies") or []])
 
-    def reply(self, status, headers, data):
+    def reply(self, status, headers, data, cookies=()):
         data = data.encode() if isinstance(data, str) else data
         self.send_response(status)
+        for cookie in cookies:  # like the platform: every entry of "cookies" becomes a Set-Cookie header
+            self.send_header("set-cookie", cookie)
         for name, value in headers.items():
             if name.lower() not in ("content-length", "transfer-encoding", "connection"):
                 self.send_header(name, value)

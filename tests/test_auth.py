@@ -10,7 +10,8 @@ import sys
 import time
 
 os.environ.update(AWS_REGION="us-east-1", AWS_ACCESS_KEY_ID="x", AWS_SECRET_ACCESS_KEY="x", BUCKET="b", DISTRIBUTION_ID="E",
-                  DISTRIBUTION_DOMAIN="d123.cloudfront.net", KEYS_PARAM="/k", ROOT_DOMAIN="example.com", BACKEND_ENABLED="true")
+                  DISTRIBUTION_DOMAIN="d123.cloudfront.net", KEYS_PARAM="/k", ROOT_DOMAIN="example.com", BACKEND_ENABLED="true",
+                  SANDBOX_ROLE_ARN="arn:aws:iam::1:role/sandbox", ORIGIN_SECRET="s3cr3t")
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(here, "..", "lambda"), here]
 import auth  # noqa: E402
@@ -134,8 +135,10 @@ print("  ok  enabling an app that already has sign-in changes nothing")
 
 # ---- the database never holds a secret
 stored = json.dumps(db().get("tok#ana")) + json.dumps(db().get(auth.PLATFORM_KEY))
-assert "GOCSPX" not in stored and "secret" not in stored.lower(), "no secret in the database"
-print("  ok  the database holds no client secret, only ids and return addresses")
+assert "GOCSPX" not in stored and "secret" not in stored.lower(), "no Google secret in the database"
+assert len(db().get("tok#ana")["auth"]["session_key"]) >= 40, "each app has its own random session key"
+assert db().get("tok#ana")["auth"]["session_key"] != db().get("tok#ben")["auth"]["session_key"], "the keys differ per app"
+print("  ok  the database holds no Google secret; each app has its own random session key")
 
 # ---- a run that stopped part way is finished by the next run, without a second pool
 cognito2 = FakeCognito()
@@ -204,5 +207,52 @@ try:
 except portal.PortalError as e:
     assert e.status == 405
 print("  ok  the student's sign-in route: refused without the backend, turns sign-in on and off, shows the return addresses to register, refuses bad bodies")
+
+# ---- the app's function gets its sign-in settings, and loses them when sign-in is turned off
+class FakeFunctions:
+    def __init__(self):
+        self.env = {"sd-dana": {"MY_OWN": "1", "CLASS_AUTH_HOST": "stale"}}
+
+    def get_function_configuration(self, FunctionName):
+        return {"Environment": {"Variables": dict(self.env[FunctionName])}}
+
+    def update_function_configuration(self, FunctionName, Environment, **kw):
+        self.env[FunctionName] = dict(Environment["Variables"])
+
+
+functions = FakeFunctions()
+backends._clients["lambda"] = functions
+dana = student("dana")
+db().update(dana["pk"], {"backend": {"enabled": True, "function_name": "sd-dana", "state": "ready"}})
+code, out = auth.student_route(db().get("tok#dana"), "POST", {"enabled": True})
+assert code == 200 and "session_key" not in json.dumps(out), "the route never shows the session key"
+env = functions.env["sd-dana"]
+assert env["MY_OWN"] == "1", "the student's own variables are kept"
+assert env["CLASS_AUTH_HOST"].startswith("https://sd-class-") and env["CLASS_AUTH_HOST"].endswith(".auth.us-east-1.amazoncognito.com")
+assert env["CLASS_AUTH_ISSUER"] == "https://cognito-idp.us-east-1.amazonaws.com/" + db().get("tok#dana")["auth"]["pool_id"]
+assert env["CLASS_AUTH_REDIRECT"] == "https://dana.example.com/api/auth/callback" and env["CLASS_AUTH_HOME"] == "https://dana.example.com/"
+assert env["CLASS_AUTH_CLIENT_ID"] == db().get("tok#dana")["auth"]["client_id"] and env["CLASS_AUTH_DAYS"] == "7"
+assert env["CLASS_AUTH_KEY"] == db().get("tok#dana")["auth"]["session_key"]
+assert set(db().get("tok#dana")["backend"]["env_names"]) >= set(auth.ENV_NAMES)
+assert auth.env_for(db().get("tok#dana")) == {k: v for k, v in env.items() if k.startswith("CLASS_AUTH_")}, "a republish carries the same values"
+for name in auth.ENV_NAMES:
+    assert auth.reserved_name(db().get("tok#dana"), name)
+db().update("tok#dana", {"expires_at": int(time.time()) + 86400, "created_at": int(time.time()) - 60})
+try:
+    backends.set_env(db().get("tok#dana"), "CLASS_AUTH_KEY", "mine", int(time.time()))
+    raise AssertionError("a student may not set a sign-in value")
+except portal.PortalError as e:
+    assert e.status in (400, 403), e.status
+auth.student_route(db().get("tok#dana"), "POST", {"enabled": False})
+assert not any(k.startswith("CLASS_AUTH_") for k in functions.env["sd-dana"]) and functions.env["sd-dana"]["MY_OWN"] == "1"
+assert auth.env_for(db().get("tok#dana")) == {}
+print("  ok  the app's function gets the sign-in settings (and keeps the student's own variables); a student cannot set them; turning sign-in off removes them")
+
+# ---- the gateway passes the visitor's cookies to the app
+import gateway  # noqa: E402
+ev = gateway.student_event({"cookies": ["class_session=abc", "other=1"], "requestContext": {"http": {"method": "GET"}}}, {"x-origin-secret": "s", "accept": "*/*"}, "/auth/me", "1.2.3.4")
+assert ev["cookies"] == ["class_session=abc", "other=1"] and "x-origin-secret" not in ev["headers"]
+assert "cookies" not in gateway.student_event({"requestContext": {"http": {}}}, {}, "/x", "1.2.3.4")
+print("  ok  the gateway passes the visitor's cookies to the app's function")
 
 print("test_auth.py: sign-in platform side (shared pool, per-app clients, Google setting, off and on) passes")

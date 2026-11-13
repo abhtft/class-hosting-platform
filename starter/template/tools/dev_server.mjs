@@ -93,9 +93,9 @@ function jobsRoute(req, url, raw, send) {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
-  const send = (status, headers, body) => {
+  const send = (status, headers, body, cookies = []) => {
     const data = Buffer.from(body);
-    res.writeHead(status, { ...headers, 'content-length': data.length });
+    res.writeHead(status, { ...headers, ...(cookies.length ? { 'set-cookie': cookies } : {}), 'content-length': data.length }); // like the platform: every entry of "cookies" becomes a Set-Cookie header
     res.end(data);
   };
   if (url.pathname !== '/api' && !url.pathname.startsWith('/api/')) {
@@ -120,7 +120,7 @@ const server = createServer(async (req, res) => {
     const data = result.isBase64Encoded ? Buffer.from(body, 'base64') : body;
     if (Date.now() - started > 27000) console.log('  (!) this request took more than 27 s: the platform would stop it');
     console.log(`  ${req.method} ${req.url} -> ${result.statusCode}`);
-    send(Number(result.statusCode), result.headers ?? {}, data);
+    send(Number(result.statusCode), result.headers ?? {}, data, Array.isArray(result.cookies) ? result.cookies.map(String) : []);
   } catch (error) { // the platform would answer 502 function_error; here you see why
     console.error(error);
     send(502, { 'content-type': 'application/json' }, JSON.stringify({ error: 'function_error', message: `${error?.name}: ${error?.message}` }));

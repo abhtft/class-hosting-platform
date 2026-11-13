@@ -1,0 +1,1076 @@
+{
+    "Changes": [
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Modify",
+                "LogicalResourceId": "AiProxyFunction",
+                "PhysicalResourceId": "student-hosting-AiProxyFunction-cPqsItZAfydg",
+                "ResourceType": "AWS::Lambda::Function",
+                "Replacement": "False",
+                "Scope": [
+                    "Properties"
+                ],
+                "Details": [
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Code",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Code/S3Key",
+                            "BeforeValue": "aa0d39bb518fecf57a0baaf5acf0b937",
+                            "AfterValue": "cc5cd5c47c6e667e31926fc396965765",
+                            "AttributeChangeType": "Modify"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEnabled"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeMonthlyCapUsd"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingDims"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingModel"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    }
+                ],
+                "BeforeContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-AiProxyFunctionRole-rUp2xXJD2Mgs\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Timeout\":\"29\",\"Handler\":\"ai_proxy.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"aa0d39bb518fecf57a0baaf5acf0b937\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}",
+                "AfterContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-AiProxyFunctionRole-rUp2xXJD2Mgs\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Timeout\":\"29\",\"Handler\":\"ai_proxy.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Modify",
+                "LogicalResourceId": "DeployFunctionRole",
+                "PhysicalResourceId": "student-hosting-DeployFunctionRole-pVGlpQkX2DoT",
+                "ResourceType": "AWS::IAM::Role",
+                "Replacement": "False",
+                "Scope": [
+                    "Properties"
+                ],
+                "Details": [
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Policies",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Policies/0/PolicyDocument",
+                            "BeforeValue": "{\"Version\":\"2008-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/sites/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/archive/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/uploads/*\"]},{\"Effect\":\"Allow\",\"Action\":\"s3:DeleteObject\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/userdata/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo\"},{\"Effect\":\"Allow\",\"Action\":\"cloudfront:CreateInvalidation\",\"Resource\":\"arn:aws:cloudfront::417780655868:distribution/EE04TTW6O4AC3\"},{\"Effect\":\"Allow\",\"Action\":\"ssm:GetParameter\",\"Resource\":[\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/keys\",\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/teacher\"]},{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:UpdateItem\",\"dynamodb:DeleteItem\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\"},{\"Effect\":\"Allow\",\"Action\":[\"cloudfront:CreateDistributionTenant\",\"cloudfront:GetDistributionTenant\",\"cloudfront:UpdateDistributionTenant\",\"cloudfront:DeleteDistributionTenant\",\"cloudfront:GetManagedCertificateDetails\",\"cloudfront:CreateInvalidationForDistributionTenant\",\"cloudfront:CreateInvalidation\"],\"Resource\":[\"arn:aws:cloudfront::417780655868:distribution/E1NTIC3LHBW49Q\",\"arn:aws:cloudfront::417780655868:distribution-tenant/*\"]},{\"Effect\":\"Allow\",\"Action\":[\"acm:RequestCertificate\",\"acm:DescribeCertificate\",\"acm:ListCertificates\",\"acm:AddTagsToCertificate\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"lambda:CreateFunction\",\"lambda:UpdateFunctionCode\",\"lambda:UpdateFunctionConfiguration\",\"lambda:GetFunction\",\"lambda:GetFunctionConfiguration\",\"lambda:DeleteFunction\",\"lambda:PutFunctionConcurrency\",\"lambda:DeleteFunctionConcurrency\",\"lambda:TagResource\"],\"Resource\":\"arn:aws:lambda:us-east-1:417780655868:function:sd-*\"},{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"arn:aws:secretsmanager:us-east-1:417780655868:secret:openrouter-??????\"},{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:Query\",\"dynamodb:BatchWriteItem\",\"dynamodb:DeleteItem\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-StudentDataTable-HN9FTY9Q77SW\"},{\"Effect\":\"Allow\",\"Action\":\"iam:PassRole\",\"Resource\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"Condition\":{\"StringEquals\":{\"iam:PassedToService\":\"lambda.amazonaws.com\"}}},{\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:PutRetentionPolicy\",\"logs:DeleteLogGroup\",\"logs:FilterLogEvents\"],\"Resource\":[\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*\",\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*:*\"]}]}",
+                            "AfterValue": "{\"Version\":\"2008-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/sites/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/archive/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/uploads/*\"]},{\"Effect\":\"Allow\",\"Action\":\"s3:DeleteObject\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/userdata/*\"},{\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo\"},{\"Effect\":\"Allow\",\"Action\":\"cloudfront:CreateInvalidation\",\"Resource\":\"arn:aws:cloudfront::417780655868:distribution/EE04TTW6O4AC3\"},{\"Effect\":\"Allow\",\"Action\":\"ssm:GetParameter\",\"Resource\":[\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/keys\",\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/teacher\"]},{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:UpdateItem\",\"dynamodb:DeleteItem\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\"},{\"Effect\":\"Allow\",\"Action\":[\"cloudfront:CreateDistributionTenant\",\"cloudfront:GetDistributionTenant\",\"cloudfront:UpdateDistributionTenant\",\"cloudfront:DeleteDistributionTenant\",\"cloudfront:GetManagedCertificateDetails\",\"cloudfront:CreateInvalidationForDistributionTenant\",\"cloudfront:CreateInvalidation\"],\"Resource\":[\"arn:aws:cloudfront::417780655868:distribution/E1NTIC3LHBW49Q\",\"arn:aws:cloudfront::417780655868:distribution-tenant/*\"]},{\"Effect\":\"Allow\",\"Action\":[\"acm:RequestCertificate\",\"acm:DescribeCertificate\",\"acm:ListCertificates\",\"acm:AddTagsToCertificate\"],\"Resource\":\"*\"},{\"Effect\":\"Allow\",\"Action\":[\"lambda:CreateFunction\",\"lambda:UpdateFunctionCode\",\"lambda:UpdateFunctionConfiguration\",\"lambda:GetFunction\",\"lambda:GetFunctionConfiguration\",\"lambda:DeleteFunction\",\"lambda:PutFunctionConcurrency\",\"lambda:DeleteFunctionConcurrency\",\"lambda:TagResource\"],\"Resource\":\"arn:aws:lambda:us-east-1:417780655868:function:sd-*\"},{\"Effect\":\"Allow\",\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"arn:aws:secretsmanager:us-east-1:417780655868:secret:openrouter-??????\"},{\"Effect\":\"Allow\",\"Action\":[\"dynamodb:Query\",\"dynamodb:BatchWriteItem\",\"dynamodb:DeleteItem\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-StudentDataTable-HN9FTY9Q77SW\"},{\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/knowledge/*\"},{\"Effect\":\"Allow\",\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"{{changeSet:KNOWN_AFTER_APPLY}}\"},{\"Effect\":\"Allow\",\"Action\":\"iam:PassRole\",\"Resource\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"Condition\":{\"StringEquals\":{\"iam:PassedToService\":\"lambda.amazonaws.com\"}}},{\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:PutRetentionPolicy\",\"logs:DeleteLogGroup\",\"logs:FilterLogEvents\"],\"Resource\":[\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*\",\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*:*\"]}]}",
+                            "AttributeChangeType": "Modify"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "DirectModification"
+                    }
+                ],
+                "BeforeContext": "{\"Properties\":{\"ManagedPolicyArns\":[\"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole\"],\"Policies\":[{\"PolicyName\":\"DeployFunctionRolePolicy0\",\"PolicyDocument\":{\"Statement\":[{\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/sites/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/archive/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/uploads/*\"],\"Effect\":\"Allow\"},{\"Action\":\"s3:DeleteObject\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/userdata/*\",\"Effect\":\"Allow\"},{\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo\",\"Effect\":\"Allow\"},{\"Action\":\"cloudfront:CreateInvalidation\",\"Resource\":\"arn:aws:cloudfront::417780655868:distribution/EE04TTW6O4AC3\",\"Effect\":\"Allow\"},{\"Action\":\"ssm:GetParameter\",\"Resource\":[\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/keys\",\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/teacher\"],\"Effect\":\"Allow\"},{\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:UpdateItem\",\"dynamodb:DeleteItem\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Action\":[\"cloudfront:CreateDistributionTenant\",\"cloudfront:GetDistributionTenant\",\"cloudfront:UpdateDistributionTenant\",\"cloudfront:DeleteDistributionTenant\",\"cloudfront:GetManagedCertificateDetails\",\"cloudfront:CreateInvalidationForDistributionTenant\",\"cloudfront:CreateInvalidation\"],\"Resource\":[\"arn:aws:cloudfront::417780655868:distribution/E1NTIC3LHBW49Q\",\"arn:aws:cloudfront::417780655868:distribution-tenant/*\"],\"Effect\":\"Allow\"},{\"Action\":[\"acm:RequestCertificate\",\"acm:DescribeCertificate\",\"acm:ListCertificates\",\"acm:AddTagsToCertificate\"],\"Resource\":\"*\",\"Effect\":\"Allow\"},{\"Action\":[\"lambda:CreateFunction\",\"lambda:UpdateFunctionCode\",\"lambda:UpdateFunctionConfiguration\",\"lambda:GetFunction\",\"lambda:GetFunctionConfiguration\",\"lambda:DeleteFunction\",\"lambda:PutFunctionConcurrency\",\"lambda:DeleteFunctionConcurrency\",\"lambda:TagResource\"],\"Resource\":\"arn:aws:lambda:us-east-1:417780655868:function:sd-*\",\"Effect\":\"Allow\"},{\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"arn:aws:secretsmanager:us-east-1:417780655868:secret:openrouter-??????\",\"Effect\":\"Allow\"},{\"Action\":[\"dynamodb:Query\",\"dynamodb:BatchWriteItem\",\"dynamodb:DeleteItem\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-StudentDataTable-HN9FTY9Q77SW\",\"Effect\":\"Allow\"},{\"Condition\":{\"StringEquals\":{\"iam:PassedToService\":\"lambda.amazonaws.com\"}},\"Action\":\"iam:PassRole\",\"Resource\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"Effect\":\"Allow\"},{\"Action\":[\"logs:CreateLogGroup\",\"logs:PutRetentionPolicy\",\"logs:DeleteLogGroup\",\"logs:FilterLogEvents\"],\"Resource\":[\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*\",\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*:*\"],\"Effect\":\"Allow\"}]}}],\"AssumeRolePolicyDocument\":{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":[\"sts:AssumeRole\"],\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"lambda.amazonaws.com\"]}}]},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}}",
+                "AfterContext": "{\"Properties\":{\"ManagedPolicyArns\":[\"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole\"],\"Policies\":[{\"PolicyName\":\"DeployFunctionRolePolicy0\",\"PolicyDocument\":{\"Statement\":[{\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":[\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/sites/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/archive/*\",\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/uploads/*\"],\"Effect\":\"Allow\"},{\"Action\":\"s3:DeleteObject\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/userdata/*\",\"Effect\":\"Allow\"},{\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo\",\"Effect\":\"Allow\"},{\"Action\":\"cloudfront:CreateInvalidation\",\"Resource\":\"arn:aws:cloudfront::417780655868:distribution/EE04TTW6O4AC3\",\"Effect\":\"Allow\"},{\"Action\":\"ssm:GetParameter\",\"Resource\":[\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/keys\",\"arn:aws:ssm:us-east-1:417780655868:parameter/student-deploy/teacher\"],\"Effect\":\"Allow\"},{\"Action\":[\"dynamodb:GetItem\",\"dynamodb:PutItem\",\"dynamodb:UpdateItem\",\"dynamodb:DeleteItem\",\"dynamodb:Scan\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Action\":[\"cloudfront:CreateDistributionTenant\",\"cloudfront:GetDistributionTenant\",\"cloudfront:UpdateDistributionTenant\",\"cloudfront:DeleteDistributionTenant\",\"cloudfront:GetManagedCertificateDetails\",\"cloudfront:CreateInvalidationForDistributionTenant\",\"cloudfront:CreateInvalidation\"],\"Resource\":[\"arn:aws:cloudfront::417780655868:distribution/E1NTIC3LHBW49Q\",\"arn:aws:cloudfront::417780655868:distribution-tenant/*\"],\"Effect\":\"Allow\"},{\"Action\":[\"acm:RequestCertificate\",\"acm:DescribeCertificate\",\"acm:ListCertificates\",\"acm:AddTagsToCertificate\"],\"Resource\":\"*\",\"Effect\":\"Allow\"},{\"Action\":[\"lambda:CreateFunction\",\"lambda:UpdateFunctionCode\",\"lambda:UpdateFunctionConfiguration\",\"lambda:GetFunction\",\"lambda:GetFunctionConfiguration\",\"lambda:DeleteFunction\",\"lambda:PutFunctionConcurrency\",\"lambda:DeleteFunctionConcurrency\",\"lambda:TagResource\"],\"Resource\":\"arn:aws:lambda:us-east-1:417780655868:function:sd-*\",\"Effect\":\"Allow\"},{\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"arn:aws:secretsmanager:us-east-1:417780655868:secret:openrouter-??????\",\"Effect\":\"Allow\"},{\"Action\":[\"dynamodb:Query\",\"dynamodb:BatchWriteItem\",\"dynamodb:DeleteItem\"],\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-StudentDataTable-HN9FTY9Q77SW\",\"Effect\":\"Allow\"},{\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/knowledge/*\",\"Effect\":\"Allow\"},{\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"Effect\":\"Allow\"},{\"Condition\":{\"StringEquals\":{\"iam:PassedToService\":\"lambda.amazonaws.com\"}},\"Action\":\"iam:PassRole\",\"Resource\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"Effect\":\"Allow\"},{\"Action\":[\"logs:CreateLogGroup\",\"logs:PutRetentionPolicy\",\"logs:DeleteLogGroup\",\"logs:FilterLogEvents\"],\"Resource\":[\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*\",\"arn:aws:logs:us-east-1:417780655868:log-group:/aws/lambda/sd-*:*\"],\"Effect\":\"Allow\"}]}}],\"AssumeRolePolicyDocument\":{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":[\"sts:AssumeRole\"],\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"lambda.amazonaws.com\"]}}]},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Modify",
+                "LogicalResourceId": "DeployFunction",
+                "PhysicalResourceId": "student-hosting-DeployFunction-uPoAkdJAjWZa",
+                "ResourceType": "AWS::Lambda::Function",
+                "Replacement": "False",
+                "Scope": [
+                    "Properties"
+                ],
+                "Details": [
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEnabled"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_WORKER_FUNCTION",
+                            "AfterValue": "{{changeSet:KNOWN_AFTER_APPLY}}",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ResourceReference",
+                        "CausingEntity": "KnowledgeWorkerFunction"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeMonthlyCapUsd"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_URL",
+                            "AfterValue": "{{changeSet:KNOWN_AFTER_APPLY}}",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ResourceReference",
+                        "CausingEntity": "KnowledgeApi"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_WORKER_FUNCTION",
+                            "AfterValue": "{{changeSet:KNOWN_AFTER_APPLY}}",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Code",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Code/S3Key",
+                            "BeforeValue": "aa0d39bb518fecf57a0baaf5acf0b937",
+                            "AfterValue": "cc5cd5c47c6e667e31926fc396965765",
+                            "AttributeChangeType": "Modify"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_URL",
+                            "AfterValue": "{{changeSet:KNOWN_AFTER_APPLY}}",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingModel"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingDims"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    }
+                ],
+                "BeforeContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-DeployFunctionRole-pVGlpQkX2DoT\",\"MemorySize\":\"1024\",\"Runtime\":\"python3.12\",\"Timeout\":\"29\",\"Handler\":\"app.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"DATA_TABLE\":\"student-hosting-StudentDataTable-HN9FTY9Q77SW\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"AI_PROXY_URL\":\"https://eri49nnlnc.execute-api.us-east-1.amazonaws.com\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"STORAGE_URL\":\"https://qflp9ufrih.execute-api.us-east-1.amazonaws.com\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"aa0d39bb518fecf57a0baaf5acf0b937\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}",
+                "AfterContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-DeployFunctionRole-pVGlpQkX2DoT\",\"MemorySize\":\"1024\",\"Runtime\":\"python3.12\",\"Timeout\":\"29\",\"Handler\":\"app.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"KNOWLEDGE_WORKER_FUNCTION\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"DATA_TABLE\":\"student-hosting-StudentDataTable-HN9FTY9Q77SW\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"AI_PROXY_URL\":\"https://eri49nnlnc.execute-api.us-east-1.amazonaws.com\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"STORAGE_URL\":\"https://qflp9ufrih.execute-api.us-east-1.amazonaws.com\",\"KNOWLEDGE_URL\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Modify",
+                "LogicalResourceId": "GatewayFunction",
+                "PhysicalResourceId": "student-hosting-GatewayFunction-EPKzW7m5gSJA",
+                "ResourceType": "AWS::Lambda::Function",
+                "Replacement": "False",
+                "Scope": [
+                    "Properties"
+                ],
+                "Details": [
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Code",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Code/S3Key",
+                            "BeforeValue": "aa0d39bb518fecf57a0baaf5acf0b937",
+                            "AfterValue": "cc5cd5c47c6e667e31926fc396965765",
+                            "AttributeChangeType": "Modify"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEnabled"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeMonthlyCapUsd"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingDims"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingModel"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    }
+                ],
+                "BeforeContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-GatewayFunctionRole-2OUWWJy9Jbu9\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Timeout\":\"29\",\"Handler\":\"gateway.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"JOB_RUNNER_FUNCTION\":\"student-hosting-JobRunnerFunction-Pq3qGIZqet63\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"\",\"INFLIGHT_JOBS_GLOBAL\":\"2\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"aa0d39bb518fecf57a0baaf5acf0b937\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}",
+                "AfterContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-GatewayFunctionRole-2OUWWJy9Jbu9\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Timeout\":\"29\",\"Handler\":\"gateway.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"JOB_RUNNER_FUNCTION\":\"student-hosting-JobRunnerFunction-Pq3qGIZqet63\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"\",\"INFLIGHT_JOBS_GLOBAL\":\"2\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Modify",
+                "LogicalResourceId": "JobRunnerFunction",
+                "PhysicalResourceId": "student-hosting-JobRunnerFunction-Pq3qGIZqet63",
+                "ResourceType": "AWS::Lambda::Function",
+                "Replacement": "False",
+                "Scope": [
+                    "Properties"
+                ],
+                "Details": [
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Code",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Code/S3Key",
+                            "BeforeValue": "aa0d39bb518fecf57a0baaf5acf0b937",
+                            "AfterValue": "cc5cd5c47c6e667e31926fc396965765",
+                            "AttributeChangeType": "Modify"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEnabled"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeMonthlyCapUsd"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingDims"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingModel"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    }
+                ],
+                "BeforeContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-JobRunnerFunctionRole-2guIWGp9HusN\",\"MemorySize\":\"128\",\"Runtime\":\"python3.12\",\"Timeout\":\"900\",\"Handler\":\"job_runner.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"aa0d39bb518fecf57a0baaf5acf0b937\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}",
+                "AfterContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-JobRunnerFunctionRole-2guIWGp9HusN\",\"MemorySize\":\"128\",\"Runtime\":\"python3.12\",\"Timeout\":\"900\",\"Handler\":\"job_runner.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeApiApiGatewayDefaultStage",
+                "ResourceType": "AWS::ApiGatewayV2::Stage",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"AutoDeploy\":\"true\",\"StageName\":\"$default\",\"ApiId\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"DefaultRouteSettings\":{\"ThrottlingBurstLimit\":\"40\",\"ThrottlingRateLimit\":\"20\"},\"Tags\":{\"httpapi:createdBy\":\"SAM\"}}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeApi",
+                "ResourceType": "AWS::ApiGatewayV2::Api",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"Body\":{\"openapi\":\"3.0.1\",\"paths\":{\"/{proxy+}\":{\"x-amazon-apigateway-any-method\":{\"responses\":{},\"x-amazon-apigateway-integration\":{\"payloadFormatVersion\":\"2.0\",\"httpMethod\":\"POST\",\"type\":\"aws_proxy\",\"uri\":\"{{changeSet:KNOWN_AFTER_APPLY}}\"},\"parameters\":[{\"in\":\"path\",\"name\":\"proxy+\",\"required\":\"true\"}]}}},\"info\":{\"title\":\"student-hosting\",\"version\":\"1.0\"},\"tags\":[{\"x-amazon-apigateway-tag-value\":\"SAM\",\"name\":\"httpapi:createdBy\"}]}}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeErrorsAlarm",
+                "ResourceType": "AWS::CloudWatch::Alarm",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"AlarmActions\":[\"arn:aws:sns:us-east-1:417780655868:student-hosting-AlertsTopic-u0ZJWzVbQ67X\"],\"MetricName\":\"Errors\",\"ComparisonOperator\":\"GreaterThanOrEqualToThreshold\",\"TreatMissingData\":\"notBreaching\",\"AlarmName\":\"student-hosting-knowledge-errors\",\"AlarmDescription\":\"The class knowledge API crashed (an unhandled error in the platform code). Check its CloudWatch logs. A book that fails to read is not an error here, it is reported on the book itself.\",\"Statistic\":\"Sum\",\"Dimensions\":[{\"Value\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"Name\":\"FunctionName\"}],\"Period\":\"300\",\"EvaluationPeriods\":\"1\",\"Namespace\":\"AWS/Lambda\",\"Threshold\":\"1\"}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeFunctionAnyPermission",
+                "ResourceType": "AWS::Lambda::Permission",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"FunctionName\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"Action\":\"lambda:InvokeFunction\",\"SourceArn\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"Principal\":\"apigateway.amazonaws.com\"}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeFunctionRole",
+                "ResourceType": "AWS::IAM::Role",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"ManagedPolicyArns\":[\"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole\"],\"Policies\":[{\"PolicyName\":\"KnowledgeFunctionRolePolicy0\",\"PolicyDocument\":{\"Statement\":[{\"Action\":\"dynamodb:GetItem\",\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Condition\":{\"ForAllValues:StringLike\":{\"dynamodb:LeadingKeys\":[\"kdoc#*\",\"kpass#*\",\"kbytes#*\",\"ksearch#*\",\"ktok#*\",\"kspend#*\",\"kwork#*\"]}},\"Action\":\"dynamodb:UpdateItem\",\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Condition\":{\"ForAllValues:StringLike\":{\"dynamodb:LeadingKeys\":[\"emb#*\",\"kwork#*\"]}},\"Action\":\"dynamodb:PutItem\",\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/knowledge/*\",\"Effect\":\"Allow\"},{\"Condition\":{\"StringLike\":{\"s3:prefix\":[\"knowledge/*\"]}},\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo\",\"Effect\":\"Allow\"},{\"Action\":\"lambda:InvokeFunction\",\"Resource\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"Effect\":\"Allow\"},{\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"arn:aws:secretsmanager:us-east-1:417780655868:secret:openrouter-??????\",\"Effect\":\"Allow\"}]}}],\"AssumeRolePolicyDocument\":{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":[\"sts:AssumeRole\"],\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"lambda.amazonaws.com\"]}}]},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeFunction",
+                "ResourceType": "AWS::Lambda::Function",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"Role\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"MemorySize\":\"1024\",\"Runtime\":\"python3.12\",\"Timeout\":\"29\",\"Handler\":\"knowledge_api.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"KNOWLEDGE_WORKER_FUNCTION\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeWorkerFunctionEventInvokeConfig",
+                "ResourceType": "AWS::Lambda::EventInvokeConfig",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"FunctionName\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"MaximumRetryAttempts\":\"0\",\"Qualifier\":\"$LATEST\",\"DestinationConfig\":{}}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeWorkerFunctionRole",
+                "ResourceType": "AWS::IAM::Role",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"ManagedPolicyArns\":[\"arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole\"],\"Policies\":[{\"PolicyName\":\"KnowledgeWorkerFunctionRolePolicy0\",\"PolicyDocument\":{\"Statement\":[{\"Action\":\"dynamodb:GetItem\",\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Condition\":{\"ForAllValues:StringLike\":{\"dynamodb:LeadingKeys\":[\"kdoc#*\",\"kpass#*\",\"kbytes#*\",\"ksearch#*\",\"ktok#*\",\"kspend#*\",\"kwork#*\"]}},\"Action\":\"dynamodb:UpdateItem\",\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Condition\":{\"ForAllValues:StringLike\":{\"dynamodb:LeadingKeys\":[\"emb#*\",\"kwork#*\"]}},\"Action\":\"dynamodb:PutItem\",\"Resource\":\"arn:aws:dynamodb:us-east-1:417780655868:table/student-hosting-TokensTable-1MASKCYTFQ813\",\"Effect\":\"Allow\"},{\"Action\":[\"s3:GetObject\",\"s3:PutObject\",\"s3:DeleteObject\"],\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo/knowledge/*\",\"Effect\":\"Allow\"},{\"Condition\":{\"StringLike\":{\"s3:prefix\":[\"knowledge/*\"]}},\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::student-hosting-sitesbucket-pi9xyysg5smo\",\"Effect\":\"Allow\"},{\"Action\":\"secretsmanager:GetSecretValue\",\"Resource\":\"arn:aws:secretsmanager:us-east-1:417780655868:secret:openrouter-??????\",\"Effect\":\"Allow\"}]}}],\"AssumeRolePolicyDocument\":{\"Version\":\"2012-10-17\",\"Statement\":[{\"Action\":[\"sts:AssumeRole\"],\"Effect\":\"Allow\",\"Principal\":{\"Service\":[\"lambda.amazonaws.com\"]}}]},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "KnowledgeWorkerFunction",
+                "ResourceType": "AWS::Lambda::Function",
+                "Scope": [],
+                "Details": [],
+                "AfterContext": "{\"Properties\":{\"Role\":\"{{changeSet:KNOWN_AFTER_APPLY}}\",\"MemorySize\":\"2048\",\"Runtime\":\"python3.12\",\"Timeout\":\"900\",\"Handler\":\"knowledge_worker.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Modify",
+                "LogicalResourceId": "StorageFunction",
+                "PhysicalResourceId": "student-hosting-StorageFunction-nwGRbG0elIOx",
+                "ResourceType": "AWS::Lambda::Function",
+                "Replacement": "False",
+                "Scope": [
+                    "Properties"
+                ],
+                "Details": [
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Code",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Code/S3Key",
+                            "BeforeValue": "aa0d39bb518fecf57a0baaf5acf0b937",
+                            "AfterValue": "cc5cd5c47c6e667e31926fc396965765",
+                            "AttributeChangeType": "Modify"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEnabled"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeMonthlyCapUsd"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingDims"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingModel"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    }
+                ],
+                "BeforeContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-StorageFunctionRole-aKiBfiWVFZyu\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Timeout\":\"10\",\"Handler\":\"storage_api.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"DATA_TABLE\":\"student-hosting-StudentDataTable-HN9FTY9Q77SW\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"aa0d39bb518fecf57a0baaf5acf0b937\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}",
+                "AfterContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-StorageFunctionRole-aKiBfiWVFZyu\",\"MemorySize\":\"256\",\"Runtime\":\"python3.12\",\"Timeout\":\"10\",\"Handler\":\"storage_api.handler\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"DATA_TABLE\":\"student-hosting-StudentDataTable-HN9FTY9Q77SW\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Modify",
+                "LogicalResourceId": "SweeperFunction",
+                "PhysicalResourceId": "student-hosting-SweeperFunction-0j6udsDG9jVV",
+                "ResourceType": "AWS::Lambda::Function",
+                "Replacement": "False",
+                "Scope": [
+                    "Properties"
+                ],
+                "Details": [
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Code",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Code/S3Key",
+                            "BeforeValue": "aa0d39bb518fecf57a0baaf5acf0b937",
+                            "AfterValue": "cc5cd5c47c6e667e31926fc396965765",
+                            "AttributeChangeType": "Modify"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEnabled"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeMonthlyCapUsd"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_MONTHLY_CAP_USD",
+                            "AfterValue": "3",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_DIMS",
+                            "AfterValue": "768",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingDims"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_EMBEDDING_MODEL",
+                            "AfterValue": "gemini-embedding-001",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Static",
+                        "ChangeSource": "ParameterReference",
+                        "CausingEntity": "KnowledgeEmbeddingModel"
+                    },
+                    {
+                        "Target": {
+                            "Attribute": "Properties",
+                            "Name": "Environment",
+                            "RequiresRecreation": "Never",
+                            "Path": "/Properties/Environment/Variables/KNOWLEDGE_ENABLED",
+                            "AfterValue": "true",
+                            "AttributeChangeType": "Add"
+                        },
+                        "Evaluation": "Dynamic",
+                        "ChangeSource": "DirectModification"
+                    }
+                ],
+                "BeforeContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-SweeperFunctionRole-m5JK9CFYlSP9\",\"MemorySize\":\"512\",\"Runtime\":\"python3.12\",\"Timeout\":\"300\",\"Handler\":\"app.sweep\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"aa0d39bb518fecf57a0baaf5acf0b937\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}",
+                "AfterContext": "{\"Properties\":{\"Role\":\"arn:aws:iam::417780655868:role/student-hosting-SweeperFunctionRole-m5JK9CFYlSP9\",\"MemorySize\":\"512\",\"Runtime\":\"python3.12\",\"Timeout\":\"300\",\"Handler\":\"app.sweep\",\"Environment\":{\"Variables\":{\"BACKEND_ENABLED\":\"true\",\"BUCKET\":\"student-hosting-sitesbucket-pi9xyysg5smo\",\"TEACHER_PARAM\":\"/student-deploy/teacher\",\"KNOWLEDGE_ENABLED\":\"true\",\"KNOWLEDGE_MONTHLY_CAP_USD\":\"3\",\"PER_IP_PER_MINUTE\":\"120\",\"INFLIGHT_GLOBAL\":\"3\",\"ROUTING_ENDPOINT\":\"d4cls3ve04vi3.cloudfront.net\",\"DISTRIBUTION_DOMAIN\":\"d3mm4p5z8358is.cloudfront.net\",\"AI_ENABLED\":\"true\",\"TENANT_DISTRIBUTION_ID\":\"E1NTIC3LHBW49Q\",\"AI_GEMINI_ENABLED\":\"true\",\"ORIGIN_SECRET\":\"4a6f8fe0-c27a-11f1-815b-0edb1358607b\",\"OFFLINE_GRACE_DAYS\":\"3\",\"ROOT_DOMAIN\":\"margdarshakss.com\",\"KEYS_PARAM\":\"/student-deploy/keys\",\"TOKENS_TABLE\":\"student-hosting-TokensTable-1MASKCYTFQ813\",\"KNOWLEDGE_EMBEDDING_MODEL\":\"gemini-embedding-001\",\"KNOWLEDGE_EMBEDDING_DIMS\":\"768\",\"BACKEND_RESERVED_CONCURRENCY\":\"0\",\"CONNECTION_GROUP_ID\":\"\",\"AI_DEFAULT_LIMIT_USD\":\"0.25\",\"STORAGE_ENABLED\":\"true\",\"DISTRIBUTION_ID\":\"EE04TTW6O4AC3\",\"AI_DEFAULT_MODEL\":\"anthropic/claude-haiku-5.5\",\"SANDBOX_ROLE_ARN\":\"arn:aws:iam::417780655868:role/student-hosting-StudentSandboxRole-DiQdbq9Z3CAm\",\"INFLIGHT_STUDENT\":\"2\",\"AI_SECRET_NAME\":\"openrouter\",\"AI_STUDENT_TIMEOUT\":\"25\"}},\"Code\":{\"S3Bucket\":\"student-hosting-artifacts-417780655868\",\"S3Key\":\"cc5cd5c47c6e667e31926fc396965765\"},\"Tags\":[{\"Value\":\"SAM\",\"Key\":\"lambda:createdBy\"}],\"Architectures\":[\"arm64\"]}}"
+            }
+        }
+    ],
+    "ChangeSetName": "awscli-cloudformation-package-deploy-1793557729",
+    "ChangeSetId": "arn:aws:cloudformation:us-east-1:417780655868:changeSet/awscli-cloudformation-package-deploy-1793557729/ed6ad4fe-3e8f-4261-9265-ace2e7a98d81",
+    "StackId": "arn:aws:cloudformation:us-east-1:417780655868:stack/student-hosting/4a6f8fe0-c27a-11f1-815b-0edb1358607b",
+    "StackName": "student-hosting",
+    "Description": "Created by AWS CLI at 2026-11-01T18:28:49.137723 UTC",
+    "Parameters": [
+        {
+            "ParameterKey": "OfflineGraceDays",
+            "ParameterValue": "3"
+        },
+        {
+            "ParameterKey": "AiGeminiEnabled",
+            "ParameterValue": "true"
+        },
+        {
+            "ParameterKey": "RoutingEndpoint",
+            "ParameterValue": "d4cls3ve04vi3.cloudfront.net"
+        },
+        {
+            "ParameterKey": "PortalAlias",
+            "ParameterValue": "true"
+        },
+        {
+            "ParameterKey": "RootDomain",
+            "ParameterValue": "margdarshakss.com"
+        },
+        {
+            "ParameterKey": "KeysParameterName",
+            "ParameterValue": "/student-deploy/keys"
+        },
+        {
+            "ParameterKey": "StorageEnabled",
+            "ParameterValue": "true"
+        },
+        {
+            "ParameterKey": "TenantDistributionId",
+            "ParameterValue": "E1NTIC3LHBW49Q"
+        },
+        {
+            "ParameterKey": "AiDefaultModel",
+            "ParameterValue": "anthropic/claude-haiku-5.5"
+        },
+        {
+            "ParameterKey": "AlertEmailParameter",
+            "ParameterValue": "/student-deploy/alert-email"
+        },
+        {
+            "ParameterKey": "ConnectionGroupId",
+            "ParameterValue": ""
+        },
+        {
+            "ParameterKey": "AiDefaultLimitUsd",
+            "ParameterValue": "0.25"
+        },
+        {
+            "ParameterKey": "AiSecretName",
+            "ParameterValue": "openrouter"
+        },
+        {
+            "ParameterKey": "KnowledgeMonthlyCapUsd",
+            "ParameterValue": "3"
+        },
+        {
+            "ParameterKey": "BackendEnabled",
+            "ParameterValue": "true"
+        },
+        {
+            "ParameterKey": "TeacherParameterName",
+            "ParameterValue": "/student-deploy/teacher"
+        },
+        {
+            "ParameterKey": "KnowledgeEmbeddingDims",
+            "ParameterValue": "768"
+        },
+        {
+            "ParameterKey": "KnowledgeEnabled",
+            "ParameterValue": "true"
+        },
+        {
+            "ParameterKey": "AiEnabled",
+            "ParameterValue": "true"
+        },
+        {
+            "ParameterKey": "KnowledgeEmbeddingModel",
+            "ParameterValue": "gemini-embedding-001"
+        },
+        {
+            "ParameterKey": "CertificateArn",
+            "ParameterValue": "arn:aws:acm:us-east-1:417780655868:certificate/6a5e2ee0-71cd-4d9b-9b5c-7d43b675d9bb"
+        },
+        {
+            "ParameterKey": "ConcurrencyAlarmThreshold",
+            "ParameterValue": "8"
+        }
+    ],
+    "CreationTime": "2026-11-01T18:28:54.186000+00:00",
+    "ExecutionStatus": "AVAILABLE",
+    "Status": "CREATE_COMPLETE",
+    "StatusReason": null,
+    "NotificationARNs": [],
+    "RollbackConfiguration": {},
+    "Capabilities": [
+        "CAPABILITY_IAM",
+        "CAPABILITY_AUTO_EXPAND"
+    ],
+    "Tags": null,
+    "ParentChangeSetId": null,
+    "IncludeNestedStacks": false,
+    "RootChangeSetId": null,
+    "OnStackFailure": null,
+    "ImportExistingResources": null,
+    "StackDriftStatus": null,
+    "DeploymentMode": null
+}

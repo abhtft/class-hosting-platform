@@ -70,6 +70,8 @@ export function buildKit(out, { force = false, portalUrl = '', signingKey = '' }
   copy('student/class_agent.mjs', 'variants/node-backend/class_agent.mjs');
   copy('student/class_quality.py', 'backend/class_quality.py');
   copy('student/class_quality.mjs', 'variants/node-backend/class_quality.mjs');
+  copy('student/class_auth.py', 'backend/class_auth.py'); // sign-in for the app's visitors (docs/AUTH_PLAN.md)
+  copy('student/class_auth.mjs', 'variants/node-backend/class_auth.mjs');
   copy('starter/mcp/server.mjs', 'tools/mcp.mjs'); // the MCP server: one source, also the entry of the class-platform-mcp package
   mkdirSync(join(out, 'tools'), { recursive: true });
   cpSync(join(here, 'zip.mjs'), join(out, 'tools', 'zip.mjs')); // `platform update` reads the kit zip with it

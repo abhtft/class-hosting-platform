@@ -48,7 +48,8 @@ for (const [from, to] of [['student/portal-deploy.mjs', 'portal-deploy.mjs'], ['
   ['student/class_storage.py', 'backend/class_storage.py'], ['student/class_storage.mjs', 'variants/node-backend/class_storage.mjs'],
   ['student/class_knowledge.py', 'backend/class_knowledge.py'], ['student/class_knowledge.mjs', 'variants/node-backend/class_knowledge.mjs'],
   ['student/class_agent.py', 'backend/class_agent.py'], ['student/class_agent.mjs', 'variants/node-backend/class_agent.mjs'],
-  ['student/class_quality.py', 'backend/class_quality.py'], ['student/class_quality.mjs', 'variants/node-backend/class_quality.mjs']]) {
+  ['student/class_quality.py', 'backend/class_quality.py'], ['student/class_quality.mjs', 'variants/node-backend/class_quality.mjs'],
+  ['student/class_auth.py', 'backend/class_auth.py'], ['student/class_auth.mjs', 'variants/node-backend/class_auth.mjs']]) {
   assert.equal(read(join(kit, to)), lf(join(repo, from)), `${to} must be the platform's ${from} (line endings normalised to LF)`);
 }
 const manifest = JSON.parse(read(join(kit, 'kit-manifest.json')));
@@ -99,7 +100,7 @@ const fixture = (id, level, mutate, { exit } = {}) => {
   assert.equal(status, exit ?? (level === 'error' ? 1 : 0), `${id}: exit code`);
   return json;
 };
-const toNode = (d) => { rmSync(join(d, 'backend', 'app.py')); rmSync(join(d, 'backend', 'class_ai.py')); rmSync(join(d, 'backend', 'class_storage.py')); rmSync(join(d, 'backend', 'class_knowledge.py')); rmSync(join(d, 'backend', 'class_agent.py')); rmSync(join(d, 'backend', 'class_quality.py')); rmSync(join(d, 'backend', 'study.py')); cpSync(join(d, 'variants', 'node-backend'), join(d, 'backend'), { recursive: true }); rmSync(join(d, 'variants'), { recursive: true }); };
+const toNode = (d) => { rmSync(join(d, 'backend', 'app.py')); rmSync(join(d, 'backend', 'class_ai.py')); rmSync(join(d, 'backend', 'class_storage.py')); rmSync(join(d, 'backend', 'class_knowledge.py')); rmSync(join(d, 'backend', 'class_agent.py')); rmSync(join(d, 'backend', 'class_quality.py')); rmSync(join(d, 'backend', 'class_auth.py')); rmSync(join(d, 'backend', 'study.py')); cpSync(join(d, 'variants', 'node-backend'), join(d, 'backend'), { recursive: true }); rmSync(join(d, 'variants'), { recursive: true }); };
 const append = (file, text) => (d) => writeFileSync(join(d, file), read(join(d, file)) + text);
 const fakeToken = 'mds_' + 'a1B2'.repeat(6);
 const fakeOrKey = 'sk-or-v1-' + 'a1B2c3D4'.repeat(4);

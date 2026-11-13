@@ -111,6 +111,11 @@ await step('compute worker: the machine is off unless started, start and stop fr
   }
 });
 
+await step('teacher card: the read-only line that says which AI a student’s voice ordering uses (Gemini free, OpenRouter with the student’s VOICE_MODEL, or the default), never a secret', () => {
+  const r = spawnSync('node', [join(here, 'test_voice_route.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('teacher installer and updater (fake AWS CLI), kit signing: try and domain install, plan/apply bound to the shown plan, feature switches; terminal prompts; verify with a sample site; saved AWS access and editor entry updates; export, import and the transfer between accounts; custom domains; teacher MCP; the npm package', () => {
   for (const test of ['test_installer.mjs', 'test_prompts.mjs', 'test_verify.mjs', 'test_credentials.mjs', 'test_tenant.mjs', 'test_data.mjs', 'test_transfer.mjs', 'test_teacher_mcp.mjs', 'test_teacher_package.mjs', 'test_signing.mjs']) {
     const r = spawnSync('node', [join(here, test)], { encoding: 'utf8' });

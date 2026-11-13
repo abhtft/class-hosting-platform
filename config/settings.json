@@ -23,6 +23,11 @@
       "help": "How long teacher and student sessions last and when repeated wrong passwords lock a login."
     },
     {
+      "id": "auth",
+      "title": "Sign-in for student apps",
+      "help": "Google sign-in for the visitors of the apps students build (not the teacher or student login of the platform)."
+    },
+    {
       "id": "tokens",
       "title": "Student tokens",
       "help": "How long a token can live and what happens when it runs out."
@@ -2683,6 +2688,21 @@
       "risk": "security",
       "env": "AUTH_GOOGLE_PARAM",
       "template": "Parameter:AuthGoogleParameterName"
+    },
+    {
+      "key": "auth.sessionDays",
+      "group": "auth",
+      "title": "How long a visitor stays signed in",
+      "help": "Days a visitor of a student app stays signed in before they must sign in with Google again. Applies to apps when sign-in is next turned on or their backend is next published.",
+      "unit": "days",
+      "default": 7,
+      "min": 1,
+      "max": 30,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "auth.sessionDays"
+      ]
     }
   ],
   "fixed": [

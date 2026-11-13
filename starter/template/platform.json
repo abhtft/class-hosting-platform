@@ -20,6 +20,7 @@
     "push",
     "project",
     "addons",
+    "signin",
     "traces",
     "eval",
     "deploy"
@@ -51,6 +52,9 @@
     "backend/class_quality.py",
     "variants/node-backend/class_quality.mjs",
     "backend/class_quality.mjs",
+    "backend/class_auth.py",
+    "variants/node-backend/class_auth.mjs",
+    "backend/class_auth.mjs",
     "PROMPTS.md",
     "INTERVIEW.md",
     "PATTERNS.md"

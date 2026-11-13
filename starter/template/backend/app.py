@@ -17,6 +17,7 @@ import json
 import time
 from urllib.parse import parse_qs
 
+import class_auth  # the platform's helper for "Sign in with Google" (see AGENTS.md, "Sign-in"): never write your own login
 import class_storage as storage  # the platform's helper for saving data (needs the teacher to switch class storage on)
 import study  # EXAMPLE routes for the AI patterns (answer from books, feedback, an agent): read them, copy what you need, delete what you do not (see PATTERNS.md)
 from class_ai import AiError, ask  # the platform's helper for the class AI: two lines are all you need
@@ -52,6 +53,17 @@ def handler(event, context):
         return run_job(event["job"])
     method = event["requestContext"]["http"]["method"]
     path = event["rawPath"]
+
+    answer = class_auth.handle(event)  # the sign-in routes: /auth/login, /auth/callback, /auth/logout, /auth/me
+    if answer:
+        return answer
+
+    if method == "GET" and path == "/private":  # EXAMPLE of a route only a signed-in visitor may use
+        try:
+            user = class_auth.require_user(event)  # who is signed in; never trust a user id sent by the page
+        except class_auth.SignInRequired as stop:
+            return stop.response
+        return respond(200, {"message": f"Hello, {user['name']}. Only you can see this."})
 
     if method == "GET" and path == "/health":
         return respond(200, {"ok": True})

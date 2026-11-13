@@ -134,6 +134,7 @@ ${out}`);
   rm(join(nodeKit, 'backend', 'class_knowledge.py'));
   rm(join(nodeKit, 'backend', 'class_agent.py'));
   rm(join(nodeKit, 'backend', 'class_quality.py'));
+  rm(join(nodeKit, 'backend', 'class_auth.py'));
   rm(join(nodeKit, 'backend', 'study.py'));
   cp(join(nodeKit, 'variants', 'node-backend'), join(nodeKit, 'backend'), { recursive: true });
   rm(join(nodeKit, 'variants'), { recursive: true });

@@ -14,6 +14,7 @@
 // Run it on your computer with `npm run dev` (or `npm run dev -- --backend-only`).
 import { AiError, ask } from './class_ai.mjs'; // the platform's helper for the class AI: two lines are all you need
 import * as storage from './class_storage.mjs'; // the platform's helper for saving data (needs the teacher to switch class storage on)
+import * as classAuth from './class_auth.mjs'; // the platform's helper for "Sign in with Google" (see AGENTS.md, "Sign-in"): never write your own login
 import * as study from './study.mjs'; // EXAMPLE routes for the AI patterns (answer from books, feedback, an agent): read them, copy what you need, delete what you do not (see PATTERNS.md)
 
 const json = (statusCode, data) => ({ statusCode, headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });
@@ -45,6 +46,15 @@ export const handler = async (event) => {
   if (event.job) return runJob(event.job); // a background job, not a web request
   const { method } = event.requestContext.http;
   const path = event.rawPath;
+
+  const answer = await classAuth.handle(event); // the sign-in routes: /auth/login, /auth/callback, /auth/logout, /auth/me
+  if (answer) return answer;
+
+  if (method === 'GET' && path === '/private') { // EXAMPLE of a route only a signed-in visitor may use
+    const user = classAuth.currentUser(event); // who is signed in; never trust a user id sent by the page
+    if (!user) return new classAuth.SignInRequired().response;
+    return json(200, { message: `Hello, ${user.name}. Only you can see this.` });
+  }
 
   if (method === 'GET' && path === '/health') return json(200, { ok: true });
 
