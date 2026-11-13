@@ -180,14 +180,20 @@ def apply_to_function(item):
     return backends._save(item, env_names=sorted(variables))
 
 
-def login_host(record):
+def login_host(domain):
     """The sign-in address of the shared pool (Cognito's hosted pages on the pool's own domain)."""
-    return f"https://{record['domain']}.auth.{os.environ.get('AWS_REGION', 'us-east-1')}.amazoncognito.com"
+    return f"https://{domain}.auth.{os.environ.get('AWS_REGION', 'us-east-1')}.amazoncognito.com"
 
 
-def google_return_address(record):
-    """The address to register on the Google client: Cognito's answer page for the pool. Registered once, shared by every app."""
-    return login_host(record) + "/oauth2/idpresponse"
+def google_return_address(domain):
+    """The address to register on the Google client: Cognito's answer page for the pool. Registered once, shared by every app.
+    The domain is fixed in advance (see _domain_name), so the teacher can register it BEFORE the pool exists."""
+    return login_host(domain) + "/oauth2/idpresponse"
+
+
+def _addresses():
+    domain = (db().get(PLATFORM_KEY) or {}).get("domain") or _domain_name()
+    return {"google_return_address": google_return_address(domain), "login_host": login_host(domain)}
 
 
 def student_route(item, method, body):
@@ -197,21 +203,11 @@ def student_route(item, method, body):
         raise PortalError(403, "Sign-in needs your backend. Ask your teacher to turn the backend on for you first.")
     current = dict(item.get("auth") or {})
     if method == "GET":
-        record = db().get(PLATFORM_KEY) or {}
-        out = {"enabled": bool(current.get("enabled")), "callback": current.get("callback"), "logout": current.get("logout")}
-        if record.get("domain"):
-            out["google_return_address"] = google_return_address(record)
-            out["login_host"] = login_host(record)
-        return 200, out
+        return 200, {"enabled": bool(current.get("enabled")), "callback": current.get("callback"), "logout": current.get("logout"), **_addresses()}
     if method != "POST":
         raise PortalError(405, "Use GET to see sign-in, or POST with enabled true or false.")
     flag = (body or {}).get("enabled")
     if not isinstance(flag, bool):
         raise PortalError(400, "Send enabled as true or false.")
     auth_now = enable_app(item) if flag else disable_app(item)
-    record = db().get(PLATFORM_KEY) or {}
-    out = {"enabled": bool(auth_now.get("enabled")), "callback": auth_now.get("callback"), "logout": auth_now.get("logout")}
-    if record.get("domain"):
-        out["google_return_address"] = google_return_address(record)
-        out["login_host"] = login_host(record)
-    return 200, out
+    return 200, {"enabled": bool(auth_now.get("enabled")), "callback": auth_now.get("callback"), "logout": auth_now.get("logout"), **_addresses()}

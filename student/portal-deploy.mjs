@@ -545,12 +545,37 @@ async function projectCommand(name) {
   }
 }
 
+/** `signin`: Google sign-in for the visitors of your app. `npm run signin` shows the state, `-- on` turns it on, `-- off` turns it off. */
+async function signinCommand() {
+  const saved = readToken();
+  if (!saved) fail(NO_TOKEN());
+  const word = args[1];
+  if (word && !['on', 'off', 'status'].includes(word)) fail('Use:  npm run signin  (shows the state),  npm run signin -- on,  or  npm run signin -- off');
+  const { session } = await signIn(saved);
+  const state = word === 'on' || word === 'off'
+    ? await api('POST', '/api/student/sign-in', { session, body: { enabled: word === 'on' } })
+    : await api('GET', '/api/student/sign-in', { session });
+  if (state.enabled) {
+    console.log('✔ Sign-in with Google is ON for your app.');
+    console.log(`  Visitors come back to: ${state.callback}`);
+    console.log('  Your backend already has the sign-in routes (/api/auth/login, /api/auth/me, /api/auth/logout). Deploy once so the page and backend are current:  npm run deploy');
+  } else {
+    console.log('Sign-in with Google is OFF for your app.' + (word === 'off' ? ' Visitors can no longer sign in.' : ' Turn it on with:  npm run signin -- on'));
+  }
+  if (state.google_return_address) {
+    console.log(`
+For your teacher (once for the whole class): the Google client must list this return address:
+  ${state.google_return_address}`);
+  }
+}
+
 // ---------- main ----------
 async function main() {
   if (args[0] === 'login') return login(option('--token'));
   if (await syncKit()) return;
   if (args[0] === 'status') return status();
   if (args[0] === 'logs') return logs();
+  if (args[0] === 'signin') return signinCommand();
   if (args[0] === 'knowledge') return knowledgeCommand();
   if (args[0] === 'traces') return tracesCommand();
   if (['pull', 'push', 'project'].includes(args[0])) return projectCommand(args[0]);

@@ -70,7 +70,7 @@ ${out}`);
   assert.equal((await aiOn(true)).status, 200);
   const first = deploy(kit);
   assert.equal(first.status, 0, first.stdout + first.stderr);
-  assert.match(first.stdout, /Backend: packed 7 files from backend\//);
+  assert.match(first.stdout, /Backend: packed 8 files from backend\//);
   assert.match(first.stdout, /Backend ready \(python3\.12\)/);
   assert.match(first.stdout, /Frontend: packed \d+ files from frontend[\\/]dist\//);
   assert.match(first.stdout, /Frontend live at https:\/\/alice\.example\.edu\//);

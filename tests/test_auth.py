@@ -174,6 +174,17 @@ assert auth.app_base("ana") == "https://d123.cloudfront.net/ana"
 os.environ["ROOT_DOMAIN"] = "example.com"
 print("  ok  return addresses follow the platform's rule: the app's own address, on the platform's domain")
 
+# ---- the Google return address is known BEFORE the pool exists, so the teacher can register it first
+saved_platform = dict(portal._store.items.pop(auth.PLATFORM_KEY))
+backends_enabled = student("early")
+db().update(backends_enabled["pk"], {"backend": {"enabled": True}})
+code, early = auth.student_route(db().get("tok#early"), "GET", None)
+assert code == 200 and early["enabled"] is False and early["google_return_address"].startswith("https://sd-class-")
+portal._store.items[auth.PLATFORM_KEY] = saved_platform
+code, later = auth.student_route(db().get("tok#early"), "GET", None)
+assert later["google_return_address"] == early["google_return_address"], "the address does not change when the pool is made"
+print("  ok  the Google return address is shown before the pool exists, and stays the same afterwards")
+
 # ---- the student's route: /api/student/sign-in (A2, part 1)
 ssm.value = GOOD
 cara = student("cara")

@@ -89,6 +89,7 @@ Start here. The first half is a one-page overview; the second half says which do
 | [ADDONS_PLAN.md](ADDONS_PLAN.md) | The plan behind add-ons: phase 1 built, phases 2 and 3 (teacher tab, suggestions) still plans |
 | [MIGRATION_PLAN.md](MIGRATION_PLAN.md) | **Plan (not built):** a migration assistant that says whether an existing app can move onto the platform (green, yellow, red with reasons), plans the move and does it only after the student approves each step; rule-based scanner first, runs in the editor |
 | [SETTINGS.md](SETTINGS.md) | **Reference, generated:** every platform setting (limit, default, time) with its range, scope, risk and what it does, from `config/settings.json` |
+| [SIGN_IN.md](SIGN_IN.md) | Sign in with Google for the apps students build: the teacher's one-time Google setup, the student's switch, what a visitor sees, and what to do when something goes wrong |
 | [AUTH_PLAN.md](AUTH_PLAN.md) | Plan only: sign in with Google for apps built on the platform (a platform-owned sign-in bridge, a helper for the AI editor), with Cognito as the later option |
 | [INSTALLABLE_PLAN.md](INSTALLABLE_PLAN.md) | Plan only: a website install button and home-screen icon for phones (a PWA), no app store, near-zero cost |
 | [SETTINGS_PLAN.md](SETTINGS_PLAN.md) | The plan for one settings registry, one portal page and one command: steps S0 and S1 (registry, loader) built; S2 to S5 still plans |

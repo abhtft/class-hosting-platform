@@ -188,6 +188,27 @@ if (hasFrontend) {
   if (!errorsIn(['frontend-direct-ai', 'frontend-localhost', 'vite-secret'])) add('ok', 'frontend-ok', 'The site calls only relative /api addresses and holds no secrets.');
 }
 
+// ---------- sign-in: use the platform's, never your own ----------
+// A login written by hand is the most common way a class project leaks its visitors' accounts. The platform gives every app "Sign in with Google"
+// (class_auth, AGENTS.md "Sign-in"), so these are warnings that say what to use instead.
+{
+  const SIGNIN_FIX = `Use the platform's sign-in instead: class_auth in the backend and useUser() in the page (see AGENTS.md, "Sign-in"). Turn it on with  npm run signin -- on.`;
+  const mine = (rel) => /(^|\/)class_auth\.(py|mjs)$/.test(rel);
+  const pages = hasFrontend ? walk(join(frontendDir, 'src')).filter((f) => /\.(tsx?|jsx?|vue|svelte)$/.test(f.rel)) : [];
+  const server = hasBackend ? walk(backendDir, new Set(['__pycache__', '.git', 'node_modules'])).filter((f) => /\.(py|mjs|js)$/.test(f.rel) && !mine(f.rel)) : [];
+  for (const file of pages) {
+    const code = stripComments(readText(file) ?? '');
+    if (/type\s*=\s*["'{`]*\s*["'`]?password/i.test(code)) add('warn', 'own-login-form', `${file.rel} has a password field: a login of your own.`, SIGNIN_FIX);
+    if (/(localStorage|sessionStorage)\.setItem\(\s*['"`][^'"`]*(token|jwt|session|auth|password)/i.test(code)) add('warn', 'token-in-browser-storage', `${file.rel} saves a token or login in the browser's storage.`, `Anything in the browser's storage can be read by any script on the page. ${SIGNIN_FIX}`);
+  }
+  for (const file of server) {
+    const code = stripComments(readText(file) ?? '');
+    if (/['"]\/(login|signin|sign-in|signup|sign-up|register)['"]/i.test(code)) add('warn', 'own-login-route', `${file.rel} has a login or sign-up route of your own.`, SIGNIN_FIX);
+    if (/(bcrypt|check_password|pbkdf2|scrypt|jsonwebtoken)|jwt\.(encode|decode|sign|verify)\s*\(/i.test(code)) add('warn', 'own-password-or-token-code', `${file.rel} hashes passwords or makes tokens itself.`, SIGNIN_FIX);
+  }
+  if (!results.some((r) => ['own-login-form', 'token-in-browser-storage', 'own-login-route', 'own-password-or-token-code'].includes(r.id))) add('ok', 'signin-ok', 'No login of your own: sign-in, if you use it, comes from the platform.');
+}
+
 // ---------- secrets anywhere in the project ----------
 const PATTERNS = [
   ['secret-token', /mds_[A-Za-z0-9_-]{16,}/, 'a portal token'],

@@ -124,6 +124,19 @@ The teacher approved a short list of **add-ons**: *skills* (guides for you, such
 - **Never `npm install` anything else for the site** without the student's clear request; if a package is not on the list, build it with what is there and tell the student, or ask them to ask the teacher. The add command installs with scripts turned off and refuses (and undoes) an install that brings anything the teacher did not approve; do not work around that.
 - `addons.json` records what was added; do not edit it by hand.
 
+## Sign-in (the people who use the student's app)
+
+When the app needs to know who the visitor is (their own notes, a private page, a score list), use the platform's **Sign in with Google**. It is already in the starter: `backend/class_auth.py` (Node: `class_auth.mjs`) and `frontend/src/auth.ts` with `AuthBar.tsx`. This is about the app's visitors; the teacher's and the student's own login to the platform is a different thing and is not touched.
+
+- **Never write a login of your own.** No login form, no password field, no password check, no token or JWT code, no `/login` or `/signup` route, nothing saved to `localStorage`. `npm run check` warns about all of these.
+- **In the backend** call `class_auth.handle(event)` first in `handler` (it serves `/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/me`). Then `class_auth.current_user(event)` gives `{id, email, name}` or `None`; `class_auth.require_user(event)` raises `SignInRequired` (return `stop.response`, a ready 401). Node: `classAuth.currentUser(event)`, `classAuth.requireUser(event)`.
+- **The backend decides who the user is.** Never trust a user id, email or name sent by the page. Save a visitor's data under `user["id"]` (class storage), and check that id on every read and write, so one visitor can never reach another's records.
+- **The page never sees a token.** Use `useUser()` from `src/auth.ts`: `{ user, signIn, signOut }`. Show visitor-only parts only when `user` is set, and handle the 401 the backend answers when the session has ended.
+- **Store the least:** the id, email and name are enough. Tell visitors in the page what is stored and who to ask to remove it (the student's teacher can erase a visitor's records).
+- **On the student's computer** (`npm run dev`) a pretend visitor ("Local Visitor") signs in at once, so you can build without Google. On the platform sign-in is **off until the student turns it on**: `npm run signin` shows the state, `npm run signin -- on` turns it on (it needs the student's backend on, and the teacher must have set up Google once), `-- off` turns it off. Ask the student first before turning it on.
+- **Never put the platform's sign-in values (`CLASS_AUTH_*`) in code or in the portal's variables:** the platform sets them.
+- A visitor's Google account is shared across the class's apps (one sign-in for the platform). Each app still only sees its own visitors' data.
+
 ## Calling other services
 
 - The **backend** may call public HTTPS APIs (`urllib.request` / `fetch`). Use a timeout of 15 seconds or less per call: the total request limit is 27 s. Never send private data.
@@ -195,6 +208,7 @@ The student's source files can live on the platform too, so the same code is on 
 | `npm run logs` | What the published backend printed lately (`-- --errors` for errors only). The first thing to read when the live backend misbehaves. |
 | `npm run login` | **The student runs this themselves, once per project.** It asks for the portal token (hidden), checks it and saves it in this project's `.env.local`. There is no computer-wide token. |
 | `npm run push` / `npm run pull` / `npm run project` | Project sync: send this folder's source files to the platform, bring changes made elsewhere (another computer or a teammate), or list the projects. See "Keeping the project's files on the platform". |
+| `npm run signin` | Google sign-in for the app's visitors: shows whether it is on; `-- on` / `-- off` switch it. See "Sign-in". |
 | `npm run addons` | Lists the approved add-ons; `-- add <name>`, `-- remove <name>`, `-- show <name>`, `-- verify`. See "Add-ons". |
 | `npm run deploy` | Publishes the backend, then the frontend, straight from this computer. |
 | `npm run mcp-config` | Prints the settings that connect an AI editor's tool server (see "Deploying"). |

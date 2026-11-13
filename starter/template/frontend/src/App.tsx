@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, ApiError } from './api'
 import AgentPanel from './AgentPanel'
+import AuthBar from './AuthBar'
 import StudyPanel from './StudyPanel'
 
 /**
@@ -43,6 +44,7 @@ export default function App() {
   return (
     <main>
       <h1>My class project</h1>
+      <AuthBar />
       <p className="muted">Edit <code>frontend/src/App.tsx</code> and <code>backend/app.py</code>, then push to GitHub: it deploys by itself.</p>
 
       <section>

@@ -238,6 +238,23 @@ await step('sign-in for student apps (platform side): one shared Cognito pool wi
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('sign-in helper for the app (Python and Node): three modes, the Google flow through the platform with a pretend token service, every wrong callback signing nobody in, the signed session cookie (changed, forged, other app, expired), the place to return to never another site, and both languages reading each other’s cookie', () => {
+  let r = spawnSync(python, [join(here, 'test_class_auth.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  r = spawnSync('node', [join(here, 'test_class_auth.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+await step('npm run signin against a fake portal: the state, on and off, the app’s return address and the address the teacher registers on Google, the platform’s plain message when Google is not set up, an unknown word refused', () => {
+  const r = spawnSync('node', [join(here, 'test_signin_command.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+await step('npm run check and the sign-in standard: a fresh kit has no login of its own, and a password field, a token in browser storage, a /signup route and password hashing are each flagged with the advice to use the platform’s sign-in', () => {
+  const r = spawnSync('node', [join(here, 'test_check_signin.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('specification: the machine-checked facts in docs/TECHNICAL_SPECIFICATION.md equal the code', () => {
   const r = spawnSync(python, [join(here, 'test_spec.py')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);
