@@ -527,7 +527,112 @@
         "body": [
           "<script src=\"/install.js\"></script>"
         ]
-      }
+      },
+      "after": "To try it, open the site on a phone: Android shows an Install app button, iPhone shows the Add to Home Screen steps. Change the name and icon in frontend/public/manifest.webmanifest and frontend/public/icon-512.png."
+    },
+    {
+      "id": "sign-in",
+      "kind": "app",
+      "title": "Sign in with Google (for your app's visitors)",
+      "description": "Adds the sign-in bar, the sign-in routes and an example private route to an app made before kit 2.9.0, in a few short edits.",
+      "license": "MIT",
+      "source": "written for this platform (docs/AUTH_PLAN.md, docs/SIGN_IN.md)",
+      "howto": "Adds Sign in with Google for the visitors of this app, the way the starter has it. Needs a kit of version 2.9.0 or newer (it brings backend/class_auth.py or class_auth.mjs). It adds frontend/src/auth.ts (useUser) and AuthBar.tsx, and a few short edits: in App.tsx the import and <AuthBar /> under the title; in the backend (app.py or index.mjs) the import, class_auth.handle(event) first in the handler, and an example private route /private. If the project's files were changed so the add-on cannot find its place, do it by hand: import class_auth; call class_auth.handle(event) first in the handler and return its answer when there is one; get the visitor with class_auth.current_user(event) or require_user(event); in the page use useUser() from src/auth.ts. Never write a login of your own. Turn it on with npm run signin -- on.",
+      "after": "Turn it on with  npm run signin -- on  (it needs your backend on and your teacher's one-time Google setup), then  npm run deploy. On your own computer a pretend visitor signs in at once.",
+      "needsAnyOf": [
+        "backend/app.py",
+        "backend/index.mjs"
+      ],
+      "files": [
+        {
+          "from": "files/signin/auth.ts",
+          "to": "frontend/src/auth.ts",
+          "sha256": "404d9b1f2929868b5a8fe55b3d37e212a099c94a3b307bd9fd22d085e920c561",
+          "bytes": 1765
+        },
+        {
+          "from": "files/signin/AuthBar.tsx",
+          "to": "frontend/src/AuthBar.tsx",
+          "sha256": "f02dd9d562d2ceafc3cc5635881de31b345f40e95ca845655fcde520bd50a4ca",
+          "bytes": 724
+        }
+      ],
+      "edits": [
+        {
+          "file": "backend/app.py",
+          "needs": "backend/class_auth.py",
+          "find": "^def handler\\(event, context\\):\\s*$",
+          "where": "before",
+          "lines": [
+            "import class_auth  # the platform's helper for \"Sign in with Google\" (see AGENTS.md, \"Sign-in\"): never write your own login",
+            "",
+            ""
+          ]
+        },
+        {
+          "file": "backend/app.py",
+          "needs": "backend/class_auth.py",
+          "find": "^\\s*path = event\\[\"rawPath\"\\]\\s*$",
+          "where": "after",
+          "lines": [
+            "",
+            "answer = class_auth.handle(event)  # the sign-in routes: /auth/login, /auth/callback, /auth/logout, /auth/me",
+            "if answer:",
+            "    return answer",
+            "",
+            "if method == \"GET\" and path == \"/private\":  # EXAMPLE of a route only a signed-in visitor may use",
+            "    try:",
+            "        user = class_auth.require_user(event)  # who is signed in; never trust a user id sent by the page",
+            "    except class_auth.SignInRequired as stop:",
+            "        return stop.response",
+            "    return respond(200, {\"message\": f\"Hello, {user['name']}. Only you can see this.\"})"
+          ]
+        },
+        {
+          "file": "backend/index.mjs",
+          "needs": "backend/class_auth.mjs",
+          "find": "^export const handler = async \\(event\\) => \\{\\s*$",
+          "where": "before",
+          "lines": [
+            "import * as classAuth from './class_auth.mjs'; // the platform's helper for \"Sign in with Google\" (see AGENTS.md, \"Sign-in\"): never write your own login",
+            "",
+            ""
+          ]
+        },
+        {
+          "file": "backend/index.mjs",
+          "needs": "backend/class_auth.mjs",
+          "find": "^\\s*const path = event\\.rawPath;\\s*$",
+          "where": "after",
+          "lines": [
+            "",
+            "const answer = await classAuth.handle(event); // the sign-in routes: /auth/login, /auth/callback, /auth/logout, /auth/me",
+            "if (answer) return answer;",
+            "",
+            "if (method === 'GET' && path === '/private') { // EXAMPLE of a route only a signed-in visitor may use",
+            "  const user = classAuth.currentUser(event); // who is signed in; never trust a user id sent by the page",
+            "  if (!user) return new classAuth.SignInRequired().response;",
+            "  return json(200, { message: `Hello, ${user.name}. Only you can see this.` });",
+            "}"
+          ]
+        },
+        {
+          "file": "frontend/src/App.tsx",
+          "find": "^import .*from '\\./api'\\s*;?\\s*$",
+          "where": "after",
+          "lines": [
+            "import AuthBar from './AuthBar'"
+          ]
+        },
+        {
+          "file": "frontend/src/App.tsx",
+          "find": "^\\s*<h1>.*</h1>\\s*$",
+          "where": "after",
+          "lines": [
+            "<AuthBar />"
+          ]
+        }
+      ]
     }
   ]
 }

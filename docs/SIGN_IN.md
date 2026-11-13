@@ -33,6 +33,16 @@ You need a Google account and about ten minutes. Everything on Google's side is 
 
 On your own computer (`npm run dev`) a pretend visitor ("Local Visitor") signs in at once, so you can build without Google. The project checker (`npm run check`) warns when a project has a login of its own: use the platform's sign-in instead.
 
+## Apps that were built before kit 2.9.0
+
+A kit update brings the helper (`class_auth`) and the `npm run signin` command, but it never edits a student's own files, so an older app does not yet have the sign-in routes or the sign-in bar. Add them with the **sign-in add-on**:
+
+1. Update the kit if needed: `npm run platform -- update --apply`.
+2. `npm run addons -- add sign-in` (or ask your AI editor: it uses `add_addon` and asks you first). It adds `frontend/src/auth.ts` and `AuthBar.tsx`, and makes four short edits: the import and the sign-in routes plus an example `/private` route in `backend/app.py` (or `index.mjs`), and the import and `<AuthBar />` under the title in `frontend/src/App.tsx`.
+3. If your files differ so much that it cannot find its place, it says so and changes **nothing**, and shows the same steps to do by hand.
+4. `npm run addons -- remove sign-in` takes the edits out again (lines you changed are kept).
+5. Then `npm run signin -- on` and `npm run deploy` as above.
+
 ## For the AI editor
 
 The kit's rules (AGENTS.md, "Sign-in") tell the AI to use `class_auth` and `useUser()`, never to write a login, to take the user only from `current_user(event)` (never from the page), to save each visitor's data under their id and check it on every read and write, and to ask the student before turning sign-in on.

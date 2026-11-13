@@ -25,6 +25,10 @@ export const MAX_SKILL_BYTES = 12 * 1024;
 export const MAX_APP_FILES = 10;
 export const MAX_APP_FILE_BYTES = 512 * 1024;
 const APP_LINE_LIMIT = 300;
+const MAX_APP_EDITS = 8;
+const MAX_EDIT_LINES = 20;
+/** The only files an add-on may edit: the starter's own entry points. */
+const EDITABLE = ['frontend/src/App.tsx', 'backend/app.py', 'backend/index.mjs'];
 /** Licences the catalogue accepts. */
 export const LICENSES = ['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'OFL-1.1', '0BSD', 'CC0-1.0', 'BlueOak-1.0.0'];
 /** A skill is text for an AI: it may advise, it may not give orders about commands, links, secrets or the AI's own rules. */
@@ -102,21 +106,40 @@ export function validateCatalog(catalog, read) {
       const files = Array.isArray(entry.files) ? entry.files : [];
       if (!files.length || files.length > MAX_APP_FILES) add(id, `between 1 and ${MAX_APP_FILES} files are needed.`);
       for (const f of files) {
-        if (!/^frontend\/public\/[a-z0-9][a-z0-9._-]*$/.test(f.to || '')) { add(id, `${f.to} must be a file directly in the site's public folder.`); continue; }
-        if (!/^files\/[a-z0-9/._-]+$/.test(f.from || '') || f.from.includes('..')) { add(id, `${f.from} must be a file under files/.`); continue; }
+        if (!/^frontend\/(public|src)\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(f.to || '')) { add(id, `${f.to} must be a file directly in the site's public or src folder.`); continue; }
+        if (!/^files\/[A-Za-z0-9/._-]+$/.test(f.from || '') || f.from.includes('..')) { add(id, `${f.from} must be a file under files/.`); continue; }
         const data = read(f.from);
         if (!data) { add(id, `the file ${f.from} is missing.`); continue; }
         if (data.length > MAX_APP_FILE_BYTES) add(id, `${f.from} is ${data.length} bytes; the limit is ${MAX_APP_FILE_BYTES}.`);
         if (f.sha256 !== fileHash(data)) add(id, `the checksum of ${f.from} does not match (run node starter/addons/pin.mjs after editing).`);
       }
-      const page = entry.page || {};
-      if (page.file !== 'frontend/index.html') add(id, 'page.file must be frontend/index.html.');
-      const lines = [...(page.head ?? []), ...(page.body ?? [])];
-      if (!lines.length) add(id, 'page lines are needed (what to add to the site\'s index.html).');
-      for (const line of lines) {
-        if (typeof line !== 'string' || !line.trim() || line.length > APP_LINE_LIMIT) { add(id, 'every page line must be a short line of text.'); continue; }
-        for (const [pattern, what] of BANNED) if (pattern.test(line)) add(id, `a page line contains ${what}.`);
+      const page = entry.page;
+      if (page) {
+        if (page.file !== 'frontend/index.html') add(id, 'page.file must be frontend/index.html.');
+        const lines = [...(page.head ?? []), ...(page.body ?? [])];
+        if (!lines.length) add(id, 'page lines are needed (what to add to the site\'s index.html).');
+        for (const line of lines) {
+          if (typeof line !== 'string' || !line.trim() || line.length > APP_LINE_LIMIT) { add(id, 'every page line must be a short line of text.'); continue; }
+          for (const [pattern, what] of BANNED) if (pattern.test(line)) add(id, `a page line contains ${what}.`);
+        }
       }
+      const edits = Array.isArray(entry.edits) ? entry.edits : [];
+      if (!page && !edits.length) add(id, 'page lines or edits are needed (what the add-on changes in the project).');
+      if (edits.length > MAX_APP_EDITS) add(id, `at most ${MAX_APP_EDITS} edits.`);
+      for (const e of edits) {
+        if (!EDITABLE.includes(e.file)) add(id, `${e.file} is not a file an add-on may edit (${EDITABLE.join(', ')}).`);
+        if (e.needs !== undefined && !/^(backend|frontend)\/[A-Za-z0-9_.-]+$/.test(e.needs)) add(id, `needs ${e.needs} is not a valid project file.`);
+        if (typeof e.find !== 'string' || !e.find || e.find.length > APP_LINE_LIMIT) add(id, 'every edit needs a find pattern (up to 300 characters).');
+        else { try { new RegExp(e.find); } catch { add(id, `the find pattern ${e.find} is not valid.`); } }
+        if (!['before', 'after'].includes(e.where)) add(id, 'every edit needs where: "before" or "after".');
+        const lines = Array.isArray(e.lines) ? e.lines : [];
+        if (!lines.length || lines.length > MAX_EDIT_LINES || !lines.some((line) => typeof line === 'string' && line.trim())) add(id, `every edit needs 1 to ${MAX_EDIT_LINES} lines of text.`);
+        for (const line of lines) {
+          if (typeof line !== 'string' || line.length > APP_LINE_LIMIT) { add(id, 'every edit line must be short text.'); continue; }
+          for (const [pattern, what] of BANNED) if (pattern.test(line)) add(id, `an edit line contains ${what}.`);
+        }
+      }
+      if (entry.needsAnyOf !== undefined && (!Array.isArray(entry.needsAnyOf) || entry.needsAnyOf.some((x) => !/^(backend|frontend)\/[A-Za-z0-9_.-]+$/.test(x)))) add(id, 'needsAnyOf must list project files.');
       const howto = String(entry.howto || '');
       if (howto.length < 40 || howto.length > 1800) add(id, 'howto (40 to 1800 characters) is needed: it tells the AI what the add-on does and what to change.');
       for (const [pattern, what] of BANNED) if (pattern.test(howto)) add(id, `howto contains ${what}, which add-on text may not contain.`);
@@ -165,7 +188,7 @@ export function describe(entry) {
   const what = entry.kind === 'module'
     ? `a package for your site (${entry.package} ${entry.version}, about ${sizeText(entry.installedKb)} installed) with a guide for your AI editor`
     : entry.kind === 'app'
-      ? `${entry.files.length} small files in your site's public folder and ${[...(entry.page.head ?? []), ...(entry.page.body ?? [])].length} lines in its index.html, with a guide for your AI editor`
+      ? `${entry.files.length} small files in your site${entry.page ? `, ${[...(entry.page.head ?? []), ...(entry.page.body ?? [])].length} lines in its index.html` : ''}${entry.edits?.length ? `, and ${entry.edits.length} short edits in the starter's own files (${[...new Set(entry.edits.map((e) => e.file))].join(', ')})` : ''}, with a guide for your AI editor`
       : 'a guide for your AI editor (it adds one file, skills/' + entry.id + '.md)';
   return `${entry.title} [${entry.id}]: ${entry.description}\n    Adds ${what}. Licence ${entry.license}.${entry.with?.length ? ` Goes well with: ${entry.with.join(', ')}.` : ''}`;
 }
@@ -194,40 +217,91 @@ function insertLines(html, marker, lines) {
   return { html: html.replace(new RegExp(`^[ \\t]*${marker}`, 'm'), (match) => `${indented.map((line) => `${line}\n`).join('')}${match}`), inserted: indented };
 }
 
-/** Add an "app" add-on: copy its files into the site's public folder and add its lines to index.html. Nothing is changed unless everything is possible. */
+/** Where an edit goes in the project: the add-on names starter paths (frontend/..., backend/...); a project may have renamed those two folders. */
+const projectPath = (root, rel) => rel.replace(/^(frontend|backend)\//, (_, folder) => `${platformFolder(root, folder, folder)}/`);
+
+/** Insert an edit's lines before or after the ONE line that matches its pattern, indented like that line. A page that already has the first line is left alone. */
+function applyEdit(text, edit) {
+  const lines = text.split('\n');
+  const first = edit.lines.find((line) => line.trim());
+  if (first && lines.some((line) => line.trim() === first.trim())) return { text, block: null };
+  const pattern = new RegExp(edit.find);
+  const hits = lines.map((line, i) => (pattern.test(line.replace(/\r$/, '')) ? i : -1)).filter((i) => i >= 0);
+  if (hits.length !== 1) return { error: hits.length ? `the place to add it was found ${hits.length} times, not once` : 'the place to add it was not found' };
+  const indent = lines[hits[0]].match(/^[ \t]*/)[0];
+  const block = `${edit.lines.map((line) => (line ? indent + line : '')).join('\n')}\n`;
+  lines.splice(edit.where === 'after' ? hits[0] + 1 : hits[0], 0, ...block.slice(0, -1).split('\n'));
+  return { text: lines.join('\n'), block };
+}
+
+/** Add an "app" add-on: copy its files into the site, add its lines to index.html, and make its edits in the starter's entry files.
+ *  Nothing is changed unless every step is possible; a refusal says why and shows the manual steps. */
 function addApp(root, entry, record, guide, read) {
   const frontend = platformFolder(root, 'frontend', 'frontend');
+  const refuse = (why) => ({ ok: false, message: `${entry.title} was NOT added: ${why}\nNothing was changed. To do it by hand (or ask your AI editor to):\n${entry.howto}` });
+  if (entry.needsAnyOf?.length && !entry.needsAnyOf.some((p) => existsSync(join(root, projectPath(root, p))))) {
+    return refuse(`it needs one of ${entry.needsAnyOf.map((p) => projectPath(root, p)).join(', ')}. Update the kit first (npm run platform -- update --apply), then add it again.`);
+  }
   const indexFile = join(root, frontend, 'index.html');
-  if (!existsSync(indexFile)) return { ok: false, message: `${frontend}/index.html is needed. Set the site up first (npm run dev, or the AI editor's init), then add this again.` };
-  const original = readFileSync(indexFile, 'utf8');
-  const eol = original.includes('\r\n') ? '\r\n' : '\n';
-  const text = original.replace(/\r\n/g, '\n');
+  let original = null;
+  let eol = '\n';
+  let text = '';
+  if (entry.page) {
+    if (!existsSync(indexFile)) return { ok: false, message: `${frontend}/index.html is needed. Set the site up first (npm run dev, or the AI editor's init), then add this again.` };
+    original = readFileSync(indexFile, 'utf8');
+    eol = original.includes('\r\n') ? '\r\n' : '\n';
+    text = original.replace(/\r\n/g, '\n');
+  }
   const files = [];
   for (const f of entry.files) {
-    const rel = `${frontend}/public/${basename(f.to)}`;
+    const rel = `${frontend}/${f.to.split('/')[1]}/${basename(f.to)}`;
     const target = join(root, rel);
     if (existsSync(target)) {
       if (fileHash(readFileSync(target)) === f.sha256) { files.push({ rel, target, data: null, sha256: f.sha256, created: false }); continue; }
-      return { ok: false, message: `${rel} already exists in your project and is different, so it was not added. Move your own file somewhere else, then run the command again. Nothing was changed.` };
+      return refuse(`${rel} already exists in your project and is different. Move your own file somewhere else first.`);
     }
     files.push({ rel, target, data: read(f.from), sha256: f.sha256, created: true });
   }
   let html = text;
   const inserted = { head: [], body: [] };
-  for (const [marker, key] of [['</head>', 'head'], ['</body>', 'body']]) {
-    const result = insertLines(html, marker, entry.page[key] ?? []);
-    if (result.error) return { ok: false, message: `${entry.title} was NOT added: ${result.error} Nothing was changed.` };
-    html = result.html ?? html;
-    inserted[key] = result.inserted ?? [];
+  if (entry.page) {
+    for (const [marker, key] of [['</head>', 'head'], ['</body>', 'body']]) {
+      const result = insertLines(html, marker, entry.page[key] ?? []);
+      if (result.error) return refuse(result.error);
+      html = result.html ?? html;
+      inserted[key] = result.inserted ?? [];
+    }
   }
+  const edited = new Map(); // project path -> { target, original, text, eol, blocks }
+  for (const edit of entry.edits ?? []) {
+    const rel = projectPath(root, edit.file);
+    const target = join(root, rel);
+    if (!existsSync(target)) {
+      if (entry.needsAnyOf?.includes(edit.file) && entry.needsAnyOf.some((p) => p !== edit.file && existsSync(join(root, projectPath(root, p))))) continue; // the project has the other runtime (Python or Node): this edit does not apply
+      return refuse(`${rel} was not found.`);
+    }
+    if (edit.needs && !existsSync(join(root, projectPath(root, edit.needs)))) return refuse(`${projectPath(root, edit.needs)} is missing. Update the kit first (npm run platform -- update --apply), then add it again.`);
+    if (!edited.has(rel)) {
+      const raw = readFileSync(target, 'utf8');
+      edited.set(rel, { target, original: raw, text: raw.replace(/\r\n/g, '\n'), eol: raw.includes('\r\n') ? '\r\n' : '\n', blocks: [] });
+    }
+    const state = edited.get(rel);
+    const result = applyEdit(state.text, edit);
+    if (result.error) return refuse(`${rel}: ${result.error}.`);
+    state.text = result.text;
+    if (result.block) state.blocks.push(result.block);
+  }
+  const written = [];
   try {
-    for (const f of files) if (f.created) { mkdirSync(dirname(f.target), { recursive: true }); writeFileSync(f.target, f.data); }
-    if (html !== text) writeFileSync(indexFile, html.replace(/\n/g, eol));
+    for (const f of files) if (f.created) { mkdirSync(dirname(f.target), { recursive: true }); writeFileSync(f.target, f.data); written.push(f.target); }
+    for (const state of edited.values()) if (state.blocks.length) writeFileSync(state.target, state.text.replace(/\n/g, state.eol));
+    if (entry.page && html !== text) writeFileSync(indexFile, html.replace(/\n/g, eol));
     mkdirSync(dirname(guide), { recursive: true });
     writeFileSync(guide, guideText(entry));
   } catch (error) {
-    for (const f of files) if (f.created) rmSync(f.target, { force: true });
-    writeFileSync(indexFile, original);
+    for (const file of written) rmSync(file, { force: true });
+    for (const state of edited.values()) writeFileSync(state.target, state.original);
+    if (original !== null) writeFileSync(indexFile, original);
     rmSync(guide, { force: true });
     return { ok: false, message: `${entry.title} was NOT added (${error.message}). Your project is as it was before.` };
   }
@@ -236,11 +310,18 @@ function addApp(root, entry, record, guide, read) {
     guide: `${SKILLS_DIR}/${entry.id}.md`,
     sha256: sha256Hex(Buffer.from(guideText(entry))),
     files: files.map((f) => ({ to: f.rel, sha256: f.sha256, created: f.created })),
-    page: { file: `${frontend}/index.html`, inserted },
+    ...(entry.page ? { page: { file: `${frontend}/index.html`, inserted } } : {}),
+    ...(edited.size ? { edits: [...edited.entries()].filter(([, state]) => state.blocks.length).map(([file, state]) => ({ file, blocks: state.blocks })) } : {}),
   };
   saveRecord(root, record);
   const count = files.filter((f) => f.created).length;
-  return { ok: true, message: `Added ${entry.title}: ${count} new file${count === 1 ? '' : 's'} in ${frontend}/public${files.length > count ? ` (${files.length - count} already there)` : ''}, and ${inserted.head.length + inserted.body.length} line${inserted.head.length + inserted.body.length === 1 ? '' : 's'} in ${frontend}/index.html. Your AI editor should read ${SKILLS_DIR}/${entry.id}.md. To try it, open the site on a phone: Android shows an Install app button, iPhone shows the Add to Home Screen steps. Change the name and icon in ${frontend}/public/manifest.webmanifest and ${frontend}/public/icon-512.png.` };
+  const lineCount = inserted.head.length + inserted.body.length;
+  const editCount = [...edited.values()].reduce((sum, state) => sum + state.blocks.length, 0);
+  const parts = [];
+  if (files.length) parts.push(`${count} new file${count === 1 ? '' : 's'} in ${[...new Set(files.map((f) => dirname(f.rel)))].join(' and ')}${files.length > count ? ` (${files.length - count} already there)` : ''}`);
+  if (editCount) parts.push(`${editCount} edit${editCount === 1 ? '' : 's'} in ${[...edited.entries()].filter(([, state]) => state.blocks.length).map(([file]) => file).join(', ')}`);
+  if (lineCount) parts.push(`${lineCount} line${lineCount === 1 ? '' : 's'} in ${frontend}/index.html`);
+  return { ok: true, message: `Added ${entry.title}: ${parts.join('; ')}. Your AI editor should read ${SKILLS_DIR}/${entry.id}.md. ${entry.after ?? ''}`.trim() };
 }
 
 function findEntry(catalog, id) {
@@ -343,14 +424,30 @@ export function remove(root, id, { npm = defaultNpm } = {}) {
       if (f.created && fileHash(readFileSync(target)) === f.sha256) rmSync(target);
       else kept.push(f.to);
     }
-    const indexFile = join(root, have.page.file);
-    if (existsSync(indexFile)) {
-      const lines = new Set([...(have.page.inserted.head ?? []), ...(have.page.inserted.body ?? [])].map((line) => line.trim()));
-      const original = readFileSync(indexFile, 'utf8');
-      const keptLines = original.split('\n').filter((line) => !lines.has(line.trim()));
-      if (keptLines.length !== original.split('\n').length) writeFileSync(indexFile, keptLines.join('\n'));
+    if (have.page) {
+      const indexFile = join(root, have.page.file);
+      if (existsSync(indexFile)) {
+        const lines = new Set([...(have.page.inserted.head ?? []), ...(have.page.inserted.body ?? [])].map((line) => line.trim()));
+        const original = readFileSync(indexFile, 'utf8');
+        const keptLines = original.split('\n').filter((line) => !lines.has(line.trim()));
+        if (keptLines.length !== original.split('\n').length) writeFileSync(indexFile, keptLines.join('\n'));
+      }
+      note = ` The page lines it added to ${have.page.file} are removed.`;
     }
-    note = ` The page lines it added to ${have.page.file} are removed.`;
+    for (const edit of have.edits ?? []) {
+      const target = join(root, edit.file);
+      if (!existsSync(target)) continue;
+      const raw = readFileSync(target, 'utf8');
+      const lf = raw.replace(/\r\n/g, '\n');
+      let next = lf;
+      const stuck = [];
+      for (const block of edit.blocks) {
+        if (next.includes(block)) next = next.replace(block, '');
+        else stuck.push(block);
+      }
+      if (next !== lf) writeFileSync(target, next.replace(/\n/g, raw.includes('\r\n') ? '\r\n' : '\n'));
+      note += stuck.length ? ` Some lines it added to ${edit.file} were changed by you, so they were kept: remove them by hand if you want them gone.` : ` The lines it added to ${edit.file} are removed.`;
+    }
     if (kept.length) note += ` ${kept.join(', ')} ${kept.length === 1 ? 'was' : 'were'} changed by you, so ${kept.length === 1 ? 'it was' : 'they were'} kept.`;
   }
   if (have.kind === 'module') {
@@ -387,10 +484,16 @@ export function verify(root) {
         const target = join(root, f.to);
         if (!existsSync(target) || fileHash(readFileSync(target)) !== f.sha256) lines.push(`${id}: ${f.to} is missing or changed. Remove the add-on and add it again to restore it.`);
       }
-      const html = existsSync(join(root, have.page.file)) ? readFileSync(join(root, have.page.file), 'utf8') : '';
-      const present = new Set(html.split('\n').map((line) => line.trim()));
-      const missing = [...(have.page.inserted.head ?? []), ...(have.page.inserted.body ?? [])].filter((line) => !present.has(line.trim()));
-      if (missing.length) lines.push(`${id}: ${have.page.file} no longer has ${missing.length} line${missing.length === 1 ? '' : 's'} the add-on added. Remove the add-on and add it again to restore ${missing.length === 1 ? 'it' : 'them'}.`);
+      if (have.page) {
+        const html = existsSync(join(root, have.page.file)) ? readFileSync(join(root, have.page.file), 'utf8') : '';
+        const present = new Set(html.split('\n').map((line) => line.trim()));
+        const missing = [...(have.page.inserted.head ?? []), ...(have.page.inserted.body ?? [])].filter((line) => !present.has(line.trim()));
+        if (missing.length) lines.push(`${id}: ${have.page.file} no longer has ${missing.length} line${missing.length === 1 ? '' : 's'} the add-on added. Remove the add-on and add it again to restore ${missing.length === 1 ? 'it' : 'them'}.`);
+      }
+      for (const edit of have.edits ?? []) {
+        const raw = existsSync(join(root, edit.file)) ? readFileSync(join(root, edit.file), 'utf8').replace(/\r\n/g, '\n') : '';
+        if (edit.blocks.some((block) => !raw.includes(block))) lines.push(`${id}: ${edit.file} no longer has the lines the add-on added. Remove the add-on and add it again to restore them.`);
+      }
     }
     if (have.kind === 'module') {
       try {

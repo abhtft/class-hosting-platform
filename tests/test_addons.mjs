@@ -381,9 +381,180 @@ function fakeNpm(root, { extra = {}, topVersion, onlyTop = false, fail = false }
   tampered.addons.find((e) => e.id === 'installable-app').page.body = ['<script src="https://evil.example/x.js"></script>'];
   assert.ok(addons.validateCatalog(tampered, readReal).some((p) => /installable-app: a page line contains a web link/.test(p)));
   const outside = clone(catalog);
-  outside.addons.find((e) => e.id === 'installable-app').files[0].to = 'frontend/src/App.tsx';
-  assert.ok(addons.validateCatalog(outside, readReal).some((p) => /must be a file directly in the site's public folder/.test(p)));
-  say('an app add-on: the files and the page lines go in, the page keeps the rest; the second add changes nothing; remove puts the page back exactly; a different file of the same name, a missing page or a page without the closing tag is refused with nothing written; a site that already has the lines is not changed; edited files are kept; a lost line is reported; a link or a file outside the public folder is refused');
+  outside.addons.find((e) => e.id === 'installable-app').files[0].to = 'backend/app.py';
+  assert.ok(addons.validateCatalog(outside, readReal).some((p) => /must be a file directly in the site's public or src folder/.test(p)));
+  say('an app add-on: the files and the page lines go in, the page keeps the rest; the second add changes nothing; remove puts the page back exactly; a different file of the same name, a missing page or a page without the closing tag is refused with nothing written; a site that already has the lines is not changed; edited files are kept; a lost line is reported; a link or a file outside the public and src folders is refused');
+}
+
+// ---------- the sign-in add-on: an app made before kit 2.9.0 gets the starter's sign-in in a few short edits ----------
+{
+  const signin = catalog.addons.find((e) => e.id === 'sign-in');
+  assert.equal(signin.kind, 'app');
+  const OLD_PY = 'import json\nimport time\nfrom urllib.parse import parse_qs\n\n\ndef respond(status, data):\n    return {"statusCode": status, "headers": {"content-type": "application/json"}, "body": json.dumps(data)}\n\n\ndef handler(event, context):\n    method = event["requestContext"]["http"]["method"]\n    path = event["rawPath"]\n\n    if method == "GET" and path == "/health":\n        return respond(200, {"ok": True})\n\n    return respond(404, {"error": "not_found"})\n';
+  const OLD_MJS = "const json = (status, data) => ({ statusCode: status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) });\n\nexport const handler = async (event) => {\n  const { method } = event.requestContext.http;\n  const path = event.rawPath;\n\n  if (method === 'GET' && path === '/health') return json(200, { ok: true });\n  return json(404, { error: 'not_found' });\n};\n";
+  const OLD_TSX = "import { useState } from 'react'\nimport { api, ApiError } from './api'\n\nexport default function App() {\n  const [x, setX] = useState('')\n  return (\n    <main>\n      <h1>My class project</h1>\n      <p>hello</p>\n    </main>\n  )\n}\n";
+  const helpers = { py: readFileSync(join(repo, 'student', 'class_auth.py')), mjs: readFileSync(join(repo, 'student', 'class_auth.mjs')) };
+  const oldApp = (name, { runtime = 'py', helper = true, tsx = OLD_TSX, eol = '\n' } = {}) => {
+    const root = makeProject(name);
+    mkdirSync(join(root, 'backend'), { recursive: true });
+    mkdirSync(join(root, 'frontend', 'src'), { recursive: true });
+    const fix = (text) => text.replace(/\n/g, eol);
+    if (runtime === 'py') { writeFileSync(join(root, 'backend', 'app.py'), fix(OLD_PY)); if (helper) writeFileSync(join(root, 'backend', 'class_auth.py'), helpers.py); }
+    if (runtime === 'mjs') { writeFileSync(join(root, 'backend', 'index.mjs'), fix(OLD_MJS)); if (helper) writeFileSync(join(root, 'backend', 'class_auth.mjs'), helpers.mjs); }
+    if (tsx !== null) writeFileSync(join(root, 'frontend', 'src', 'App.tsx'), fix(tsx));
+    return root;
+  };
+  const text = (root, rel) => readFileSync(join(root, rel), 'utf8');
+  const python = spawnSync('python', ['--version']).status === 0 ? 'python' : 'python3';
+
+  // the add-on's lines are the starter's own lines (so an app made from the starter is recognised, and the two never drift apart)
+  const starterFile = { 'backend/app.py': 'backend/app.py', 'backend/index.mjs': 'variants/node-backend/index.mjs', 'frontend/src/App.tsx': 'frontend/src/App.tsx' };
+  for (const edit of signin.edits) {
+    const starter = readFileSync(join(repo, 'starter', 'template', starterFile[edit.file]), 'utf8').replace(/\r\n/g, '\n').split('\n').map((l) => l.trim());
+    for (const line of edit.lines.filter((l) => l.trim())) assert.ok(starter.includes(line.trim()), `the starter's ${edit.file} has the line: ${line}`);
+  }
+  for (const f of signin.files) assert.ok(readFileSync(join(repo, 'starter', 'template', f.to)).equals(readFileSync(join(catalogDir, f.from))), `${f.to} is the starter's file`);
+
+  // Python app: added, and the edited handler really signs a visitor in
+  const py = oldApp('si-py');
+  const added = addons.add(py, 'sign-in');
+  assert.equal(added.ok, true, added.message);
+  assert.match(added.message, /2 new files in frontend\/src; 4 edits in backend\/app\.py, frontend\/src\/App\.tsx/);
+  assert.match(added.message, /npm run signin -- on/);
+  assert.ok(text(py, 'frontend/src/auth.ts').includes('useUser') && existsSync(join(py, 'frontend', 'src', 'AuthBar.tsx')));
+  const appPy = text(py, 'backend/app.py');
+  assert.ok(appPy.indexOf('import class_auth') < appPy.indexOf('def handler(event, context):'), 'the import goes before the handler');
+  assert.ok(appPy.indexOf('answer = class_auth.handle(event)') > appPy.indexOf('path = event["rawPath"]') && appPy.indexOf('answer = class_auth.handle(event)') < appPy.indexOf('if method == "GET" and path == "/health"'), 'the sign-in routes come first in the handler');
+  assert.ok(appPy.includes('    answer = class_auth.handle(event)') && appPy.includes('        user = class_auth.require_user(event)'), 'lines are indented like the handler body');
+  const tsx = text(py, 'frontend/src/App.tsx');
+  const apiImport = "import { api, ApiError } from './api'";
+  assert.equal(tsx.indexOf("import AuthBar from './AuthBar'"), tsx.indexOf(apiImport) + apiImport.length + 1, 'the import follows the api import');
+  assert.ok(tsx.includes('      <h1>My class project</h1>\n      <AuthBar />\n'), '<AuthBar /> is under the title, indented like it');
+  const probePy = [
+    'import json, sys',
+    "sys.path.insert(0, 'backend')",
+    'import app',
+    "ev = lambda path, method='GET', cookies=None, q='': {'rawPath': path, 'rawQueryString': q, 'requestContext': {'http': {'method': method}}, 'headers': {}, **({'cookies': cookies} if cookies else {})}",
+    'out = {}',
+    "out['health'] = app.handler(ev('/health'), None)['statusCode']",
+    "out['me'] = json.loads(app.handler(ev('/auth/me'), None)['body'])['sign_in']",
+    "out['private_anon'] = app.handler(ev('/private'), None)['statusCode']",
+    "login = app.handler(ev('/auth/login', q='next=/private'), None)",
+    "jar = [c.split(';')[0] for c in login['cookies']]",
+    "signed = app.handler(ev('/private', cookies=jar), None)",
+    "out['private_signed'] = [signed['statusCode'], json.loads(signed['body'])['message']]",
+    "out['other'] = app.handler(ev('/nothing'), None)['statusCode']",
+    'print(json.dumps(out))',
+  ].join('\n');
+  const run = spawnSync(python, ['-c', probePy], { cwd: py, encoding: 'utf8', env: { ...process.env, AWS_LAMBDA_FUNCTION_NAME: '' } });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), { health: 200, me: 'local', private_anon: 401, private_signed: [200, 'Hello, Local Visitor. Only you can see this.'], other: 404 });
+  assert.equal(addons.verify(py).ok, true, addons.verify(py).lines.join('\n'));
+  assert.match(addons.add(py, 'sign-in').message, /already in this project/);
+
+  // removal puts both files back exactly, and removes the files it made
+  const removed = addons.remove(py, 'sign-in');
+  assert.equal(removed.ok, true, removed.message);
+  assert.equal(text(py, 'backend/app.py'), OLD_PY);
+  assert.equal(text(py, 'frontend/src/App.tsx'), OLD_TSX);
+  assert.ok(!existsSync(join(py, 'frontend', 'src', 'auth.ts')) && !existsSync(join(py, 'frontend', 'src', 'AuthBar.tsx')) && !existsSync(join(py, 'addons.json')));
+
+  // Node app: only the Node entry is edited, and its handler signs a visitor in
+  const mjs = oldApp('si-mjs', { runtime: 'mjs' });
+  const addedNode = addons.add(mjs, 'sign-in');
+  assert.equal(addedNode.ok, true, addedNode.message);
+  assert.match(addedNode.message, /4 edits in backend\/index\.mjs, frontend\/src\/App\.tsx/);
+  const probe = join(mjs, 'backend', 'probe.mjs');
+  writeFileSync(probe, [
+    "import { handler } from './index.mjs';",
+    "const ev = (path, { cookies, q = '' } = {}) => ({ rawPath: path, rawQueryString: q, requestContext: { http: { method: 'GET' } }, headers: {}, ...(cookies ? { cookies } : {}) });",
+    "const anon = await handler(ev('/private'));",
+    "const login = await handler(ev('/auth/login', { q: 'next=/private' }));",
+    "const jar = login.cookies.map((c) => c.split(';')[0]);",
+    "const signed = await handler(ev('/private', { cookies: jar }));",
+    "console.log(JSON.stringify({ health: (await handler(ev('/health'))).statusCode, anon: anon.statusCode, signed: [signed.statusCode, JSON.parse(signed.body).message], other: (await handler(ev('/x'))).statusCode }));",
+  ].join('\n'));
+  const nodeRun = spawnSync('node', [probe], { cwd: mjs, encoding: 'utf8', env: { ...process.env, AWS_LAMBDA_FUNCTION_NAME: '' } });
+  assert.equal(nodeRun.status, 0, nodeRun.stderr);
+  assert.deepEqual(JSON.parse(nodeRun.stdout), { health: 200, anon: 401, signed: [200, 'Hello, Local Visitor. Only you can see this.'], other: 404 });
+  rmSync(probe);
+  assert.equal(addons.remove(mjs, 'sign-in').ok, true);
+  assert.equal(text(mjs, 'backend/index.mjs'), OLD_MJS);
+
+  // Windows line endings are kept, and removal restores the exact bytes
+  const crlf = oldApp('si-crlf', { eol: '\r\n' });
+  const beforePy = readFileSync(join(crlf, 'backend', 'app.py'));
+  assert.equal(addons.add(crlf, 'sign-in').ok, true);
+  assert.ok(!/[^\r]\n/.test(text(crlf, 'backend/app.py')), 'every line of the edited file still ends with CRLF');
+  assert.equal(addons.remove(crlf, 'sign-in').ok, true);
+  assert.ok(readFileSync(join(crlf, 'backend', 'app.py')).equals(beforePy), 'the exact bytes are back');
+
+  // an app made from the starter already has it: nothing is added twice, and removal leaves the starter's own lines
+  const fresh = oldApp('si-fresh', { tsx: null });
+  writeFileSync(join(fresh, 'backend', 'app.py'), readFileSync(join(repo, 'starter', 'template', 'backend', 'app.py')));
+  for (const name of ['App.tsx', 'auth.ts', 'AuthBar.tsx']) writeFileSync(join(fresh, 'frontend', 'src', name), readFileSync(join(repo, 'starter', 'template', 'frontend', 'src', name)));
+  const snapshot = [text(fresh, 'backend/app.py'), text(fresh, 'frontend/src/App.tsx')];
+  assert.equal(addons.add(fresh, 'sign-in').ok, true);
+  assert.deepEqual([text(fresh, 'backend/app.py'), text(fresh, 'frontend/src/App.tsx')], snapshot, 'nothing is inserted twice');
+  assert.equal(addons.remove(fresh, 'sign-in').ok, true);
+  assert.deepEqual([text(fresh, 'backend/app.py'), text(fresh, 'frontend/src/App.tsx')], snapshot, "the starter's own lines stay");
+  assert.ok(existsSync(join(fresh, 'frontend', 'src', 'auth.ts')), "the starter's own files stay");
+
+  // refusals: nothing is written, and the manual steps are shown
+  const unchanged = (root) => !existsSync(join(root, 'frontend', 'src', 'auth.ts')) && !existsSync(join(root, 'addons.json')) && !existsSync(join(root, 'skills', 'sign-in.md'));
+  const oldKit = oldApp('si-oldkit', { helper: false });
+  let refused = addons.add(oldKit, 'sign-in');
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /backend\/class_auth\.py is missing\. Update the kit first \(npm run platform -- update --apply\)/);
+  assert.match(refused.message, /Nothing was changed/);
+  assert.match(refused.message, /do it by hand: import class_auth/, 'the manual steps are shown');
+  assert.ok(unchanged(oldKit) && text(oldKit, 'backend/app.py') === OLD_PY && text(oldKit, 'frontend/src/App.tsx') === OLD_TSX);
+  const noTitle = oldApp('si-notitle', { tsx: OLD_TSX.replace('<h1>My class project</h1>', '<h2>My class project</h2>') });
+  refused = addons.add(noTitle, 'sign-in');
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /frontend\/src\/App\.tsx: the place to add it was not found/);
+  assert.ok(unchanged(noTitle) && text(noTitle, 'backend/app.py') === OLD_PY, 'the backend edits made before the failed one are not kept');
+  const twoTitles = oldApp('si-twotitles', { tsx: OLD_TSX.replace('<p>hello</p>', '<h1>Another</h1>') });
+  refused = addons.add(twoTitles, 'sign-in');
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /found 2 times, not once/);
+  assert.ok(unchanged(twoTitles));
+  const noBackend = oldApp('si-nobackend', { runtime: 'none' });
+  refused = addons.add(noBackend, 'sign-in');
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /it needs one of backend\/app\.py, backend\/index\.mjs/);
+  const clash = oldApp('si-clash');
+  writeFileSync(join(clash, 'frontend', 'src', 'auth.ts'), '// my own auth\n');
+  refused = addons.add(clash, 'sign-in');
+  assert.equal(refused.ok, false);
+  assert.match(refused.message, /frontend\/src\/auth\.ts already exists in your project and is different/);
+  assert.equal(text(clash, 'frontend/src/auth.ts'), '// my own auth\n');
+  assert.ok(!existsSync(join(clash, 'frontend', 'src', 'AuthBar.tsx')) && text(clash, 'backend/app.py') === OLD_PY);
+
+  // the student changed a line the add-on added: remove keeps it, and verify notices a lost one
+  const edited = oldApp('si-edited');
+  assert.equal(addons.add(edited, 'sign-in').ok, true);
+  writeFileSync(join(edited, 'backend', 'app.py'), text(edited, 'backend/app.py').replace('if answer:', 'if answer is not None:'));
+  const kept = addons.remove(edited, 'sign-in');
+  assert.equal(kept.ok, true);
+  assert.match(kept.message, /Some lines it added to backend\/app\.py were changed by you, so they were kept/);
+  const lost = oldApp('si-lost');
+  assert.equal(addons.add(lost, 'sign-in').ok, true);
+  writeFileSync(join(lost, 'frontend', 'src', 'App.tsx'), text(lost, 'frontend/src/App.tsx').replace('      <AuthBar />\n', ''));
+  const lostVerify = addons.verify(lost);
+  assert.equal(lostVerify.ok, false);
+  assert.match(lostVerify.lines.join('\n'), /frontend\/src\/App\.tsx no longer has the lines the add-on added/);
+
+  // the catalogue rules for edits: only the starter's entry files, a valid pattern, no links, a place and a direction
+  const bad = (change) => { const c = clone(catalog); change(c.addons.find((e) => e.id === 'sign-in')); return addons.validateCatalog(c, readReal); };
+  assert.ok(bad((e) => { e.edits[0].file = 'backend/secrets.py'; }).some((p) => /backend\/secrets\.py is not a file an add-on may edit/.test(p)));
+  assert.ok(bad((e) => { e.edits[0].find = '([unclosed'; }).some((p) => /the find pattern .* is not valid/.test(p)));
+  assert.ok(bad((e) => { e.edits[0].where = 'middle'; }).some((p) => /where: "before" or "after"/.test(p)));
+  assert.ok(bad((e) => { e.edits[1].lines.push('requests.get("https://evil.example/x")'); }).some((p) => /an edit line contains a web link/.test(p)));
+  assert.ok(bad((e) => { e.edits[0].lines = ['', '']; }).some((p) => /every edit needs 1 to 20 lines of text/.test(p)));
+  assert.ok(bad((e) => { e.needsAnyOf = ['../outside']; }).some((p) => /needsAnyOf must list project files/.test(p)));
+  assert.ok(bad((e) => { e.edits = Array.from({ length: 9 }, () => e.edits[0]); }).some((p) => /at most 8 edits/.test(p)));
+  say('the sign-in add-on: an old Python or Node app gets the starter\'s sign-in in short edits and really signs a visitor in; Windows line endings are kept and removal restores the exact bytes; an app made from the starter is recognised; an old kit, a missing or doubled place, no backend, or a different file of the same name is refused with nothing written and the manual steps shown; edited and lost lines are reported; the edit rules refuse other files, bad patterns, links and too many edits');
 }
 
 rmSync(work, { recursive: true, force: true });
