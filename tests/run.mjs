@@ -228,6 +228,11 @@ await step('installable starter: the manifest, three real PNG icons of the sizes
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('sign-in for student apps (platform side): one shared Cognito pool with one Google registration made once, a client with its own return address per app, the Google setting read from Systems Manager and refused plainly when missing, no secret stored, a stopped run finished without a second pool, turning sign-in off and on per app', () => {
+  const r = spawnSync(python, [join(here, 'test_auth.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('specification: the machine-checked facts in docs/TECHNICAL_SPECIFICATION.md equal the code', () => {
   const r = spawnSync(python, [join(here, 'test_spec.py')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

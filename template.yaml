@@ -34,6 +34,11 @@ Parameters:
     Default: /student-deploy/teacher
     AllowedPattern: '^/[a-zA-Z0-9_./-]+$'
     Description: 'SSM parameter holding the teacher login (set with `node admin.mjs teacher-setup`).'
+  AuthGoogleParameterName:
+    Type: String
+    Default: /student-deploy/auth-google
+    AllowedPattern: '^/[a-zA-Z0-9_./-]+$'
+    Description: Name of the SecureString parameter holding the Google client id and secret for sign-in in student apps (docs/AUTH_PLAN.md). Stored once by the teacher; never written into this repository.
   TenantDistributionId:
     Type: String
     Default: ''
@@ -1249,6 +1254,7 @@ Resources:
           WORKER_INSTANCE_TYPE: !If [UseWorker, !Ref WorkerInstanceType, '']
           WORKER_DISK_GB: !If [UseWorker, !Ref WorkerDiskGb, '']
           WORKER_MAX_MINUTES: !If [UseWorker, !Ref WorkerMaxMinutes, '']
+          AUTH_GOOGLE_PARAM: !Ref AuthGoogleParameterName
       Policies:
         - Statement:
             - !If # compute worker: the teacher's Start and Stop buttons (this one machine) and the page reading its state and last report
@@ -1292,6 +1298,10 @@ Resources:
               Resource:
                 - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${KeysParameterName}'
                 - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TeacherParameterName}'
+                - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AuthGoogleParameterName}'
+            - Effect: Allow # sign-in for student apps (docs/AUTH_PLAN.md): the one shared user pool and each app's client. Cognito has no resource-level limits on creating pools, so this is account-wide
+              Action: [cognito-idp:CreateUserPool, cognito-idp:CreateUserPoolDomain, cognito-idp:CreateIdentityProvider, cognito-idp:CreateUserPoolClient, cognito-idp:DeleteUserPoolClient, cognito-idp:DescribeUserPool, cognito-idp:DescribeUserPoolDomain, cognito-idp:DescribeUserPoolClient]
+              Resource: '*'
             - Effect: Allow
               Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:Scan]
               Resource: !GetAtt TokensTable.Arn

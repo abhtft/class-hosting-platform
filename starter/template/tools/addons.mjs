@@ -107,7 +107,7 @@ export function validateCatalog(catalog, read) {
         const data = read(f.from);
         if (!data) { add(id, `the file ${f.from} is missing.`); continue; }
         if (data.length > MAX_APP_FILE_BYTES) add(id, `${f.from} is ${data.length} bytes; the limit is ${MAX_APP_FILE_BYTES}.`);
-        if (f.sha256 !== sha256(data)) add(id, `the checksum of ${f.from} does not match (run node starter/addons/pin.mjs after editing).`);
+        if (f.sha256 !== fileHash(data)) add(id, `the checksum of ${f.from} does not match (run node starter/addons/pin.mjs after editing).`);
       }
       const page = entry.page || {};
       if (page.file !== 'frontend/index.html') add(id, 'page.file must be frontend/index.html.');
@@ -179,6 +179,9 @@ function guideText(entry) {
 }
 
 const sha256Hex = (buffer) => createHash('sha256').update(buffer).digest('hex');
+/** The checksum of an add-on file: text is checked without its line endings (so a Windows checkout with CRLF gives the same value), binary as it is. */
+const fileHash = (buffer) => (buffer.includes(0) ? sha256Hex(buffer) : textHash(buffer));
+export const fileHashOf = fileHash;
 
 /** The index.html lines an "app" add-on adds, placed before a closing tag, each only if the page does not have it yet. */
 function insertLines(html, marker, lines) {
@@ -204,7 +207,7 @@ function addApp(root, entry, record, guide, read) {
     const rel = `${frontend}/public/${basename(f.to)}`;
     const target = join(root, rel);
     if (existsSync(target)) {
-      if (sha256Hex(readFileSync(target)) === f.sha256) { files.push({ rel, target, data: null, sha256: f.sha256, created: false }); continue; }
+      if (fileHash(readFileSync(target)) === f.sha256) { files.push({ rel, target, data: null, sha256: f.sha256, created: false }); continue; }
       return { ok: false, message: `${rel} already exists in your project and is different, so it was not added. Move your own file somewhere else, then run the command again. Nothing was changed.` };
     }
     files.push({ rel, target, data: read(f.from), sha256: f.sha256, created: true });
@@ -337,7 +340,7 @@ export function remove(root, id, { npm = defaultNpm } = {}) {
     for (const f of have.files ?? []) {
       const target = join(root, f.to);
       if (!existsSync(target)) continue;
-      if (f.created && sha256Hex(readFileSync(target)) === f.sha256) rmSync(target);
+      if (f.created && fileHash(readFileSync(target)) === f.sha256) rmSync(target);
       else kept.push(f.to);
     }
     const indexFile = join(root, have.page.file);
@@ -382,7 +385,7 @@ export function verify(root) {
     if (have.kind === 'app') {
       for (const f of have.files ?? []) {
         const target = join(root, f.to);
-        if (!existsSync(target) || sha256Hex(readFileSync(target)) !== f.sha256) lines.push(`${id}: ${f.to} is missing or changed. Remove the add-on and add it again to restore it.`);
+        if (!existsSync(target) || fileHash(readFileSync(target)) !== f.sha256) lines.push(`${id}: ${f.to} is missing or changed. Remove the add-on and add it again to restore it.`);
       }
       const html = existsSync(join(root, have.page.file)) ? readFileSync(join(root, have.page.file), 'utf8') : '';
       const present = new Set(html.split('\n').map((line) => line.trim()));

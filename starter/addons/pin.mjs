@@ -9,13 +9,12 @@
 // For a module it resolves the package in a scratch copy of the kit's frontend (package.json + package-lock.json, scripts turned off), then records every
 // package that would be new or changed: name, exact version, sha512 integrity and licence. It stops if any of them wants an install script or has a licence
 // the catalogue does not accept. `add` in the kit later installs the module and accepts it only if it brings exactly these packages.
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { licenseOk, textHash, validateCatalog } from '../template/tools/addons.mjs';
+import { licenseOk, textHash, validateCatalog, fileHashOf } from '../template/tools/addons.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const template = resolve(here, '..', 'template');
@@ -77,7 +76,7 @@ for (const entry of catalog.addons) {
     for (const f of entry.files) {
       const data = read(f.from);
       if (!data) throw new Error(`${entry.id}: ${f.from} is missing.`);
-      f.sha256 = createHash('sha256').update(data).digest('hex');
+      f.sha256 = fileHashOf(data);
       f.bytes = data.length;
     }
   } else if (!flag('--skills-only')) {

@@ -2672,6 +2672,17 @@
       "risk": "security",
       "env": "AI_SECRET_NAME",
       "template": "Parameter:AiSecretName"
+    },
+    {
+      "key": "install.authGoogleParameter",
+      "group": "install",
+      "title": "Parameter holding the Google sign-in setting",
+      "help": "The name of the AWS parameter (SecureString) that holds the Google client id and secret for sign-in in student apps. The teacher stores it once.",
+      "default": "/student-deploy/auth-google",
+      "scope": "deploy",
+      "risk": "security",
+      "env": "AUTH_GOOGLE_PARAM",
+      "template": "Parameter:AuthGoogleParameterName"
     }
   ],
   "fixed": [

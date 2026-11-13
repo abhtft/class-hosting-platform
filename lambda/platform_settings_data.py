@@ -172,4 +172,5 @@ SETTINGS = {
     "install.routingEndpoint": {"type": "text", "default": "", "min": None, "max": None, "env": None},
     "install.connectionGroupId": {"type": "text", "default": "", "min": None, "max": None, "env": None},
     "ai.secretName": {"type": "text", "default": "openrouter", "min": None, "max": None, "env": "AI_SECRET_NAME"},
+    "install.authGoogleParameter": {"type": "text", "default": "/student-deploy/auth-google", "min": None, "max": None, "env": "AUTH_GOOGLE_PARAM"},
 }

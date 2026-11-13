@@ -2,6 +2,10 @@
 
 For teachers who run their own copy. Each release lists what is new, what (if anything) you must do, and whether it is safe to apply without thinking. Updating is always: the release's own `upgrade` command (each GitHub Release shows it) (or, with a git clone, `git pull` then `node setup.mjs upgrade`; or ask the teacher MCP: "plan an update").
 
+## 2.8.0
+
+- **Sign-in for student apps, platform side (step A1 of docs/AUTH_PLAN.md).** One Amazon Cognito user pool for the whole platform, with one Google registration that the teacher sets up once. Each student app gets its own client with its own return address, and the app uses PKCE, so no client secret is stored. Turning an app's sign-in off removes only that app's client. The Google setting is read from Systems Manager (`/student-deploy/auth-google`) and is refused plainly when missing. **To apply:** nothing is live yet; the deploy role needs the Cognito and Systems Manager permissions, which come with the next plan (not shown yet).
+
 ## 2.7.0
 
 - **Add the install-as-an-app feature to sites that were already built.** A new add-on, "Install as an app", copies the install files (a web app manifest, the install script and three default icons) into the site's public folder and adds six lines to its index.html. The student's AI editor adds it after a yes, with `add_addon`; the terminal does the same with `npm run addons -- add installable-app`. It never overwrites a file the student made: if a file of the same name exists and is different, nothing is changed. `remove_addon` puts the page back exactly as it was and removes the files it made (a file the student edited is kept). Nothing for a teacher to do; the add-on is in the kit's catalogue. Plan: docs/INSTALLABLE_PLAN.md (step I3).
