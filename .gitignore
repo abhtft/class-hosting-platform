@@ -12,4 +12,4 @@ __pycache__/
 dist/
 
 # scratch notes and pasted transcripts: never commit
-
+.temp/
