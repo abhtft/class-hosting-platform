@@ -171,4 +171,38 @@ assert auth.app_base("ana") == "https://d123.cloudfront.net/ana"
 os.environ["ROOT_DOMAIN"] = "example.com"
 print("  ok  return addresses follow the platform's rule: the app's own address, on the platform's domain")
 
+# ---- the student's route: /api/student/sign-in (A2, part 1)
+ssm.value = GOOD
+cara = student("cara")
+try:
+    auth.student_route(cara, "POST", {"enabled": True})
+    raise AssertionError("sign-in must need the backend")
+except portal.PortalError as e:
+    assert e.status == 403 and "backend" in str(e)
+db().update(cara["pk"], {"backend": {"enabled": True}})
+cara = db().get("tok#cara")
+code, out = auth.student_route(cara, "POST", {"enabled": True})
+assert code == 200 and out["enabled"] is True
+assert out["callback"] == "https://cara.example.com/api/auth/callback"
+assert out["google_return_address"].endswith(".auth.us-east-1.amazoncognito.com/oauth2/idpresponse"), out
+assert out["google_return_address"].startswith("https://sd-class-"), "the return address is the pool's own domain"
+assert out["login_host"] == out["google_return_address"].rsplit("/oauth2/idpresponse", 1)[0]
+code, now_state = auth.student_route(db().get("tok#cara"), "GET", None)
+assert code == 200 and now_state["enabled"] is True and now_state["google_return_address"] == out["google_return_address"]
+code, off_state = auth.student_route(db().get("tok#cara"), "POST", {"enabled": False})
+assert code == 200 and off_state["enabled"] is False
+assert "callback" in off_state
+for bad in (None, {}, {"enabled": "yes"}, {"enabled": 1}):
+    try:
+        auth.student_route(db().get("tok#cara"), "POST", bad)
+        raise AssertionError(f"a bad body must be refused: {bad}")
+    except portal.PortalError as e:
+        assert e.status == 400
+try:
+    auth.student_route(db().get("tok#cara"), "DELETE", None)
+    raise AssertionError("other methods are refused")
+except portal.PortalError as e:
+    assert e.status == 405
+print("  ok  the student's sign-in route: refused without the backend, turns sign-in on and off, shows the return addresses to register, refuses bad bodies")
+
 print("test_auth.py: sign-in platform side (shared pool, per-app clients, Google setting, off and on) passes")

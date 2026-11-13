@@ -41,6 +41,7 @@ Student (the token itself is the login -> signed session, 12 h):
   GET  /api/student/traces[?limit&before]  /{trace_id}   the student's own app's traces, only as the teacher allows (traces.py)
   GET|POST|DELETE /api/student/knowledge[/collections|/{shelf}/documents[/{id}[/start]]]   the student's own book shelf for the kit's folder sync (knowledge.py student_route)
   GET /api/student/projects, GET /{id}, POST /{id}/download|prepare|commit   project sync: source files shared through the bucket (projects.py)
+  GET /api/student/sign-in, POST /api/student/sign-in {enabled}   sign-in for the app's visitors: the switch and the addresses to register on Google (auth.py)
   GET|POST /api/admin/projects, GET|POST|DELETE /api/admin/projects/{p|t}/{name}[/file|/restore|/compact]   the teacher's projects
 
 A token is active until expires_at, "expired" (read-only) for GRACE_DAYS, then "offline".
@@ -507,6 +508,10 @@ def dispatch(method, path, body, event, now, site_url):
         if routed is None:
             return reply(404, error="Unknown route.")
         return reply(routed[0], **routed[1])
+    if path == "/api/student/sign-in":  # sign-in for the apps students build (auth.py, docs/AUTH_PLAN.md)
+        import auth
+        code, data = auth.student_route(student_token(event, now), method, body)
+        return reply(code, **data)
     if path == "/api/student/projects" or path.startswith("/api/student/projects/"):
         import projects
         routed = projects.student_route(student_token(event, now), method, path, body, now)

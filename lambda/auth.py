@@ -127,3 +127,40 @@ def disable_app(item):
     auth = {"enabled": False}
     db().update(item["pk"], {"auth": auth})
     return auth
+
+
+def login_host(record):
+    """The sign-in address of the shared pool (Cognito's hosted pages on the pool's own domain)."""
+    return f"https://{record['domain']}.auth.{os.environ.get('AWS_REGION', 'us-east-1')}.amazoncognito.com"
+
+
+def google_return_address(record):
+    """The address to register on the Google client: Cognito's answer page for the pool. Registered once, shared by every app."""
+    return login_host(record) + "/oauth2/idpresponse"
+
+
+def student_route(item, method, body):
+    """GET /api/student/sign-in: the state and the addresses. POST {enabled: true|false}: turn sign-in on or off for this app.
+    Sign-in runs in the student's backend, so the backend must be on first."""
+    if not backends.settings(item).get("enabled"):
+        raise PortalError(403, "Sign-in needs your backend. Ask your teacher to turn the backend on for you first.")
+    current = dict(item.get("auth") or {})
+    if method == "GET":
+        record = db().get(PLATFORM_KEY) or {}
+        out = {"enabled": bool(current.get("enabled")), "callback": current.get("callback"), "logout": current.get("logout")}
+        if record.get("domain"):
+            out["google_return_address"] = google_return_address(record)
+            out["login_host"] = login_host(record)
+        return 200, out
+    if method != "POST":
+        raise PortalError(405, "Use GET to see sign-in, or POST with enabled true or false.")
+    flag = (body or {}).get("enabled")
+    if not isinstance(flag, bool):
+        raise PortalError(400, "Send enabled as true or false.")
+    auth_now = enable_app(item) if flag else disable_app(item)
+    record = db().get(PLATFORM_KEY) or {}
+    out = {"enabled": bool(auth_now.get("enabled")), "callback": auth_now.get("callback"), "logout": auth_now.get("logout")}
+    if record.get("domain"):
+        out["google_return_address"] = google_return_address(record)
+        out["login_host"] = login_host(record)
+    return 200, out
