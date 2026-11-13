@@ -82,7 +82,7 @@ def platform_pool():
     if not record.get("pool_id"):
         pool_id = cg.create_user_pool(
             PoolName=POOL_NAME, UsernameAttributes=["email"], AutoVerifiedAttributes=["email"], MfaConfiguration="OFF",
-            AdminCreateUserConfig={"AllowAdminCreateUserOnly": False}, UserPoolTags={"platform": "class-platform"},
+            AdminCreateUserConfig={"AllowAdminCreateUserOnly": False},  # no tags: tagging needs one more permission, and the pool is named for the platform
         )["UserPool"]["Id"]
         _save_platform({"pool_id": pool_id, "domain": _domain_name(), "domain_made": False, "google_made": False})
         record = db().get(PLATFORM_KEY)
@@ -105,15 +105,18 @@ def enable_app(item):
     if current.get("enabled") and current.get("client_id"):
         return current
     slug = item["slug"]
-    pool = platform_pool()
-    base = app_base(slug)
-    callback = base + CALLBACK_PATH
-    client_id = client("cognito-idp").create_user_pool_client(
-        UserPoolId=pool["pool_id"], ClientName=f"app-{slug}", GenerateSecret=False,
-        AllowedOAuthFlows=["code"], AllowedOAuthFlowsUserPoolClient=True, AllowedOAuthScopes=SCOPES,
-        CallbackURLs=[callback], LogoutURLs=[base + "/"], SupportedIdentityProviders=[PROVIDER],
-        ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"], PreventUserExistenceErrors="ENABLED", EnableTokenRevocation=True,
-    )["UserPoolClient"]["ClientId"]
+    try:
+        pool = platform_pool()
+        base = app_base(slug)
+        callback = base + CALLBACK_PATH
+        client_id = client("cognito-idp").create_user_pool_client(
+            UserPoolId=pool["pool_id"], ClientName=f"app-{slug}", GenerateSecret=False,
+            AllowedOAuthFlows=["code"], AllowedOAuthFlowsUserPoolClient=True, AllowedOAuthScopes=SCOPES,
+            CallbackURLs=[callback], LogoutURLs=[base + "/"], SupportedIdentityProviders=[PROVIDER],
+            ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"], PreventUserExistenceErrors="ENABLED", EnableTokenRevocation=True,
+        )["UserPoolClient"]["ClientId"]
+    except ClientError as e:  # a plain message with the AWS error code (never the details), so the teacher can find the cause in the platform's log
+        raise PortalError(502, f"Could not set up sign-in ({e.response['Error'].get('Code', 'AWS error')}). Tell your teacher; the platform's log has the details. Nothing was turned on.")
     auth = {"enabled": True, "client_id": client_id, "callback": callback, "logout": base + "/", "pool_id": pool["pool_id"],
             "domain": pool["domain"], "session_key": secrets.token_urlsafe(32)}
     apply_to_function(db().update(item["pk"], {"auth": auth}))

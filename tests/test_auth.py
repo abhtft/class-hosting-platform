@@ -114,6 +114,7 @@ assert cognito.calls == ["create_user_pool", "create_user_pool_domain", "create_
 pool_id = first["pool_id"]
 pool_settings = cognito.pools[pool_id]
 assert pool_settings["UsernameAttributes"] == ["email"] and pool_settings["MfaConfiguration"] == "OFF"
+assert "UserPoolTags" not in pool_settings, "no tags: tagging a pool needs a permission the deploy role does not have"
 assert len(cognito.providers) == 1 and cognito.providers[0]["ProviderName"] == "Google"
 assert cognito.providers[0]["AttributeMapping"]["username"] == "sub", "the stable Google id is the user id"
 
@@ -265,5 +266,23 @@ ev = gateway.student_event({"cookies": ["class_session=abc", "other=1"], "reques
 assert ev["cookies"] == ["class_session=abc", "other=1"] and "x-origin-secret" not in ev["headers"]
 assert "cookies" not in gateway.student_event({"requestContext": {"http": {}}}, {}, "/x", "1.2.3.4")
 print("  ok  the gateway passes the visitor's cookies to the app's function")
+
+# ---- an AWS failure while setting up is a plain message with the error code, and nothing is turned on
+class Denied(FakeCognito):
+    def create_user_pool_client(self, **kw):
+        raise fail("AccessDeniedException", "not allowed to do that")
+
+
+backends._clients["cognito-idp"] = Denied()
+eve = student("eve")
+db().update(eve["pk"], {"backend": {"enabled": True}})
+try:
+    auth.student_route(db().get("tok#eve"), "POST", {"enabled": True})
+    raise AssertionError("an AWS failure must be reported")
+except portal.PortalError as e:
+    assert e.status == 502 and "AccessDeniedException" in str(e) and "Nothing was turned on" in str(e) and "not allowed to do that" not in str(e)
+assert not (db().get("tok#eve").get("auth") or {}).get("enabled")
+backends._clients["cognito-idp"] = cognito
+print("  ok  an AWS failure while setting up gives a plain message with the error code (not the details), and nothing is turned on")
 
 print("test_auth.py: sign-in platform side (shared pool, per-app clients, Google setting, off and on) passes")
