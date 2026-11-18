@@ -7,6 +7,7 @@
 //   node portal-deploy.mjs --frontend web --backend api    use other folder names
 //   node portal-deploy.mjs status          is the saved token valid, and for how long (deploys nothing)
 //   node portal-deploy.mjs logs [--errors] [--minutes 30] [--limit 50]   the newest lines your backend printed (what to read when it answers 502 or does the wrong thing)
+//   node portal-deploy.mjs login --google   pair THIS computer with your Google account (no token to copy): shows a code to type in the portal
 //   node portal-deploy.mjs login           save your token for THIS project (asks for it, checks it, writes .env.local); `npm run login`
 //
 // Expected layout:   frontend/  your app (built with `npm run build` into dist/, build/ or out/)
@@ -17,8 +18,8 @@
 // computer-wide token: every project has its own, so two windows can never end up signed in as the same student by accident.
 // No npm install needed - only Node 20+. In GitHub Actions store the token as the secret PORTAL_TOKEN.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
+import { createHash, randomBytes } from 'node:crypto';
+import { homedir, hostname } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -292,6 +293,32 @@ async function login(given) {
   console.log('Now deploy with:  npm run deploy');
 }
 
+/** `login --google`: pair this computer with the student's Google account. The computer makes its own token and sends only a hash of it; the
+ *  student types the code shown here into the portal (signed in with Google); the platform then accepts the token for this site. */
+async function pairLogin() {
+  const token = `mdp_${randomBytes(24).toString('base64url')}`;
+  const hash = createHash('sha256').update(token).digest('hex');
+  const started = await api('POST', '/api/student/pair/start', { body: { hash, device: (hostname() || 'A computer').slice(0, 40) } });
+  console.log(`
+To sign this computer in with your Google account:
+  1. Open ${PORTAL_URL}/student.html and sign in with Google.
+  2. Choose "Pair a computer" and type this code:
+
+         ${started.code}
+
+  The code works for ${started.minutes} minutes. Type it only if you started this here, on your own computer.
+Waiting for you...`);
+  const until = Date.now() + started.minutes * 60000;
+  while (Date.now() < until) {
+    await new Promise((done) => setTimeout(done, Number(process.env.PORTAL_PAIR_POLL_MS || 3000)));
+    const { state } = await api('POST', '/api/student/pair/poll', { body: { code: started.code, hash } });
+    if (state === 'approved') return login(token);
+    if (state === 'denied') fail('You refused this computer in the portal, so it was not signed in.');
+    if (state === 'expired' || state === 'unknown') break;
+  }
+  fail('The code expired before it was approved. Run  npm run login -- --google  again for a new one.');
+}
+
 // ---------- API ----------
 async function api(method, path, { session, body } = {}) {
   const headers = { 'content-type': 'application/json' };
@@ -313,7 +340,7 @@ async function signIn(token) {
   const res = await fetch(`${PORTAL_URL}/api/student/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) })
     .catch((e) => fail(`Cannot reach the portal (${e.cause?.code || e.message}). Check your internet connection.`));
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 || res.status === 403 || res.status === 404) fail('The portal does not accept this token. It may be mistyped, expired or replaced by a newer one. Run  npm run login  and paste the current token (ask your teacher if you are unsure).');
+  if (res.status === 401 || res.status === 403 || res.status === 404) fail('The portal does not accept this token. It may be mistyped, expired or replaced by a newer one. Run  npm run login  and paste the current token (ask your teacher if you are unsure), or  npm run login -- --google  if you sign in with Google.');
   if (!res.ok) fail(`${data.error || data.message || 'Sign-in failed'} (HTTP ${res.status})`);
   const daysLeft = Math.ceil((data.token.expires_at - Date.now() / 1000) / 86400);
   return { ...data, name: data.token.student_name || data.token.slug, slug: data.token.slug, daysLeft };
@@ -571,7 +598,7 @@ For your teacher (once for the whole class): the Google client must list this re
 
 // ---------- main ----------
 async function main() {
-  if (args[0] === 'login') return login(option('--token'));
+  if (args[0] === 'login') return flag('--google') ? pairLogin() : login(option('--token'));
   if (await syncKit()) return;
   if (args[0] === 'status') return status();
   if (args[0] === 'logs') return logs();

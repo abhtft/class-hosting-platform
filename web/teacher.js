@@ -1,6 +1,7 @@
 import { capsText, classUsage } from './usage.js';
 import { api, ApiError, ask, copyText, date, duration, expiryBar, h, lifeText, now, session, statusPill, toast, usd } from './common.js';
 import { voiceRouteText } from './voice_route.js';
+import { createGoogleTab } from './google_admin.js';
 
 const $ = (id) => document.getElementById(id);
 const DURATIONS = [[7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days'], [90, '90 days'], [180, '180 days']];
@@ -12,6 +13,7 @@ let tokens = [];
 let requests = [];
 let overview = null; // storage across the class (null until loaded, {unavailable: true} when the server has no storage)
 let tab = 'students';
+const googleTab = createGoogleTab({ call: (path, options) => call(path, options), render: () => render() }); // Google sign-in, students and requests (google_admin.js)
 let query = '';
 let openId = null; // the student whose detail panel is open
 
@@ -46,7 +48,7 @@ async function loadOverview() {
 async function load() {
   $('error').textContent = '';
   try {
-    [{ tokens }, { requests }] = await Promise.all([call('/api/admin/tokens'), call('/api/admin/requests')]);
+    [{ tokens }, { requests }] = await Promise.all([call('/api/admin/tokens'), call('/api/admin/requests'), googleTab.count()]);
     if (tab === 'storage' || (openId && tokens.find((t) => t.id === openId)?.storage?.enabled)) await loadOverview();
   } catch (e) {
     $('error').textContent = e.message;
@@ -88,7 +90,9 @@ function render() {
   const pending = requests.length;
   $('badge').textContent = pending;
   $('badge').classList.toggle('hidden', pending === 0);
-  for (const name of ['students', 'requests', 'storage', 'library', 'traces', 'projects', 'worker', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
+  $('google-badge').textContent = googleTab.openRequests();
+  $('google-badge').classList.toggle('hidden', googleTab.openRequests() === 0);
+  for (const name of ['students', 'requests', 'storage', 'library', 'traces', 'projects', 'google', 'worker', 'usage']) $(`tab-${name}`).setAttribute('aria-selected', tab === name);
   $('toolbar').classList.toggle('hidden', tab !== 'students');
   $('stats').replaceChildren(...stats());
   let rows;
@@ -106,6 +110,8 @@ function render() {
     rows = tracesTab();
   } else if (tab === 'projects') {
     rows = projectsTab();
+  } else if (tab === 'google') {
+    rows = googleTab.view();
   } else if (tab === 'worker') {
     rows = workerTab();
   } else {
@@ -440,6 +446,7 @@ function projectDetail(d) {
   const actions = h('div', { class: 'btns' },
     p.kind === 'team' ? h('button', { class: 'small', onclick: () => editMembers(p) }, 'Members…') : null,
     h('button', { class: 'small', onclick: () => projectAct(`${PROJ}/${p.ref}`, 'POST', { frozen: !p.frozen }, p.frozen ? 'Project unfrozen' : 'Project frozen') }, p.frozen ? 'Unfreeze' : 'Freeze'),
+    p.kind === 'team' ? h('button', { class: 'small', onclick: () => projectAct(`${PROJ}/${p.ref}`, 'POST', { catalogue: !p.catalogue }, p.catalogue ? 'No longer listed for students' : 'Listed for students who sign in with Google') }, p.catalogue ? 'Unlist from the class catalogue' : 'List in the class catalogue') : null,
     h('button', { class: 'small', onclick: async () => { const out = await projectAct(`${PROJ}/${p.ref}/compact`, 'POST', {}, 'Old versions removed'); if (out) toast(`Freed ${mb(out.freed_bytes)}`); } }, 'Clean up old versions'),
     h('button', { class: 'small danger', onclick: () => deleteProject(p) }, 'Delete…'));
   const head = h('div', { class: 'tiles inner' }, tile('Revision', p.rev, p.frozen ? 'frozen' : 'open'), tile('Files', p.files, `of ${p.limits.files}`), tile('Size', mb(p.bytes), `of ${p.limits.project_mb} MB`), tile('Stored versions', mb(p.stored), 'all uploads'));
@@ -1086,6 +1093,7 @@ $('tab-storage').onclick = async () => { tab = 'storage'; render(); await loadOv
 $('tab-library').onclick = async () => { tab = 'library'; render(); await loadLibrary(); render(); };
 $('tab-traces').onclick = async () => { tab = 'traces'; render(); await loadTraces(); render(); };
 $('tab-projects').onclick = async () => { tab = 'projects'; render(); await loadProjects(); render(); };
+$('tab-google').onclick = async () => { tab = 'google'; render(); await googleTab.load(); render(); };
 $('tab-worker').onclick = async () => { tab = 'worker'; render(); await loadWorker(); render(); };
 
 setInterval(() => { if (session('teacher') && !document.hidden && !document.querySelector('dialog[open]:not(.drawer)')) load(); }, 60000);

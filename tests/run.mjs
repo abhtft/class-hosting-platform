@@ -238,6 +238,31 @@ await step('sign-in for student apps (platform side): one shared Cognito pool wi
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('student identity (phase 1a): the teacher’s admission rules for signing in with Google (off by default; invite, domain, request), the exact domain match and look-alike domains refused, an unverified e-mail refused, identities kept by account id, a disabled student staying disabled, and routes only the teacher can open', () => {
+  const r = spawnSync(python, [join(here, 'test_identity.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+await step('student sign-in with Google (phase 1b): the token check using only the standard library (only RS256 from the pool’s keys; a wrong key, a changed payload, the wrong issuer, another app’s client, an access token, an expired or future token all refused), the portal’s own client in the shared pool, the code exchange, the teacher’s rules applied at once, a separate session kind, linking a token to an account once, and the attempt limit', () => {
+  const r = spawnSync(python, [join(here, 'test_google_signin.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+await step('student home, requests and personal tokens (phases 2 to 4): the home with sites and class projects (green or red), requests with the student’s limits, the teacher’s accept, change or reject (a failed grant goes back to waiting and keeps the site), a join adding the site to the project, pairing a computer with a code, the personal token working for 30 days and stopping the moment it is signed out or the account is turned off, and erasing an account', () => {
+  const r = spawnSync(python, [join(here, 'test_access.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+await step('Google pages: the student home and the teacher’s Google tab build elements as text only, find every element they need, and the request form builds only what was asked', () => {
+  const r = spawnSync('node', [join(here, 'test_google_pages.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+await step('npm run login -- --google: the computer makes its own token and sends only a hash, shows a code, waits for the student, saves the token in .env.local and never prints it; a refusal saves nothing', () => {
+  const r = spawnSync('node', [join(here, 'test_pair_cli.mjs')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('sign-in helper for the app (Python and Node): three modes, the Google flow through the platform with a pretend token service, every wrong callback signing nobody in, the signed session cookie (changed, forged, other app, expired), the place to return to never another site, and both languages reading each other’s cookie', () => {
   let r = spawnSync(python, [join(here, 'test_class_auth.py')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

@@ -3,6 +3,7 @@ import { api, ApiError, ask, date, duration, expiryBar, fill, h, now, session, s
 import { renderBackend, stopBackend } from './backend.js';
 import { renderGithub, stopGithub } from './github.js';
 import { buildZip } from './zip.js';
+import { initGoogle } from './google.js';
 
 const $ = (id) => document.getElementById(id);
 let token = null; // the latest token view from the server
@@ -365,3 +366,4 @@ $('login-form').addEventListener('submit', async (e) => {
 $('logout').onclick = () => signOut();
 setInterval(() => { if (session('student') && !busy && !document.hidden) refresh(); }, 60000);
 if (session('student')) { show(true); refresh(); } else show(false);
+initGoogle(Boolean(session('student'))); // the optional sign-in with Google (google.js); the token sign-in above is unchanged

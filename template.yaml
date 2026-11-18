@@ -1300,7 +1300,7 @@ Resources:
                 - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TeacherParameterName}'
                 - !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${AuthGoogleParameterName}'
             - Effect: Allow # sign-in for student apps (docs/AUTH_PLAN.md): the one shared user pool and each app's client. Cognito has no resource-level limits on creating pools, so this is account-wide
-              Action: [cognito-idp:CreateUserPool, cognito-idp:CreateUserPoolDomain, cognito-idp:CreateIdentityProvider, cognito-idp:CreateUserPoolClient, cognito-idp:DeleteUserPoolClient, cognito-idp:DescribeUserPool, cognito-idp:DescribeUserPoolDomain, cognito-idp:DescribeUserPoolClient]
+              Action: [cognito-idp:CreateUserPool, cognito-idp:CreateUserPoolDomain, cognito-idp:CreateIdentityProvider, cognito-idp:CreateUserPoolClient, cognito-idp:DeleteUserPoolClient, cognito-idp:DescribeUserPool, cognito-idp:DescribeUserPoolDomain, cognito-idp:DescribeUserPoolClient, cognito-idp:UpdateIdentityProvider]
               Resource: '*'
             - Effect: Allow
               Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:Scan]

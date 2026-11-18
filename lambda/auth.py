@@ -28,6 +28,8 @@ POOL_NAME = "class-platform-visitors"
 PROVIDER = "Google"
 SCOPES = ["openid", "email", "profile"]
 CALLBACK_PATH = "/api/auth/callback"
+PORTAL_CALLBACK_PATH = "/student.html"  # where Google sends a student back to the portal (docs/STUDENT_IDENTITY_PLAN.md)
+ATTRIBUTE_MAPPING = {"email": "email", "name": "name", "username": "sub", "email_verified": "email_verified"}
 ENV_NAMES = ("CLASS_AUTH_HOST", "CLASS_AUTH_CLIENT_ID", "CLASS_AUTH_ISSUER", "CLASS_AUTH_REDIRECT", "CLASS_AUTH_HOME", "CLASS_AUTH_KEY", "CLASS_AUTH_DAYS")
 
 
@@ -93,10 +95,75 @@ def platform_pool():
         cg.create_identity_provider(
             UserPoolId=record["pool_id"], ProviderName=PROVIDER, ProviderType=PROVIDER,
             ProviderDetails={"client_id": client_id, "client_secret": secret, "authorize_scopes": " ".join(SCOPES)},
-            AttributeMapping={"email": "email", "name": "name", "username": "sub"},
+            AttributeMapping=ATTRIBUTE_MAPPING,
         )
-        _save_platform({"google_made": True})
+        _save_platform({"google_made": True, "email_verified_mapped": True})
     return db().get(PLATFORM_KEY)
+
+
+def ensure_portal_client(portal_url):
+    """The portal's own app client in the shared pool, for the student sign-in with Google (identity.py).
+    It is a separate client from every student app's, so a visitor's token for an app can never open the portal (the token names its client).
+    Asking again changes nothing; a different portal address replaces the client (no 'update client' permission is needed)."""
+    pool = platform_pool()
+    cg = client("cognito-idp")
+    try:
+        if not pool.get("email_verified_mapped"):  # a pool made before this step did not carry Google's 'e-mail is verified' fact into the token
+            cg.update_identity_provider(UserPoolId=pool["pool_id"], ProviderName=PROVIDER, AttributeMapping=ATTRIBUTE_MAPPING)
+            _save_platform({"email_verified_mapped": True})
+        callback = portal_url.rstrip("/") + PORTAL_CALLBACK_PATH
+        if pool.get("portal_client_id") and pool.get("portal_callback") == callback:
+            return {"client_id": pool["portal_client_id"], "callback": callback}
+        if pool.get("portal_client_id"):
+            try:
+                cg.delete_user_pool_client(UserPoolId=pool["pool_id"], ClientId=pool["portal_client_id"])
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "ResourceNotFoundException":
+                    raise
+        client_id = cg.create_user_pool_client(
+            UserPoolId=pool["pool_id"], ClientName="portal", GenerateSecret=False,
+            AllowedOAuthFlows=["code"], AllowedOAuthFlowsUserPoolClient=True, AllowedOAuthScopes=SCOPES,
+            CallbackURLs=[callback], LogoutURLs=[callback], SupportedIdentityProviders=[PROVIDER],
+            ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"], PreventUserExistenceErrors="ENABLED", EnableTokenRevocation=True,
+        )["UserPoolClient"]["ClientId"]
+        _save_platform({"portal_client_id": client_id, "portal_callback": callback})
+    except ClientError as e:
+        raise PortalError(502, f"Could not set up sign-in for students ({e.response['Error'].get('Code', 'AWS error')}). The platform's log has the details. Nothing was turned on.")
+    return {"client_id": client_id, "callback": callback}
+
+
+def portal_signin_info():
+    """What the portal page and the code exchange need, or None while the portal client does not exist."""
+    record = db().get(PLATFORM_KEY) or {}
+    if not (record.get("portal_client_id") and record.get("pool_id") and record.get("domain")):
+        return None
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    return {"host": login_host(record["domain"]), "client_id": record["portal_client_id"], "redirect_uri": record["portal_callback"],
+            "issuer": f"https://cognito-idp.{region}.amazonaws.com/{record['pool_id']}"}
+
+
+def exchange_code(info, code, verifier, post=None):
+    """Trade the one-time code (and the PKCE verifier) for the ID token at Cognito. Returns the ID token text.
+    `post(url, fields)` returns the answer text (tests pass their own). Nothing from the answer except the ID token is kept or logged."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    fields = {"grant_type": "authorization_code", "client_id": info["client_id"], "code": code, "redirect_uri": info["redirect_uri"], "code_verifier": verifier}
+    url = info["host"] + "/oauth2/token"
+    try:
+        if post:
+            text = post(url, fields)
+        else:
+            request = urllib.request.Request(url, data=urllib.parse.urlencode(fields).encode(), method="POST",
+                                             headers={"content-type": "application/x-www-form-urlencoded"})
+            text = urllib.request.urlopen(request, timeout=8).read().decode()  # noqa: S310 (the host is the pool's own https address)
+        answer = json.loads(text)
+        token = answer.get("id_token") if isinstance(answer, dict) else None
+    except (urllib.error.URLError, ValueError, OSError):
+        raise PortalError(401, "Google sign-in was refused or timed out. Start again.")
+    if not isinstance(token, str) or not token:
+        raise PortalError(401, "Google sign-in did not finish. Start again.")
+    return token
 
 
 def enable_app(item):

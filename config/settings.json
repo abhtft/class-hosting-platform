@@ -28,6 +28,11 @@
       "help": "Google sign-in for the visitors of the apps students build (not the teacher or student login of the platform)."
     },
     {
+      "id": "identity",
+      "title": "Student sign-in with Google (the platform's own)",
+      "help": "Who may sign in to the portal with Google, and how many addresses the teacher may list. The student sign-in with a token keeps working whatever is set here."
+    },
+    {
       "id": "tokens",
       "title": "Student tokens",
       "help": "How long a token can live and what happens when it runs out."
@@ -2703,6 +2708,171 @@
       "code": [
         "auth.sessionDays"
       ]
+    },
+    {
+      "key": "identity.maxListedEmails",
+      "group": "identity",
+      "title": "Most e-mail addresses on the invite list",
+      "help": "How many individual e-mail addresses the teacher may list as allowed to sign in with Google. Keeps the admission record small.",
+      "unit": "addresses",
+      "default": 300,
+      "min": 1,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "identity.MAX_EMAILS"
+      ]
+    },
+    {
+      "key": "identity.maxListedDomains",
+      "group": "identity",
+      "title": "Most e-mail domains on the allow list",
+      "help": "How many e-mail domains (for example a school's) the teacher may list as allowed to sign in with Google.",
+      "unit": "domains",
+      "default": 10,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "identity.MAX_DOMAINS"
+      ]
+    },
+    {
+      "key": "identity.signInAttemptsPerMinute",
+      "group": "identity",
+      "title": "Google sign-in attempts per minute",
+      "help": "How many times a minute one network address may try to finish a sign-in with Google or ask for a pairing code. A whole class behind one school network signs in together, so the default is generous. Protects the sign-in service from floods.",
+      "unit": "attempts",
+      "default": 60,
+      "min": 1,
+      "max": 600,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "identity.SIGNIN_PER_MINUTE"
+      ]
+    },
+    {
+      "key": "identity.personalTokenDays",
+      "group": "identity",
+      "title": "How long a paired computer stays signed in",
+      "help": "Days a computer paired with a student's Google account keeps working before the student pairs it again (npm run login). A leaked personal token stops working after this.",
+      "unit": "days",
+      "default": 30,
+      "min": 1,
+      "max": 365,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "access.PERSONAL_DAYS"
+      ]
+    },
+    {
+      "key": "identity.sitesPerStudent",
+      "group": "identity",
+      "title": "Most sites one Google account may own",
+      "help": "How many sites (approved new-project requests) one Google account may hold at the same time.",
+      "unit": "sites",
+      "default": 5,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "access.SITES_PER_STUDENT"
+      ]
+    },
+    {
+      "key": "identity.pendingPerStudent",
+      "group": "identity",
+      "title": "Most waiting requests per student",
+      "help": "How many requests one student may have waiting for the teacher at once.",
+      "unit": "requests",
+      "default": 3,
+      "min": 1,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "access.PENDING_PER_STUDENT"
+      ]
+    },
+    {
+      "key": "identity.requestsPerDay",
+      "group": "identity",
+      "title": "Most requests per student per day",
+      "help": "How many requests one student may send in a day, whatever their answer.",
+      "unit": "requests",
+      "default": 10,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "access.REQUESTS_PER_DAY"
+      ]
+    },
+    {
+      "key": "identity.pendingTotal",
+      "group": "identity",
+      "title": "Most waiting requests in the whole class",
+      "help": "The teacher's inbox stops taking new requests when this many are waiting. Protects the teacher from a flood.",
+      "unit": "requests",
+      "default": 200,
+      "min": 10,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "access.PENDING_TOTAL"
+      ]
+    },
+    {
+      "key": "identity.requestTtlDays",
+      "group": "identity",
+      "title": "How long a request is kept",
+      "help": "Days after which an old request disappears from the inbox and the student's list.",
+      "unit": "days",
+      "default": 30,
+      "min": 1,
+      "max": 180,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "access.REQUEST_TTL_DAYS"
+      ]
+    },
+    {
+      "key": "identity.pairMinutes",
+      "group": "identity",
+      "title": "How long a pairing code lasts",
+      "help": "Minutes a code shown by npm run login stays valid for the student to approve in the portal.",
+      "unit": "minutes",
+      "default": 10,
+      "min": 2,
+      "max": 60,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "access.PAIR_MINUTES"
+      ]
+    },
+    {
+      "key": "identity.devicesPerSite",
+      "group": "identity",
+      "title": "Most paired computers per site",
+      "help": "How many computers may be paired with one site at the same time. The student can sign one out to pair another.",
+      "unit": "computers",
+      "default": 5,
+      "min": 1,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "access.DEVICES_PER_SITE"
+      ]
     }
   ],
   "fixed": [
@@ -2761,6 +2931,30 @@
     {
       "code": "trace_core.RETENTION_CHOICES",
       "reason": "The retention choices the teacher page offers (30, 60 or 90 days): the values the format allows. The default is traces.retentionDays."
+    },
+    {
+      "code": "jwtcheck.LEEWAY_SECONDS",
+      "reason": "A clock-difference allowance for checking a sign-in token, not a choice."
+    },
+    {
+      "code": "jwtcheck.MAX_TOKEN_CHARS",
+      "reason": "A sanity bound on the size of a sign-in token (they are about 1,000 characters), not a choice."
+    },
+    {
+      "code": "jwtcheck.JWKS_CACHE_SECONDS",
+      "reason": "How long Cognito's public keys are remembered; they change rarely and a miss refetches, not a choice."
+    },
+    {
+      "code": "jwtcheck.JWKS_TIMEOUT_SECONDS",
+      "reason": "How long to wait for Cognito's public keys before failing plainly, not a choice."
+    },
+    {
+      "code": "access.NOTE_MAX",
+      "reason": "A sanity bound on the length of a note typed in a request, not a choice."
+    },
+    {
+      "code": "access.PAIR_CODE_LENGTH",
+      "reason": "The length of the pairing code a student types (eight characters), a usability choice, not a limit."
     }
   ]
 }

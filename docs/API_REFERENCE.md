@@ -401,3 +401,60 @@ Teacher: `GET|POST /api/admin/projects` (list; make a team project `{id, title, 
 | `POST /v1/search` on the knowledge API | Also returns `x-trace-id` when traces are on; send your own `x-trace-id` (`tr_` and 16 hex digits) to join steps into one trace |
 | `POST /v1/trace` on the knowledge API | `{trace_id, spans: [...]}` (at most 30 steps): the helpers report their own steps once at the end of an answer; never an error for the app |
 
+
+## 8. Student identity: sign in with Google (not released; docs/STUDENT_IDENTITY_PLAN.md, phase 1)
+
+Off by default (`token-only`): every route below answers "not turned on" and the token sign-in works exactly as before.
+
+Teacher session:
+
+| Route | Body | Does |
+|---|---|---|
+| `GET /api/admin/identity` | | The rules (`mode`, `emails`, `domains`, `portal_url`), the modes and the list limits |
+| `POST /api/admin/identity` | `{mode?, emails?, domains?, portal_url?}` | Change the rules. `mode` is `token-only`, `invite`, `domain` or `request`. Turning Google sign-in on needs `portal_url` (https, your portal address) and first makes the portal's sign-in client; a failure leaves the old rules. Only the fields sent change. |
+| `GET /api/admin/identity/users` | | Signed-in students: `sub`, `email`, `name`, `status`, `first_seen`, `last_seen` |
+| `POST /api/admin/identity/users/{sub}/disable` and `/enable` | | Turn one account off or on. A disabled account's open session stops at once. |
+
+Student ("user") session, which is its own kind: it opens only these routes, never a token's routes and never the teacher's.
+
+| Route | Body | Does |
+|---|---|---|
+| `GET /api/student/google/config` | | `{enabled:false}`, or what the page needs to start (`host`, `client_id`, `redirect_uri`, `scopes`, `mode`). No secret. |
+| `POST /api/student/google/login` | `{code, verifier}` | Trade the one-time code (PKCE) for Google's ID token, check it (signature, issuer, the portal's own client, expiry, verified e-mail), apply the rules. Returns `{session, expires_at, user, level}`. `level` is `member` or `requester`. Limited per network address per minute. |
+| `GET /api/student/google/me` | | `{user, level, tokens}`: the account and the tokens linked to it |
+| `POST /api/student/google/link` | `{token}` | A `member` joins an existing token to the account. Once linked, another account cannot take it (409). A revoked or unknown token answers 401. |
+
+The rules are checked again on every request, so removing an address from the list, disabling the account or turning Google sign-in off stops open sessions at once.
+
+### Student home, requests and paired computers (phases 2 to 4)
+
+Teacher session:
+
+| Route | Body | Does |
+|---|---|---|
+| `GET /api/admin/access-requests` | | Every request with the student's e-mail and name, waiting ones first; `open` is the number waiting |
+| `POST /api/admin/access-requests/{id}/decide` | `{action: accept, modify or reject, granted?, note?}` | `accept` grants as asked; `modify` needs `granted: {days, slug, features}` and grants that instead; `reject` grants nothing. Decided once (409 after). A grant that fails (for example the AI connector is not set up) puts the request back to waiting with the reason and keeps the site it made. |
+| `POST /api/admin/identity/users/{sub}/erase` | `{confirm: <sub>}` | Remove the account, its requests and its paired computers; its sites are unlinked (personal ones switched off) |
+| `POST /api/admin/projects` and `/{ref}` | `{catalogue: true}` | List a team project for students who sign in with Google |
+
+Google ("user") session:
+
+| Route | Body | Does |
+|---|---|---|
+| `GET /api/student/google/home` | | `{user, level, sites, projects, requests, limits}`; `projects[].state` is `member`, `pending` or `none` (a member only) |
+| `POST /api/student/google/requests` | `{kind: new_site, days, slug?, note?, features?}` or `{kind: join_project, project, site?}` | Ask. Only known features and keys, plain values; limits per student and for the class. |
+| `POST /api/student/google/requests/{id}/withdraw` | | Withdraw a waiting request (the owner only) |
+| `POST /api/student/google/pair` | `{code, site?}` | Approve the pairing code a computer shows (member only) |
+| `GET /api/student/google/pair/{code}` | | Which computer the code is from |
+| `GET /api/student/google/devices` | | The paired computers |
+| `POST /api/student/google/devices/{id}/revoke` | | Sign one computer out (its open session stops at once) |
+| `POST /api/student/google/sign-out-everywhere` | | Sign all out |
+
+No session (a computer asking for a code):
+
+| Route | Body | Does |
+|---|---|---|
+| `POST /api/student/pair/start` | `{hash, device?}` | `hash` is the SHA-256 of a token the computer made. Returns `{code, expires_at, minutes}`. Limited per network address per minute. |
+| `POST /api/student/pair/poll` | `{code, hash}` | `pending`, `approved`, `denied`, `expired` or `unknown` (the same answer for a wrong code and a wrong hash) |
+
+A personal token is used like any other: `POST /api/student/login {token: "mdp_..."}`. The session names the paired computer, so signing it out stops it at once.

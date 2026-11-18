@@ -343,7 +343,8 @@ def view(item, now, site_url):
     status = status_of(item, now)
     regen = item.get("regen") or {"state": "none"}
     return {
-        "id": item["id"], "slug": item["slug"], "student_name": item.get("student_name", ""), "hint": item["hint"],
+        "id": item["id"], "slug": item["slug"], "student_name": item.get("student_name", ""), "hint": item["hint"], "kind": item.get("kind", "universal"),
+        "linked": bool(item.get("owner_sub")),
         "url": site_url(item["slug"]), "status": status, "created_at": item["created_at"],
         "expires_at": item["expires_at"], "offline_at": item["expires_at"] + GRACE_DAYS * DAY,
         "last_deploy_at": item.get("last_deploy_at"), "can_deploy": status == "active",
@@ -481,6 +482,12 @@ def dispatch(method, path, body, event, now, site_url):
         return teacher_login(body, event, now)
     if (method, path) == ("POST", "/api/student/login"):
         return student_login(body, now, site_url)
+    if path in ("/api/student/pair/start", "/api/student/pair/poll"):  # a computer asks for a pairing code, before anybody is signed in (access.py)
+        import access
+        routed = access.public_route(method, path, body, event, now)
+        if routed is None:
+            return reply(404, error="Unknown route.")
+        return reply(routed[0], **routed[1])
     if (method, path) == ("POST", "/api/student/regen-request"):
         return regen_request(student_token(event, now), body, now, site_url)
     if (method, path) == ("GET", "/api/student/me"):
@@ -505,6 +512,12 @@ def dispatch(method, path, body, event, now, site_url):
     if path == "/api/student/knowledge" or path.startswith("/api/student/knowledge/"):
         import knowledge
         routed = knowledge.student_route(student_token(event, now), method, path, body, now)
+        if routed is None:
+            return reply(404, error="Unknown route.")
+        return reply(routed[0], **routed[1])
+    if path.startswith("/api/student/google/"):  # the student's sign-in with Google (identity.py, docs/STUDENT_IDENTITY_PLAN.md)
+        import identity
+        routed = identity.student_route(method, path, body, event, now, site_url)
         if routed is None:
             return reply(404, error="Unknown route.")
         return reply(routed[0], **routed[1])
@@ -539,6 +552,18 @@ def dispatch(method, path, body, event, now, site_url):
             return reply(200, tokens=[view(i, now, site_url) for i in items])
         if (method, path) == ("POST", "/api/admin/tokens"):
             return reply(201, **create_token(body, now, site_url))
+        if path == "/api/admin/access-requests" or path.startswith("/api/admin/access-requests/"):  # requests from Google-signed-in students (access.py)
+            import access
+            routed = access.admin_route(method, path, body, now, site_url)
+            if routed is None:
+                return reply(404, error="Unknown route.")
+            return reply(routed[0], **routed[1])
+        if path == "/api/admin/identity" or path.startswith("/api/admin/identity/"):  # who may sign in with Google (identity.py)
+            import identity
+            routed = identity.admin_route(method, path, body, now)
+            if routed is None:
+                return reply(404, error="Unknown route.")
+            return reply(routed[0], **routed[1])
         if (method, path) == ("GET", "/api/admin/requests"):
             pending = [i for i in db().list_prefix("tok#") if (i.get("regen") or {}).get("state") == "pending" and not i.get("revoked")]
             pending.sort(key=lambda i: i["regen"]["requested_at"])
@@ -725,16 +750,41 @@ def teacher_login(body, event, now):
 def student_login(body, now, site_url):
     token = str(body.get("token", "")).strip()
     item = db().get(f"tok#{token_hash(token)}") if token else None
+    cred = None
+    if not item and token.startswith("mdp_"):  # a personal token: a computer paired with a Google account (access.py)
+        import access
+        found = access.credential_login(token_hash(token), now)
+        if found:
+            cred, item = found
     if not item or item.get("revoked"):
         raise PortalError(401, "This token is not valid. Check it or ask your teacher.")
-    return reply(200, session=sign_session("student", item["id"], STUDENT_SESSION_SECONDS, now),
-                 token=view(item, now, site_url))
+    check_owner(item)
+    subject, ttl = item["id"], STUDENT_SESSION_SECONDS
+    if cred:  # the session names the paired computer, so signing it out stops the session at once; it never outlives the pairing
+        subject, ttl = f"{item['id']}.{cred['cid']}", max(1, min(ttl, cred["expires_at"] - now))
+    return reply(200, session=sign_session("student", subject, ttl, now), token=view(item, now, site_url))
+
+
+def check_owner(item):
+    """A site MADE for a Google account (kind 'personal') stops working when that account is turned off, removed from the lists, or Google sign-in is off.
+    A teacher's own token that a student linked to their account is not affected: it keeps working whatever the Google settings are, so turning Google off
+    always brings the platform back to how it was."""
+    if item.get("owner_sub") and item.get("kind") == "personal":
+        import identity
+        if not identity.owner_allowed(item["owner_sub"]):
+            raise PortalError(401, "The account for this site is not active. Ask your teacher.")
 
 
 def student_token(event, now):
-    item = db().get(f"tok#{verify_session('student', event, now)}")
+    site_id, _, computer = verify_session("student", event, now).partition(".")
+    item = db().get(f"tok#{site_id}")
     if not item or item.get("revoked"):
         raise PortalError(401, "This token is no longer valid.")
+    if computer:
+        import access
+        if not access.credential_ok(computer, site_id, now):
+            raise PortalError(401, "This computer was signed out or its pairing ended. Run  npm run login  to pair it again.")
+    check_owner(item)
     return item
 
 

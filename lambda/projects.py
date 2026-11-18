@@ -86,7 +86,7 @@ def _bucket():
 # ---------- the manifest ----------
 def _new(kind, name, now, title="", members=()):
     return {"pk": key_of(kind, name), "kind": kind, "name": name, "title": title, "members": list(members), "rev": 0, "files": {}, "bytes": 0,
-            "stored": 0, "frozen": False, "created_at": now, "updated_at": now}
+            "stored": 0, "frozen": False, "catalogue": False, "created_at": now, "updated_at": now}
 
 
 def load(kind, name):
@@ -111,7 +111,7 @@ def for_student(item, ref, now, create=False):
 def view(project):
     return {"id": public_id(project), "kind": "personal" if project["kind"] == "p" else "team", "title": project.get("title") or public_id(project),
             "members": project.get("members") or [], "rev": project["rev"], "files": len(project.get("files") or {}), "bytes": project.get("bytes", 0),
-            "stored": project.get("stored", 0), "frozen": bool(project.get("frozen")), "updated_at": project.get("updated_at", 0),
+            "stored": project.get("stored", 0), "frozen": bool(project.get("frozen")), "catalogue": bool(project.get("catalogue")), "updated_at": project.get("updated_at", 0),
             "limits": {"files": MAX_FILES, "file_mb": MAX_FILE_BYTES // MB, "project_mb": MAX_LIVE_BYTES // MB}}
 
 
@@ -340,6 +340,7 @@ def admin_route(method, path, body, now):
     if (method, rest) == ("POST", ""):
         name = team_name(body.get("id"))
         project = _new("t", name, now, str(body.get("title") or name)[:80], _members(body.get("members") or []))
+        project["catalogue"] = bool(body.get("catalogue"))  # listed for students who sign in with Google, who may ask to join
         if not db().put(project, if_absent=True):
             raise PortalError(409, "A project with this id exists already.")
         return 201, {"project": view(project) | {"ref": f"t/{name}", "name": name}}
@@ -361,6 +362,8 @@ def admin_route(method, path, body, now):
             fields["members"] = _members(body["members"])
         if "frozen" in body:
             fields["frozen"] = bool(body["frozen"])
+        if "catalogue" in body and kind == "t":
+            fields["catalogue"] = bool(body["catalogue"])
         updated = db().update(project["pk"], fields) if fields else project
         return 200, {"project": view(updated) | {"ref": f"{kind}/{name}", "name": name}}
     if (method, sub) == ("DELETE", ""):
