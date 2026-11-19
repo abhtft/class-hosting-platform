@@ -1,6 +1,6 @@
 # Handoff: how to work on this project
 
-For a new session or a new maintainer. Read this first, then [docs/STATUS.md](docs/STATUS.md) (where the project stands), [docs/CRITICAL_ISSUES.md](docs/CRITICAL_ISSUES.md) (what blocks a wider release), [docs/ROADMAP.md](docs/ROADMAP.md) (what comes next), [docs/README.md](docs/README.md) (map of all documents), the top of `CHANGELOG.md` and `docs/TECHNICAL_SPECIFICATION.md`. No account numbers, domains or keys are in this repository on purpose; the owner keeps them in a private, git-ignored file (section 6).
+For a new session or a new maintainer. Read this first, then [docs/STATUS.md](docs/STATUS.md) (what is built and how well it is proven), [docs/FUTURE.md](docs/FUTURE.md) (what is not built yet, the only list of unbuilt work), [docs/README.md](docs/README.md) (map of all documents), the top of `CHANGELOG.md` and `docs/TECHNICAL_SPECIFICATION.md`. No account numbers, domains or keys are in this repository on purpose; the owner keeps them in a private, git-ignored file (section 6).
 
 ## 1. Where things are
 
@@ -26,7 +26,7 @@ CI (`.github/workflows/ci.yml`) runs the suite, `cfn-lint -i W1030 W2506 -t temp
 
 ## 3. Release procedure (only on the owner's explicit "release X")
 
-1. Change the version in **four files together**: `VERSION`, `teacher-mcp/package.json`, `starter/mcp/package.json` and `starter/template/platform.json` (`kitVersion`); a test fails if they differ. Rename the `## X.Y.Z (unreleased)` section of `CHANGELOG.md`; update the pinned example version in `docs/TEACHER_SETUP.md` and the version facts in `docs/TECHNICAL_SPECIFICATION.md`.
+1. Change the version in **four files together**: `VERSION`, `teacher-mcp/package.json`, `starter/mcp/package.json` and `starter/template/platform.json` (`kitVersion`); a test fails if they differ. Add a `## X.Y.Z` section at the top of `CHANGELOG.md` (what is new, and what a teacher must do); update the pinned example version in `docs/TEACHER_SETUP.md`, the version facts in `docs/TECHNICAL_SPECIFICATION.md` (document control, the `spec-facts` block) and the release line in `docs/STATUS.md`. Move any item that the release completes from `docs/FUTURE.md` to `docs/STATUS.md`.
 2. If the student kit changed (`starter/`, `student/portal-deploy.mjs`, the rules or helpers), record the kit's content hash for the new version in `tests/kit-versions.json` (the failing test prints the line). A kit change after a version was applied live needs a new version number.
 3. `node tests/run.mjs` passes. Check `git status`, commit, `git push origin main`, `git tag vX.Y.Z`, `git push origin vX.Y.Z`.
 4. The workflow takes about ten minutes. Confirm CI, Release, CodeQL and Scorecard succeed and the release page has the `.tgz`, `sha256sums.txt` and the `.sigstore.json` files.

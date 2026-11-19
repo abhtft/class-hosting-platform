@@ -185,4 +185,5 @@ SETTINGS = {
     "identity.requestTtlDays": {"type": "int", "default": 30, "min": 1, "max": 180, "env": None},
     "identity.pairMinutes": {"type": "int", "default": 10, "min": 2, "max": 60, "env": None},
     "identity.devicesPerSite": {"type": "int", "default": 5, "min": 1, "max": 20, "env": None},
+    "identity.peoplePerProject": {"type": "int", "default": 50, "min": 1, "max": 300, "env": None},
 }

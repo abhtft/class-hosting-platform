@@ -4,7 +4,7 @@
 
 You run it in **your own AWS account** with one command. Students get a token, not AWS access. You decide, per student, which features are on and how much they may spend.
 
-> **Status: public beta (2.10.0).** Install, update, student deploy, custom domains, backup and restore and the editor tools were tested end to end on real AWS by the author. **Not yet proven:** use by anyone but the author, classes of more than a few dozen students, regions other than `us-east-1`, and moving a class to another account. Read [Known limitations](#known-limitations) and [docs/STATUS.md](docs/STATUS.md), and tell us what breaks.
+> **Status: public beta (2.11.0).** Install, update, student deploy, custom domains, backup and restore, sign-in for student apps and the editor tools were tested end to end on real AWS by the author. **Not yet proven:** use by anyone but the author, classes of more than a few dozen students, regions other than `us-east-1`, a clean install of this version on a new account, and moving a class to another account. Read [Known limitations](#known-limitations), [docs/STATUS.md](docs/STATUS.md) (what is built) and [docs/FUTURE.md](docs/FUTURE.md) (what is not), and tell us what breaks.
 
 ## What you get
 
@@ -26,7 +26,12 @@ You run it in **your own AWS account** with one command. Students get a token, n
 | **Custom domain** | The student's own domain for their site |
 | **Traces** | A step-by-step record of every answer (question, passages found, model call, cost), numbers only by default; you control how much text is kept |
 
-**Project sync:** students keep their source files on the platform (`npm run push`, `npm run pull`), so the same code is on every computer they use, and the teacher can make **team projects**, all without GitHub accounts: [docs/PROJECT_SYNC.md](docs/PROJECT_SYNC.md).
+**Also built:**
+
+- **Project sync:** students keep their source files on the platform (`npm run push`, `npm run pull`), so the same code is on every computer they use, and the teacher can make **team projects**, all without GitHub accounts: [docs/PROJECT_SYNC.md](docs/PROJECT_SYNC.md).
+- **Sign in with Google** for a student's app, one switch per app: [docs/SIGN_IN.md](docs/SIGN_IN.md).
+- **Add-ons:** approved skills and open-source packages the student's AI editor can add, asking first: [docs/ADDONS.md](docs/ADDONS.md).
+- **Install as an app:** a student's site can be added to a phone's home screen, with no app store: [docs/INSTALLABLE_PLAN.md](docs/INSTALLABLE_PLAN.md).
 
 An **optional compute worker** (one small machine, off until you start it, teacher-only) is available for heavy checks later: [docs/COMPUTE_WORKER.md](docs/COMPUTE_WORKER.md).
 
@@ -61,7 +66,7 @@ Student guide: [student/README.md](student/README.md) and [docs/STUDENT_KIT.md](
 - **Built for classes of a few dozen.** Tokens are created one at a time and features are switched on per student; there are no class-wide defaults.
 - **Backend capacity follows your AWS account:** a new account allows only 10 concurrent function executions, so about 3 student requests run at once until you ask AWS for more (free: Service Quotas, AWS Lambda, request 1000). The install reads the limit and sizes the caps; `verify` warns until the account can serve a class of 30. See [docs/TEACHER_SETUP.md](docs/TEACHER_SETUP.md) (section 13a).
 - **One teacher login** per platform; no co-teachers and no audit log.
-- **Student backends:** one Python 3.12 or Node 22 function, standard library only, 10 seconds per request (25 with the class AI), no SQL database.
+- **Student backends:** one Python 3.12 or Node 22 function, standard library only, 27 seconds per request, no SQL database.
 - **One class per platform.** Do not import a backup into a platform that already has students. A backup includes books but not traces (download those from the Traces tab).
 - **`transfer`** (moving a class to another AWS account) was only rehearsed with simulated accounts: experimental.
 - **No third-party security review** has been done.
@@ -80,7 +85,7 @@ The **[documentation map](docs/README.md)** has a one-page overview and says wha
 |---|---|
 | [Teacher guide](docs/TEACHER_SETUP.md) | Install, run a class, features, alerts, update, back up, remove |
 | [Student guide](student/README.md) and [Student kit](docs/STUDENT_KIT.md) | What students do; how the kit works |
-| [Project status](docs/STATUS.md), [Critical issues](docs/CRITICAL_ISSUES.md), [Roadmap](docs/ROADMAP.md) | Where the project stands, what blocks a wider release, what comes next |
+| [Project status](docs/STATUS.md) and [Future work](docs/FUTURE.md) | What is built and how well it is proven; what is not built yet |
 | [Technical specification](docs/TECHNICAL_SPECIFICATION.md) | The source of truth: architecture, data model, limits, security |
 | [API reference](docs/API_REFERENCE.md) | Every route |
 

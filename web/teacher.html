@@ -25,7 +25,7 @@
     <div class="topbar">
       <div class="brand"><span class="logo" aria-hidden="true">SD</span><div><h1>Teacher dashboard</h1><div class="small muted">Student Deploy</div></div></div>
       <div class="actions">
-        <button id="new-token" class="primary">New token</button>
+        <button id="new-token" class="primary">New project</button>
         <button id="refresh" title="Reload the list">Refresh</button>
         <button id="logout">Sign out</button>
       </div>
@@ -33,17 +33,21 @@
     <div id="created" class="card hidden" style="margin-bottom:16px"></div>
     <div id="stats" class="tiles" aria-label="Summary"></div>
     <div class="tabs" role="tablist">
-      <button role="tab" id="tab-students" aria-selected="true">Students</button>
+      <button role="tab" id="tab-students" aria-selected="true">Projects</button>
       <button role="tab" id="tab-requests" aria-selected="false">Requests <span id="badge" class="badge hidden"></span></button>
       <button role="tab" id="tab-storage" aria-selected="false">Storage</button>
       <button role="tab" id="tab-library" aria-selected="false">Library</button>
       <button role="tab" id="tab-traces" aria-selected="false">Traces</button>
-      <button role="tab" id="tab-projects" aria-selected="false">Projects</button>
+      <button role="tab" id="tab-projects" aria-selected="false">Files</button>
       <button role="tab" id="tab-google" aria-selected="false">Google <span id="google-badge" class="badge hidden"></span></button>
       <button role="tab" id="tab-worker" aria-selected="false">Worker</button>
       <button role="tab" id="tab-usage" aria-selected="false">Usage</button>
     </div>
-    <div id="toolbar" class="toolbar"><input id="search" type="search" placeholder="Search students by name or site" aria-label="Search students" autocomplete="off"></div>
+    <div id="toolbar" class="toolbar">
+      <input id="search" type="search" placeholder="Search projects by name" aria-label="Search projects" autocomplete="off">
+      <select id="filter" aria-label="Show"></select>
+      <select id="sort" aria-label="Order"></select>
+    </div>
     <div id="error" class="error" role="alert"></div>
     <div id="panel" class="card list"></div>
   </section>

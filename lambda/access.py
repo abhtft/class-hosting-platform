@@ -11,6 +11,11 @@ Records in the one tokens table (all plain items; nothing here needs a new table
                site it had already made is kept (site_id), so asking again never makes a second site.
   cred#<sha>   one paired computer: the SHA-256 of its personal token (the platform never sees the token), the site, the owner, when it expires.
   pair#<CODE>  a pairing in progress: the SHA-256 the computer chose, a label, and whether the student approved it. Short-lived.
+  inv#<sha>    an e-mail invitation: the address (lower case) and the sites (projects) it was invited to. Applied at that address's first sign-in.
+
+A project is a site: one address, one backend, one AI budget. Several people can work on it. The site item holds `members` ({account id: {at, by}}),
+`invites` (addresses still waiting) and `owner_sub` (the account that asked for it, or linked its old token). Every member pairs their own computers
+and gets their own personal token, so signing one person out never touches the others. The teacher's own token for a site is unchanged.
 
 The grants use the teacher's own functions (backends, ai, storage, knowledge, traces, domains), so every limit the teacher has is the limit here.
 """
@@ -31,10 +36,12 @@ PENDING_TOTAL = platform_settings.value("identity.pendingTotal")
 REQUEST_TTL_DAYS = platform_settings.value("identity.requestTtlDays")
 PAIR_MINUTES = platform_settings.value("identity.pairMinutes")
 DEVICES_PER_SITE = platform_settings.value("identity.devicesPerSite")
+PEOPLE_PER_PROJECT = platform_settings.value("identity.peoplePerProject")
 NOTE_MAX = 500
 PAIR_CODE_LENGTH = 8
 PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L: a code read off a screen and typed cannot be mistaken
 PERSONAL_PREFIX = "mdp_"
+INVITE = "inv#"
 
 REQ = "req#"
 CRED = "cred#"
@@ -135,6 +142,21 @@ def owned_sites(sub):
     return sorted(identity.tokens_of(sub), key=lambda t: t["created_at"])
 
 
+def is_member(site, sub):
+    """Does this account belong to the site (as the one who asked for it, or as a person the teacher added)?"""
+    return bool(sub) and (site.get("owner_sub") == sub or sub in (site.get("members") or {}))
+
+
+def member_sites(sub):
+    return sorted([t for t in db().list_prefix("tok#") if is_member(t, sub)], key=lambda t: t["created_at"])
+
+
+def any_member_allowed(site):
+    """A site made for Google accounts works while at least one of its people may still sign in."""
+    subs = {site.get("owner_sub"), *(site.get("members") or {})} - {None}
+    return not subs or any(identity.owner_allowed(s) for s in subs)
+
+
 def submit(user, level, body, now):
     sub = user["sub"]
     kind = body.get("kind")
@@ -158,7 +180,7 @@ def submit(user, level, body, now):
         if level != "member":
             raise PortalError(403, "Ask for a site first. You can join a class project once you have one.")
         project = _catalogue_project(body.get("project"))
-        sites = owned_sites(sub)
+        sites = member_sites(sub)
         wanted = body.get("site")
         site = next((s for s in sites if s["id"] == wanted), None) if wanted else (sites[0] if len(sites) == 1 else None)
         if not site:
@@ -299,7 +321,7 @@ def _join(requested, user):
     import projects
     project = projects.load("t", requested["project"])
     site = db().get("tok#" + requested["site"])
-    if not project or not site or site.get("owner_sub") != user["sub"]:
+    if not project or not site or not is_member(site, user["sub"]):
         raise PortalError(409, "The project or the site is gone.")
     members = list(project.get("members") or [])
     if site["slug"] not in members:
@@ -311,10 +333,11 @@ def _join(requested, user):
 # ---------- the student's home ----------
 def home(user, level, now, site_url):
     sub = user["sub"]
-    sites = owned_sites(sub)
+    sites = member_sites(sub)
     mine = [r for r in all_requests() if r["requester"] == sub]
     mine.sort(key=lambda r: -r["created_at"])
-    out = {"user": identity.user_view(user), "level": level, "sites": [portal.view(s, now, site_url) for s in sites],
+    out = {"user": identity.user_view(user), "level": level,
+           "sites": [{**portal.view(s, now, site_url), "people": len(set(s.get("members") or {}) | ({s["owner_sub"]} if s.get("owner_sub") else set()))} for s in sites],
            "requests": [request_view(r) for r in mine], "projects": [],
            "limits": {"sites": SITES_PER_STUDENT, "pending": PENDING_PER_STUDENT}}
     if level == "member":
@@ -384,16 +407,16 @@ def approve_pair(user, level, body, now):
     item = _pair(body.get("code"), now)
     if item["state"] != "pending":
         raise PortalError(409, "That code was already answered.")
-    sites = owned_sites(user["sub"])
+    sites = member_sites(user["sub"])
     wanted = body.get("site")
     site = next((s for s in sites if s["id"] == wanted), None) if wanted else (sites[0] if len(sites) == 1 else None)
     if not site:
         raise PortalError(400, "Say which of your sites this computer is for (site).")
     if portal.status_of(site, now) == "revoked" or site.get("revoked"):
         raise PortalError(409, "That site is revoked.")
-    live = [c for c in db().list_prefix(CRED) if c["site_id"] == site["id"] and c["expires_at"] > now]
+    live = [c for c in db().list_prefix(CRED) if c["site_id"] == site["id"] and c["owner"] == user["sub"] and c["expires_at"] > now]
     if len(live) >= DEVICES_PER_SITE:
-        raise PortalError(409, f"{DEVICES_PER_SITE} computers are already paired with this site. Sign one out first.")
+        raise PortalError(409, f"You already have {DEVICES_PER_SITE} computers paired with this project. Sign one out first.")
     cred = {"pk": CRED + item["hash"][:32], "hash": item["hash"], "cid": item["hash"][:32], "site_id": site["id"], "owner": user["sub"], "device": item["device"],
             "created_at": now, "expires_at": now + PERSONAL_DAYS * DAY, "last_used": 0}
     if not db().put(cred, if_absent=True):
@@ -412,7 +435,7 @@ def deny_pair(body, now):
 
 
 def devices(user, now):
-    sites = {s["id"]: s for s in owned_sites(user["sub"])}
+    sites = {s["id"]: s for s in member_sites(user["sub"])}
     rows = [c for c in db().list_prefix(CRED) if c["owner"] == user["sub"]]
     rows.sort(key=lambda c: -c["created_at"])
     return [{"id": c["cid"], "device": c["device"], "site": sites[c["site_id"]]["slug"] if c["site_id"] in sites else "", "created_at": c["created_at"],
@@ -444,7 +467,7 @@ def credential_login(digest, now):
     site = db().get("tok#" + cred["site_id"])
     if now >= cred["expires_at"]:
         raise PortalError(401, "This computer's sign-in has expired. Run  npm run login  to pair it again.")
-    if not site or site.get("revoked") or not identity.owner_allowed(cred["owner"]) or site.get("owner_sub") != cred["owner"]:
+    if not site or site.get("revoked") or not identity.owner_allowed(cred["owner"]) or not is_member(site, cred["owner"]):
         raise PortalError(401, "This sign-in is no longer valid. Run  npm run login  to pair this computer again.")
     if now - cred.get("last_used", 0) > 3600:
         db().update(cred["pk"], {"last_used": now})
@@ -454,7 +477,10 @@ def credential_login(digest, now):
 def credential_ok(cid, site_id, now):
     """Checked on every request of a session that came from a personal token: signing a computer out takes effect at once."""
     cred = db().get(CRED + cid) if re.fullmatch(r"[0-9a-f]{32}", str(cid)) else None
-    return bool(cred and cred["site_id"] == site_id and now < cred["expires_at"] and identity.owner_allowed(cred["owner"]))
+    if not cred or cred["site_id"] != site_id or now >= cred["expires_at"] or not identity.owner_allowed(cred["owner"]):
+        return False
+    site = db().get("tok#" + site_id)
+    return bool(site and is_member(site, cred["owner"]))  # taking a person off the project ends their computers' sessions at the next request
 
 
 # ---------- the routes ----------
@@ -524,8 +550,175 @@ def erase_identity(sub):
     for t in identity.tokens_of(sub):
         db().update(t["pk"], {"owner_sub": None, "revoked": True} if t.get("kind") == "personal" else {"owner_sub": None})
         counts["sites_unlinked"] += 1
+    for t in db().list_prefix("tok#"):
+        if sub in (t.get("members") or {}):
+            db().update(t["pk"], {"members": {k: v for k, v in t["members"].items() if k != sub}})
     db().delete(identity.USER_PREFIX + sub)
     return counts
+
+
+# ---------- the people on a project (the teacher's card) ----------
+def clean_email(value):
+    address = str(value or "").strip().lower()
+    if not identity.EMAIL_RE.match(address):
+        raise PortalError(400, f"'{address[:60]}' is not an e-mail address.")
+    return address
+
+
+def clean_emails(value):
+    if isinstance(value, str):
+        value = re.split(r"[\s,;]+", value)
+    if not isinstance(value, list):
+        raise PortalError(400, "emails is a list of e-mail addresses.")
+    out = []
+    for v in value:
+        if str(v or "").strip() == "":
+            continue
+        address = clean_email(v)
+        if address not in out:
+            out.append(address)
+    if not out:
+        raise PortalError(400, "Give at least one e-mail address.")
+    if len(out) > 100:
+        raise PortalError(400, "Add at most 100 addresses at a time.")
+    return out
+
+
+def invite_key(address):
+    return INVITE + sha256_hex(address)[:32]
+
+
+def get_invite(address):
+    address = str(address or "").strip().lower()
+    return db().get(invite_key(address)) if address else None
+
+
+def has_invite(address):
+    return bool(get_invite(address))
+
+
+def user_by_email(address):
+    return next((u for u in identity.list_users() if u.get("email") == address), None)
+
+
+def people_view(site):
+    members = site.get("members") or {}
+    subs = list(members)
+    if site.get("owner_sub") and site["owner_sub"] not in members:
+        subs.insert(0, site["owner_sub"])
+    people = []
+    for sub in subs:
+        user = db().get(identity.USER_PREFIX + sub) or {}
+        people.append({"sub": sub, "email": user.get("email", ""), "name": user.get("name", ""), "status": user.get("status", "active"),
+                       "owner": sub == site.get("owner_sub"), "since": (members.get(sub) or {}).get("at") or site.get("linked_at")})
+    return {"members": people, "invites": sorted(site.get("invites") or []), "limit": PEOPLE_PER_PROJECT}
+
+
+def add_people(site, emails, now):
+    """Put people on a project by e-mail. Someone who has already signed in becomes a member at once; the others are invited and become
+    members at their first sign-in. Either way the address is let in even if it is on no list. Returns what happened to each address."""
+    site = db().get(site["pk"])
+    if site.get("revoked"):
+        raise PortalError(409, "This project is revoked.")
+    members, invites = dict(site.get("members") or {}), list(site.get("invites") or [])
+    result = {"added": [], "invited": [], "already": [], "refused": []}
+    for address in emails:
+        user = user_by_email(address)
+        if user and (user["sub"] in members or site.get("owner_sub") == user["sub"]):
+            result["already"].append(address)
+            continue
+        if not user and address in invites:
+            result["already"].append(address)
+            continue
+        if len(members) + len(invites) >= PEOPLE_PER_PROJECT:
+            result["refused"].append({"email": address, "reason": f"The project is full ({PEOPLE_PER_PROJECT} people)."})
+            continue
+        if user:
+            if user.get("status") == "disabled":
+                result["refused"].append({"email": address, "reason": "This account is turned off. Turn it on in the Google tab first."})
+                continue
+            members[user["sub"]] = {"at": now, "by": "teacher"}
+            if not user.get("granted"):
+                db().update(user["pk"], {"granted": True})  # a person the teacher put on a project is let in
+            result["added"].append(address)
+        else:
+            invites.append(address)
+            record = get_invite(address) or {"pk": invite_key(address), "email": address, "sites": []}
+            if site["id"] not in record["sites"]:
+                record["sites"] = [*record["sites"], site["id"]]
+            db().put(record)
+            result["invited"].append(address)
+    db().update(site["pk"], {"members": members, "invites": invites})
+    return result
+
+
+def apply_invites(user, now):
+    """A person who has just signed in with a verified address: every project that invited this address now has them as a member."""
+    invite = get_invite(user.get("email"))
+    if not invite:
+        return 0
+    joined = 0
+    for site_id in invite.get("sites", []):
+        site = db().get("tok#" + site_id)
+        if not site or site.get("revoked"):
+            continue
+        members = dict(site.get("members") or {})
+        members.setdefault(user["sub"], {"at": now, "by": "invite"})
+        db().update(site["pk"], {"members": members, "invites": [e for e in site.get("invites") or [] if e != user["email"]]})
+        joined += 1
+    db().delete(invite["pk"])
+    if joined and not user.get("granted"):
+        db().update(user["pk"], {"granted": True})
+    return joined
+
+
+def remove_person(site, body, now):
+    """Take a person (or a waiting invitation) off a project. Their computers stop at their next request; their other projects are untouched."""
+    site = db().get(site["pk"])
+    sub, address = body.get("sub"), body.get("email")
+    if not sub and not address:
+        raise PortalError(400, "Say who to remove: sub (an account id) or email.")
+    members, invites = dict(site.get("members") or {}), list(site.get("invites") or [])
+    if address:
+        address = clean_email(address)
+        if address in invites:
+            invites.remove(address)
+            record = get_invite(address)
+            if record:
+                left = [s for s in record["sites"] if s != site["id"]]
+                db().put({**record, "sites": left}) if left else db().delete(record["pk"])
+        user = user_by_email(address)
+        if user and not sub:
+            sub = user["sub"]
+    removed = False
+    if sub:
+        if sub in members:
+            members.pop(sub)
+            removed = True
+        fields = {"members": members, "invites": invites}
+        if site.get("owner_sub") == sub:
+            fields["owner_sub"] = None
+            removed = True
+        db().update(site["pk"], fields)
+        for c in db().list_prefix(CRED):
+            if c["owner"] == sub and c["site_id"] == site["id"]:
+                db().delete(c["pk"])
+    else:
+        db().update(site["pk"], {"invites": invites})
+    return {"removed": removed or bool(address)}
+
+
+def people_route(site, method, remove, body, now):
+    """/api/admin/tokens/{id}/people (GET list, POST {emails} add) and /people/remove (POST {sub or email})."""
+    if remove and method == "POST":
+        out = remove_person(site, body, now)
+        return 200, {**out, **people_view(db().get(site["pk"]))}
+    if not remove and method == "GET":
+        return 200, people_view(site)
+    if not remove and method == "POST":
+        out = add_people(site, clean_emails(body.get("emails")), now)
+        return 200, {"result": out, **people_view(db().get(site["pk"]))}
+    return None
 
 
 def sha256_hex(text):

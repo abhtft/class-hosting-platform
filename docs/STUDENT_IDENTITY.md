@@ -1,4 +1,4 @@
-# Students signing in with Google (version 2.11.0, not released)
+# Students signing in with Google (version 2.11.0)
 
 Until now a student signed in with a **token** the teacher made and sent. That still works, unchanged, and is the default. This adds an **optional** second way: the student signs in with their Google account, sees their sites and the class projects, asks for what they need, and the teacher answers. Design and reasons: [STUDENT_IDENTITY_PLAN.md](STUDENT_IDENTITY_PLAN.md). Routes: [API_REFERENCE.md](API_REFERENCE.md) section 8.
 
@@ -17,6 +17,7 @@ Until now a student signed in with a **token** the teacher made and sent. That s
    - **Domain:** the listed addresses and everyone at a listed domain (for example your school).
    - **Request:** listed people are in; anyone else with a verified Google account may sign in and *ask*, and gets nothing until you approve.
 3. To show a team project to students, open it in the **Projects** tab and choose *List in the class catalogue*.
+4. **Put people on a project by e-mail.** Open a project's card, then **People**, **Add people…**, and type one or more e-mail addresses. Someone who has already signed in becomes a member at once. The others get an invitation and become members at their first sign-in with Google; an invited address is let in even if it is on no list (in Invite mode you do not have to list it twice). Each person pairs their own computers and has their own token, so **Remove** stops that person's computers at once and nobody else's. Your own token for the project (the old one) is unchanged. A project is the same thing as a site: one web address, one backend, one AI budget, shared by its people.
 
 ## Student
 
@@ -27,7 +28,7 @@ Open the portal's student page, **Sign in with Google**. To use a computer: in t
 - Only Google's signed token is trusted, and only the portal's own sign-in client (a token made for a student app is refused). The e-mail must be verified by Google. An address is matched exactly (a look-alike domain does not match).
 - Your rules and the *turn off* switch apply to open sessions **at once**: removing an address, turning a student off, or turning Google off stops their Google sessions and their paired computers on the next request.
 - A computer sends the platform only a **hash** of its token; the token never travels until it signs in. A session from a paired computer ends the moment the computer is signed out, and never outlives the pairing.
-- Limits (setting group *Student sign-in with Google*): 3 waiting requests per student, 10 requests a day, 5 sites per account, 5 computers per site, 200 waiting requests in the whole class, 30-day personal tokens, 10-minute codes.
+- Limits (setting group *Student sign-in with Google*): 3 waiting requests per student, 10 requests a day, 5 sites per account, 5 computers per person and project, 50 people on a project, 200 waiting requests in the whole class, 30-day personal tokens, 10-minute codes.
 - A token you made and the student linked to their account keeps working whatever the Google settings are. Turning Google off brings the platform back to how it was; a site made *for* a Google account can then only be used after you turn it on again.
 
 ## Privacy

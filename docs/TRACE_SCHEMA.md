@@ -147,5 +147,5 @@ The format is versioned by the code that writes it. A change that removes or ren
 | **90 days for everything**, shortened per student to 30 or 60; a banner and a monthly email before anything expires; one download for all apps | Long enough to investigate a complaint, short enough to limit stored text; nothing disappears unannounced |
 | **The student may see their own app's traces** if the teacher allows it (off, numbers only, as stored) | Students are developers; a trace shows why their app answered wrongly. The lookup uses the signed-in student's own name, so another app's trace is simply not found |
 | **Tracing never breaks or slows an answer**; a daily limit and a per-trace step limit bound it | Observability is secondary to the answer |
-| **Not built, on purpose:** replay of stored questions with new settings, a converted file for Phoenix, a student web-page panel | Low value until the quality work (RAG_ROADMAP.md) needs them |
+| **Not built yet:** replay of stored questions with new settings, a converted file for Phoenix, a student web-page panel (the `npm run traces` command is built) | Planned with the answer-quality work; see [FUTURE.md](FUTURE.md) section 9 and [future/RAG_ROADMAP.md](future/RAG_ROADMAP.md) |
 

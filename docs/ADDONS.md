@@ -1,6 +1,6 @@
 # Add-ons: approved skills and open-source packages
 
-Kit 2.4.0. An **add-on** is something the teacher approved that a student's AI editor can add to a project: a **skill** (a guide that makes the AI better at one job) or a **module** (an open-source package for the site, with a guide). The reasoning and the later phases are in [ADDONS_PLAN.md](ADDONS_PLAN.md).
+Kit 2.4.0. An **add-on** is something the teacher approved that a student's AI editor can add to a project: a **skill** (a guide that makes the AI better at one job) or a **module** (an open-source package for the site, with a guide). The later phases are in [FUTURE.md](FUTURE.md) section 6.
 
 ## For students (and their AI editor)
 
@@ -50,7 +50,7 @@ The platform ships the catalogue above. To approve something else, or to drop so
 4. Read the text you added. A skill is an instruction to an AI: write advice about *how to build*, never orders about commands, links or secrets.
 5. Run the tests (`node tests/run.mjs`; the add-ons test checks the catalogue), then publish the kit (`node setup.mjs publish`). Students get it with the next automatic kit sync.
 
-Phase 2 (a teacher tab with per-class switches and usage counts) and phase 3 (teacher suggestions) wait for pilot feedback.
+Phase 2 (a teacher tab with per-class switches and usage counts) and phase 3 (teacher suggestions) are listed in [FUTURE.md](FUTURE.md) section 6.
 
 ## Files
 

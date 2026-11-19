@@ -568,6 +568,13 @@ def dispatch(method, path, body, event, now, site_url):
             pending = [i for i in db().list_prefix("tok#") if (i.get("regen") or {}).get("state") == "pending" and not i.get("revoked")]
             pending.sort(key=lambda i: i["regen"]["requested_at"])
             return reply(200, requests=[view(i, now, site_url) for i in pending])
+        people = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/people(/remove)?", path)  # who is on a project (access.py)
+        if people:
+            import access
+            routed = access.people_route(get_token(people.group(1)), method, bool(people.group(2)), body, now)
+            if routed is None:
+                return reply(404, error="Unknown route.")
+            return reply(routed[0], **routed[1])
         backend = re.fullmatch(r"/api/admin/tokens/([0-9a-f]{64})/backend", path)
         if method == "POST" and backend:
             import backends
@@ -769,10 +776,10 @@ def check_owner(item):
     """A site MADE for a Google account (kind 'personal') stops working when that account is turned off, removed from the lists, or Google sign-in is off.
     A teacher's own token that a student linked to their account is not affected: it keeps working whatever the Google settings are, so turning Google off
     always brings the platform back to how it was."""
-    if item.get("owner_sub") and item.get("kind") == "personal":
-        import identity
-        if not identity.owner_allowed(item["owner_sub"]):
-            raise PortalError(401, "The account for this site is not active. Ask your teacher.")
+    if item.get("kind") == "personal":
+        import access
+        if not access.any_member_allowed(item):
+            raise PortalError(401, "Nobody on this project can sign in right now. Ask your teacher.")
 
 
 def student_token(event, now):

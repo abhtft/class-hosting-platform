@@ -283,7 +283,7 @@ for i in range(access.DEVICES_PER_SITE):
     c = call("POST", "/api/student/pair/start", {"hash": h, "device": f"PC {i}"})[1]["code"]
     status, data = call("POST", "/api/student/google/pair", {"code": c, "site": site_id}, ann)
     if status != 200:
-        assert status == 409 and "already paired" in data["error"] and "Sign one out" in data["error"], data
+        assert status == 409 and "computers paired" in data["error"] and "Sign one out" in data["error"], data
         break
 else:
     c = call("POST", "/api/student/pair/start", {"hash": "a" * 64, "device": "One too many"})[1]["code"]

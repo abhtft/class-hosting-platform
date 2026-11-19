@@ -81,7 +81,7 @@ Full steps: [TEACHER_SETUP.md](TEACHER_SETUP.md), section 6 (saving your AI keys
 
 ### 4.2 Teacher switches AI on for a student
 
-<!-- diagram:4cbeaa52 -->
+<!-- diagram:9b93f52c -->
 ![Diagram: 4.2 Teacher switches AI on for a student](diagrams/ai-connector/03-4-2-teacher-switches-ai-on-for-a-student.png)
 
 <details><summary>Diagram source (Mermaid, editable; GitHub also draws it)</summary>
@@ -100,7 +100,7 @@ sequenceDiagram
   P->>D: save hash, key, limit (whole micro-dollars)
   P->>O: set disabled if the token is not active
   P->>D: save enabled and settings
-  P->>L: set 3 variables + 25 s timeout (if the function exists)
+  P->>L: set 3 variables + 27 s timeout (if the function exists)
   P-->>T: view (no key) with limit, usage, model
 ```
 
@@ -111,7 +111,7 @@ Steps in words: validate, create the key (or reuse the student's existing one), 
 
 ### 4.3 A student's request uses the AI
 
-<!-- diagram:75516ac0 -->
+<!-- diagram:58504fb4 -->
 ![Diagram: 4.3 A student's request uses the AI](diagrams/ai-connector/04-4-3-a-student-s-request-uses-the-ai.png)
 
 <details><summary>Diagram source (Mermaid, editable; GitHub also draws it)</summary>
@@ -124,7 +124,7 @@ sequenceDiagram
   participant O as OpenRouter
   V->>G: GET /api/ask
   G->>G: checks (token active, backend on, run allowance, in-flight slot)
-  G->>F: invoke (up to 25 s while AI is on)
+  G->>F: invoke (up to 27 s while AI is on)
   F->>O: POST chat/completions with the student key
   alt cap not reached and key enabled
     O-->>F: 200 answer (usage counted, a little late)
@@ -141,7 +141,7 @@ sequenceDiagram
 </details>
 <!-- /diagram -->
 
-Two separate meters apply: each request to the function counts as one **run** against the Backend allowance (gateway), and each AI call spends **dollars** against the AI cap (OpenRouter). The timeout chain must stay ordered: student function 25 s, gateway 29 s, HTTP API 30 s (a template test pins it).
+Two separate meters apply: each request to the function counts as one **run** against the Backend allowance (gateway), and each AI call spends **dollars** against the AI cap (OpenRouter). The timeout chain must stay ordered: student function 27 s, gateway 29 s, HTTP API 30 s (a template test pins it).
 
 ### 4.4 Lifecycle: when the key works
 
@@ -167,7 +167,7 @@ stateDiagram-v2
 | Event | Effect on the key | When |
 |---|---|---|
 | Teacher AI on | created (first time) or re-enabled | immediately |
-| Teacher AI off | **disabled first**, then variables removed and timeout back to 10 s | immediately |
+| Teacher AI off | **disabled first**, then variables removed and timeout back to the backend's 27 s | immediately |
 | Revoke, take offline | disabled | immediately |
 | Token expires by itself | disabled | by the daily sweeper (03:00 UTC), at most about a day later; the gateway already stops serving the student at expiry |
 | Extend, approve a regeneration | enabled again (if AI is on) | immediately |
@@ -213,7 +213,7 @@ The student page asks `GET /api/student/ai` about once a minute; the server read
 | Error text leaks a secret | Errors are built only from OpenRouter's own message; tested with a wrong management key | `test_ai.py` (provider failures) |
 | DynamoDB rejects data | Money is whole micro-dollars; the tests use a store that fails on any float | `test_ai.py` (StrictStore) |
 | A retry creates a second key (a hidden cost) | Idempotent: one key per student, reused | `test_ai.py` (409 retry) |
-| The long wait breaks the chain | Timeouts ordered 25 s, 29 s, 30 s | `test_template_ai.py` |
+| The long wait breaks the chain | Timeouts ordered 27 s, 29 s, 30 s | `test_template_ai.py` |
 
 ### 6.3 Who can do what (IAM)
 
@@ -273,7 +273,7 @@ Manual 5-minute check: teacher **AI: on** for a student with Backend on; the stu
 
 ## 9. Limits and known gaps
 
-- Dollar cap only, no model lock, no streaming (longest wait 25 s).
+- Dollar cap only, no model lock, no streaming (longest wait 27 s).
 - Free `:free` models are shared with all of OpenRouter and failed with 429 in every test, so the paid model is the default.
 - Usage is counted late by the provider.
 - Per-student key rotation is manual (7.3).

@@ -253,6 +253,11 @@ await step('student home, requests and personal tokens (phases 2 to 4): the home
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
 
+await step('people on a project (project home, phase 2): the teacher puts e-mail addresses on a project, a person who has signed in becomes a member at once and the others at their first sign-in (an unverified address does not use an invitation), every person pairs their own computers, taking one person off stops only that person at once, a project keeps working for the people still on it, and the number of people is limited', () => {
+  const r = spawnSync(python, [join(here, 'test_people.py')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
 await step('Google pages: the student home and the teacher’s Google tab build elements as text only, find every element they need, and the request form builds only what was asked', () => {
   const r = spawnSync('node', [join(here, 'test_google_pages.mjs')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr || r.stdout);

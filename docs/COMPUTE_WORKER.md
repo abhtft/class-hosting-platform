@@ -98,7 +98,7 @@ Nothing needs to change in the platform to give the machine real work. The exten
 - A task that calls a model should use Amazon Bedrock with the machine's role (a narrow `bedrock:InvokeModel` grant, added by a shown plan), so the machine carries no keys, and the task must have its own time and cost cap.
 - Before a task is added that runs **on a schedule**, add a simple tick-box mechanism: one small file per task in `worker/tasks/` with a name, description, time limit and cost cap; a tick-box per task on the Worker tab (a task that is not ticked never runs, and a task shipped in a release never runs by itself); one result per task; an alert email on a failed or alarming result. It was left out on purpose until there is a task to tick.
 
-The planned first uses are in [RAG_ROADMAP.md](RAG_ROADMAP.md): a **benchmark** of the book answers (its document list needs the owner's approval before any download), **daily golden probes** (fixed questions through the real answer path, an alert when quality drops), and **judging flagged answers**.
+The first uses it is meant for are in [FUTURE.md](FUTURE.md) (section 11) and the design in [future/RAG_ROADMAP.md](future/RAG_ROADMAP.md): a **benchmark** of the book answers, **daily golden probes** (fixed questions through the real answer path, an alert when quality drops), and **judging flagged answers**.
 
 ## 9. Decisions and what was deliberately left out
 

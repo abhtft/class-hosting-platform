@@ -14,7 +14,7 @@ This document explains the whole design: what the student and the teacher see, t
 | **What the page does** | `runJob('report', input)` (helper in `frontend/src/api.ts`), or `POST /api/_jobs/<name>` then `GET /api/_jobs/<id>` |
 | **What the backend does** | handles `{"job": {"id", "name", "payload"}}` instead of a web request and **returns the result** (JSON) |
 | **What runs it** | the student's own code, in a second function `sd-<slug>_job`, started and watched by a platform function (the **job runner**) |
-| **What it costs** | a fraction of a cent for a 5-minute job (section 13) |
+| **What it costs** | about 1.5 cents for a full 5-minute job at the backend's 3,008 MB (section 13) |
 
 ## 2. The student's view
 
@@ -83,7 +83,7 @@ Switching it on for a student who already has a backend creates the job function
 | **Gateway function** | `lambda/gateway.py` | The only way in. Answers the reserved path `/b/<slug>/_jobs...` itself (it never reaches the student's web function). Runs the same checks as for a web request (origin secret, slug, body size, backend ready, token active, teacher switch, per-visitor rate), then hands over to `jobs.handle` |
 | **Jobs module** | `lambda/jobs.py` | All the logic: settings and limits, start, read, list, the job function lifecycle, the runner's work |
 | **Job runner** | `lambda/job_runner.py` | A tiny platform function (15 minutes, 128 MB). The gateway starts it with `{slug, id}`; it calls the job function, waits, and records the outcome. **Asynchronous retries are off** |
-| **Job function** | `sd-<slug>_job` | The student's own zip, deployed a second time with the teacher's time limit (up to 15 minutes), the same sandbox role and the same environment variables. The web function `sd-<slug>` is unchanged: it keeps its 10 s (25 s) limit |
+| **Job function** | `sd-<slug>_job` | The student's own zip, deployed a second time with the teacher's time limit (up to 15 minutes), the same sandbox role and the same environment variables. The web function `sd-<slug>` is unchanged: it keeps its 27 s limit |
 | **Portal function** | `lambda/portal.py`, `backends.py` | Creates and updates the job function when the teacher switches jobs on and on every publish; refuses it at AWS when jobs are off; deletes it with the backend |
 | **Tokens table** | DynamoDB | Holds the job items, the counters and the teacher's settings (section 7) |
 | **Kit** | `starter/template` | The example job in both backends, `runJob()` in `api.ts`, the local dev servers, the rules for AI editors |
@@ -155,7 +155,7 @@ All items live in the existing tokens table; keys are single items, and nothing 
 
 ## 8. The job function
 
-**Why a second function and not the same one with a longer limit.** A Lambda function has **one** time limit, fixed when it is created. If the web function itself got 5 or 15 minutes, a runaway web request could run that long (the gateway stops waiting after 10 or 25 seconds, but the function would keep running and billing). With two functions the web function keeps its hard limit and only the job function is long. The cost of idle is zero for both.
+**Why a second function and not the same one with a longer limit.** A Lambda function has **one** time limit, fixed when it is created. If the web function itself got 5 or 15 minutes, a runaway web request could run that long (the gateway stops waiting after 27 seconds, but the function would keep running and billing). With two functions the web function keeps its hard limit and only the job function is long. The cost of idle is zero for both.
 
 **Name.** `sd-<slug>_job`. A slug can contain letters, digits and `-` but never `_`, so this name can never be the web function of another student (`sd-abc_job` versus `sd-abc-job`). The `sd-` prefix keeps it inside every permission that is already scoped to student functions.
 
@@ -239,14 +239,14 @@ Properties that matter:
 
 ## 13. Cost
 
-Lambda bills memory times time. The runner (128 MB) waits for the whole job and the job function (256 MB) runs it, so each second of a job bills about 0.375 gigabyte-seconds. Measured on a real account: a **40-second test job billed about 40 seconds in each function, roughly two hundredths of a cent**. At that rate (approximate; check current AWS prices):
+Lambda bills memory times time. The runner (128 MB) waits for the whole job and the job function (3,008 MB, the same memory as the backend since 2.5.2) runs it, so each second of a job bills about 3 gigabyte-seconds. Measured on a real account at the earlier 256 MB job size: a **40-second test job billed about 40 seconds in each function, roughly two hundredths of a cent**; at 3,008 MB the same job costs about a fifth of a cent. At that rate (approximate; check current AWS prices):
 
 | Job | Cost |
 |---|---|
-| 40 seconds | about 0.02 cent |
-| 5 minutes (the default limit) | about 0.18 cent |
-| 15 minutes (the highest limit) | about 0.5 cent |
-| A student at the defaults, every job running its full 5 minutes, 20 times a day | about 3.5 cents a day at the very most |
+| 40 seconds | about 0.2 cent |
+| 5 minutes (the default limit) | about 1.5 cents |
+| 15 minutes (the highest limit) | about 4.6 cents |
+| A student at the defaults, every job running its full 5 minutes, 20 times a day | about 30 cents a day at the very most |
 
 Idle costs nothing: no function runs and no capacity is reserved. A few DynamoDB writes per job are negligible. Calls the job makes to the class AI are counted against the student's AI cap as usual.
 
@@ -263,7 +263,7 @@ Idle costs nothing: no function runs and no capacity is reserved. A few DynamoDB
 
 ## 15. How it was tested
 
-- **Platform tests** (`tests/test_jobs.py`, 14 groups, run in every build): the teacher's validation and the off-by-default behaviour; creating the job function with the right time limit, role, tags and environment while the web function keeps 10 s; start, read, list and every result shape; failures that never show the student's error text; the daily, per-student and platform limits, including slots that heal; bad input; one student unable to read another's job; stale jobs and a runner called twice; switching off and on, environment copying, merged logs, removal; and the guard against table scans. The tests run the student's real Python handler.
+- **Platform tests** (`tests/test_jobs.py`, 14 groups, run in every build): the teacher's validation and the off-by-default behaviour; creating the job function with the right time limit, role, tags and environment while the web function keeps 27 s; start, read, list and every result shape; failures that never show the student's error text; the daily, per-student and platform limits, including slots that heal; bad input; one student unable to read another's job; stale jobs and a runner called twice; switching off and on, environment copying, merged logs, removal; and the guard against table scans. The tests run the student's real Python handler.
 - **Template tests:** the runner's permissions and the gateway's are checked (the gateway's set of actions did not grow).
 - **Kit tests** (`tests/test_kit.mjs`): both local servers run the starter job, show a crash as a plain message, and refuse bad input.
 - **Installer test:** `destroy` deletes job functions and their log groups.

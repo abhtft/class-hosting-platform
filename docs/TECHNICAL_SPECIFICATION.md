@@ -6,15 +6,15 @@
 
 | | |
 |---|---|
-| Release | first baseline 1.0 (MVP), 2026-10-23; the current release is in the `VERSION` file (2.3.1). Sections still say "Release 1.0" where they describe what the baseline contained; what changed since is in `CHANGELOG.md` |
+| Release | first baseline 1.0 (MVP), 2026-10-23; the current release is in the `VERSION` file (2.11.0). Sections still say "Release 1.0" where they describe what the baseline contained; what changed since is in `CHANGELOG.md` |
 | Product | Class Hosting Platform: a controlled place where a teacher gives students expiring tokens, and students publish a website, a small backend and (optionally) an AI key, mostly by pushing to GitHub |
 | Code base | this repository, branch `main` (releases are tags `vX.Y.Z`; the baseline was the commit that first added this document) |
 | Production | AWS account of the owner, region `us-east-1`, CloudFormation stack `student-hosting` (status `UPDATE_COMPLETE`), portal `https://deploy.example.edu`, student sites `https://<name>.example.edu` |
-| Student kit | version `2.10.0` in the repository (one number for the platform, the kit and the editor package: `VERSION`) (`starter/template/platform.json`); the portal serves what `node admin.mjs portal-publish` last published (the kit zip and `kit-version.json`, the MCP package `class-platform-mcp-<version>.tgz`, the alias `class-platform-mcp.tgz` and `mcp-version.json`). MCP package version `2.10.0` (`starter/mcp/package.json`). **Until `portal-publish` is run the portal still serves kit 1.5.1 and no package** |
+| Student kit | version `2.11.0` in the repository (one number for the platform, the kit and the editor package: `VERSION`) (`starter/template/platform.json`); the portal serves what `node admin.mjs portal-publish` last published (the kit zip and `kit-version.json`, the MCP package `class-platform-mcp-<version>.tgz`, the alias `class-platform-mcp.tgz` and `mcp-version.json`). MCP package version `2.10.0` (`starter/mcp/package.json`). The portal serves the kit and package of the last `publish` (`upgrade` or `publish`) |
 | Audience | the owner/operator, future maintainers, anyone reviewing the design or the security |
 | Change rule | any change to behaviour, limits, resources or flows updates this document **in the same commit**; the machine-checked block (section 14) fails the test run if a number drifts |
-| Changes since the baseline | See `CHANGELOG.md` (every release) and the feature rows F1 to F19 in section 13. Added after the baseline: the student kit and editor tools, class AI (OpenRouter and Gemini), class storage, background jobs, class knowledge, the agent and quality helpers, traces, and the optional compute worker |
-| Verification state | `node tests/run.mjs` runs every local test group (the count is machine-checked in section 14) and passes; GitHub CI is green; the live smoke test (`python tests/live_smoke.py`) covers backends and storage against production but **not yet** knowledge, traces, jobs or the compute worker (see `docs/CRITICAL_ISSUES.md`); the owner tested the full student journey end to end |
+| Changes since the baseline | See `CHANGELOG.md` (every release), the feature table in 1.5 (F1 to F25). Added after the baseline: the student kit and editor tools, class AI (OpenRouter and Gemini), class storage, background jobs, class knowledge, the agent and quality helpers, traces, the optional compute worker, project sync, add-ons, the settings registry, installable sites, sign in with Google for student apps, and the kit's signed self-sync |
+| Verification state | `node tests/run.mjs` runs every local test group (the count is machine-checked in section 14) and passes; GitHub CI is green; the live smoke test (`python tests/live_smoke.py`) covers sites, backends, storage and the portal against production but **not yet** knowledge, traces, jobs, sign-in or the compute worker (see `docs/FUTURE.md`); the author tested the student journey end to end |
 
 ### How to read this document
 
@@ -41,9 +41,9 @@ A teacher wants many students to publish real web projects (a site, a backend, A
 | G7 | A **student kit** makes an AI code editor build inside the platform's architecture, checked by tooling before every deploy |
 | G8 | The shared AWS account stays safe: protections against runaway use, alarms to the owner, recoverable files, hashed secrets |
 
-### 1.3 Non-goals (not part of the platform; section 12.3 lists each one's status)
+### 1.3 Non-goals (not part of the platform; [FUTURE.md](FUTURE.md) section 13 lists the ones set aside)
 
-SQL or server databases for students (RDS), server-side rendering, long-running processes, websockets, several teacher accounts, student self-registration, billing, a hard model allow-list for AI, AI streaming, a deploy-activity history, key rotation by button, infrastructure for custom domains inside CloudFormation. Section 12.3 lists them with their status.
+SQL or server databases for students (RDS), server-side rendering, long-running processes, websockets, several teacher accounts, student self-registration, billing, a hard model allow-list for AI, AI streaming, a deploy-activity history, key rotation by button, infrastructure for custom domains inside CloudFormation. Items still open are in [FUTURE.md](FUTURE.md).
 
 ### 1.4 Roles
 
@@ -74,9 +74,15 @@ SQL or server databases for students (RDS), server-side rendering, long-running 
 | F13 | Portal user interface (teacher and student pages) | live | `test_web.mjs`, browser checks |
 | F15 | Student deploy from the computer without GitHub: `npm run login`, `npm run deploy`, an MCP server for AI editors, and the `class-platform-mcp` package (one `npx` command, no kit download) | **live** in kit 1.3.1 and later; the MCP server is tested by a protocol script, **not yet run inside VS Code or Antigravity by the owner** | `test_portal_cli.mjs`, `test_mcp.mjs`, `test_mcp_package.mjs`, `test_kit.mjs` |
 | F14 | Class storage connector (capped per-student data and files) | **live** (deployed 2026-10-24; off per student until the teacher switches it on) | `test_storage.py`, `test_class_storage.*`, `test_kit_e2e.mjs`, `test_template_ops.py` |
-| F18 | AI pattern helpers in the kit: `class_agent` (budgeted, guarded, traced, human-approved tool use), `class_quality` (answer cache, feedback, evaluation) and `PATTERNS.md` | **proven on a real account with the live class AI (Gemini)** (2.2.0, unreleased; kit files only, no AWS change) | `test_class_agent.*`, `test_class_quality.*`, `test_ai_patterns_e2e.mjs`, `test_kit.mjs` |
+| F18 | AI pattern helpers in the kit: `class_agent` (budgeted, guarded, traced, human-approved tool use), `class_quality` (answer cache, feedback, evaluation) and `PATTERNS.md` | **proven on a real account with the live class AI (Gemini)** (2.2.0; kit files only, no AWS change) | `test_class_agent.*`, `test_class_quality.*`, `test_ai_patterns_e2e.mjs`, `test_kit.mjs` |
 | F19 | Compute worker (optional, off by default): one small EC2 machine (`m7i-flex.large`, 30 GB encrypted disk, us-east-1) for the teacher's own heavy checks; started and stopped only from the teacher page or an optional daily schedule, a 15-minute watchdog stops it past its time limit, a monthly cap on machine hours, no inbound access, a role that reaches only the `worker/` folder, no student access (`docs/COMPUTE_WORKER.md`, `lambda/worker.py`, `worker/runner.py`) |
-| F17 | Class knowledge connector (books a student's app answers from: PDF and text reading, search with page and source, a teacher-built class library, caps and a class-wide monthly ceiling) | **built, not yet deployed** (2.2.0, unreleased; off per student until the teacher switches it on, absent from the stack until `KnowledgeEnabled=true`) | `test_knowledge_core.py`, `test_embeddings.py`, `test_knowledge_store.py`, `test_knowledge_ingest.py`, `test_knowledge.py`, `test_template_knowledge.py`, `test_class_knowledge.*` |
+| F20 | Traces: a step-by-step record of every answer, numbers only by default, retention, Traces tab, daily summaries and alerts, archive (`docs/TRACE_SCHEMA.md`) | released 2.3.1; the platform steps are exercised by the author; not in the live smoke test | `test_traces*`, `test_trace_*`, `test_template_traces.py` |
+| F21 | Project sync: source files on the platform, team projects, automatic saving (`docs/PROJECT_SYNC.md`) | released 2.3.2 | `test_project_sync.mjs`, `test_projects.py` |
+| F22 | Add-ons: approved skills and pinned open-source modules the AI can add, with confirm-first (`docs/ADDONS.md`) | released 2.4.0 (phase 1) | `test_addons.mjs` |
+| F23 | Settings registry: every platform limit in `config/settings.json`, read through one loader (`docs/SETTINGS.md`) | released 2.5.0 (steps S0 and S1) | `test_settings.py` |
+| F24 | Installable sites and the add-on for older projects (`docs/INSTALLABLE_PLAN.md`) | released 2.6.0 and 2.7.0 (real-device check open) | `test_installable.mjs` |
+| F25 | Sign in with Google for student apps: one class pool, one client per app, the student's switch, helper, checks and add-on (`docs/SIGN_IN.md`, `docs/AUTH_PLAN.md`) | released 2.8.0 to 2.10.0; tested live on a real platform with a real Google account | `test_auth.py`, `test_signin_command.mjs`, `test_addons.mjs` |
+| F17 | Class knowledge connector (books a student's app answers from: PDF and text reading, search with page and source, a teacher-built class library, caps and a class-wide monthly ceiling) | **released in 2.2.0**; exercised by the author on real PDFs; off per student until the teacher switches it on, absent from the stack until `KnowledgeEnabled=true`; not in the live smoke test | `test_knowledge_core.py`, `test_embeddings.py`, `test_knowledge_store.py`, `test_knowledge_ingest.py`, `test_knowledge.py`, `test_template_knowledge.py`, `test_class_knowledge.*` |
 
 ---
 
@@ -171,12 +177,12 @@ flowchart TB
 |---|---|---|
 | Student-site CDN | `Distribution` + `RouterFunction` | serves `sites/<slug>/` for `<slug>.<RootDomain>`; SPA fallback; `/api/*` to the backend with `BackendRouteFunction` (host to `/b/<slug>/...`, real viewer IP) |
 | Portal CDN | `PortalDistribution` + `PortalFunction` | serves `portal/` (pages and downloads) at `deploy.<RootDomain>`; `/api/*` to `DeployApi`; clean URLs (`/teacher` to `teacher.html`) |
-| Custom-domain CDN | created by hand: multi-tenant distribution `<TENANT_DISTRIBUTION_ID>`, functions `student-hosting-spa-fallback` and `student-hosting-tenant-api`, origin access control, connection group (see section 12.3) | one *distribution tenant* per student domain; **not in CloudFormation** (known gap) |
+| Custom-domain CDN | created by hand: multi-tenant distribution `<TENANT_DISTRIBUTION_ID>`, functions `student-hosting-spa-fallback` and `student-hosting-tenant-api`, origin access control, connection group (see [FUTURE.md](FUTURE.md) item O9) | one *distribution tenant* per student domain; **not in CloudFormation** (known gap) |
 | Storage | `SitesBucket` (+ policy, origin access control `SitesOAC`) | `sites/`, `uploads/`, `archive/`, `portal/`; versioning on; lifecycle rules |
 | Token store | `TokensTable` | the single DynamoDB table (key `pk`), on demand, point-in-time recovery on |
 | Portal and CLI API | `DeployApi` + `DeployFunction` (`lambda/app.py`, 1024 MB, 29 s) | all `/api/...` portal routes, the legacy CLI routes, frontend publishing, backends control plane, AI control plane |
 | Backend API | `BackendApi` + `GatewayFunction` (`lambda/gateway.py`, 256 MB, 29 s) | the only door to student functions: `ANY /b/{slug}/{proxy+}` |
-| Student functions | `sd-<slug>` (created at runtime) | the student's code; role `StudentSandboxRole` (logs only), 256 MB, 10 s (25 s with AI) |
+| Student functions | `sd-<slug>` (created at runtime) | the student's code; role `StudentSandboxRole` (logs only), 3,008 MB, 27 s (the same with AI) |
 | Daily job | `SweeperFunction` (`app.sweep`, 512 MB, 300 s) + `SweeperFunctionDaily` (cron 03:00 UTC) | archive expired sites, finish domain removals, sync AI keys |
 | Configuration | SSM parameters `StudentKeys`, `TeacherAccount`, `/student-deploy/alert-email` | legacy keys map, teacher account, alert address |
 | Secret | Secrets Manager `openrouter` (outside the stack) | the OpenRouter management key (JSON, `OPENROUTER_MANAGEMENT_KEY`) |
@@ -462,7 +468,7 @@ sequenceDiagram
 </details>
 <!-- /diagram -->
 
-Rules: needs `domain_enabled` set by the teacher, an active token and no existing domain; one domain per student; subdomains only; refused names: the platform's own, AWS addresses, bare apex domains; unique through `domain#<name>` locks. CloudFront refuses to create the tenant until the CNAME is visible, so the first step simply retries. Removal (`DELETE /api/student/domain`) starts `removing`; the next poll or the daily sweeper completes it. Teacher switch off stops *adding*; a live domain keeps working. The multi-tenant distribution is not in CloudFormation: see section 12.3.
+Rules: needs `domain_enabled` set by the teacher, an active token and no existing domain; one domain per student; subdomains only; refused names: the platform's own, AWS addresses, bare apex domains; unique through `domain#<name>` locks. CloudFront refuses to create the tenant until the CNAME is visible, so the first step simply retries. Removal (`DELETE /api/student/domain`) starts `removing`; the next poll or the daily sweeper completes it. Teacher switch off stops *adding*; a live domain keeps working. The multi-tenant distribution is not in CloudFormation yet: see [FUTURE.md](FUTURE.md) item O9.
 
 **DNS hint.** While the state is `waiting_dns`, the `PUT` and `GET .../status` answers carry a `dns` object: `{state: ok | missing | wrong, found, target, message}`. The portal asks a public resolver over HTTPS (`lookup_cname` in `domains.py`, two seconds at most) for the student's CNAME and compares it with the routing endpoint, so the student page can say "your CNAME points at X, but it must point at Y" (the usual mistake is the platform's site address). When the lookup cannot answer, `dns` is `null` and nothing is invented.
 
@@ -498,7 +504,7 @@ sequenceDiagram
 
 - **Preconditions:** the teacher turned **Backend on**, the token is active (`403 Owner not enabled for you. Please contact site owner.` otherwise).
 - **Package rules:** zip at most 5 MB, 50 MB unzipped, 500 files; exactly one entry file at the top: `index.mjs` or `index.js` (Node 22, handler `index.handler`) or `app.py` (Python 3.12, handler `app.handler`); no `.env*` file, no symlink, no unsafe path; a runtime switch requires removing the backend first.
-- **Function:** name `sd-<slug>`, role `StudentSandboxRole` (may only write its own logs, bounded by `StudentSandboxBoundary`), 256 MB, **10 s** (25 s while AI is on), log group with **7-day** retention, tags `managed-by` and `slug`. Never deleted automatically.
+- **Function:** name `sd-<slug>`, role `StudentSandboxRole` (may only write its own logs, bounded by `StudentSandboxBoundary`), 3,008 MB, **27 s** (the same while AI is on), log group with **7-day** retention, tags `managed-by` and `slug`. Never deleted automatically.
 - **Environment variables:** `PUT /api/student/backend/env {name, value}` and `DELETE .../env/<NAME>`; at most 20 variables and 4,096 bytes; name pattern `^[A-Za-z][A-Za-z0-9_]{0,63}$`, not starting with `AWS_`, `LAMBDA_` or `_`, not `TZ`; value at most 1,024 characters. **Values are write-only**: stored only inside the function's configuration, never in DynamoDB and never returned by any API (the view lists names). While the class AI is on, `OPENAI_API_KEY`, `OPENAI_BASE_URL` and `AI_MODEL` are reserved.
 - **Logs:** `GET /api/student/backend/logs` returns up to 50 lines of the last hour from the function's log group.
 - **Removal:** `DELETE /api/student/backend` deletes the function and its log group and keeps the teacher's settings.
@@ -550,7 +556,7 @@ flowchart TD
 
 ### 4.6b Background jobs (F6b)
 
-For work that takes longer than a request (a web request stops at 10 s, 25 s with the class AI). **Off by default per student**; the teacher switches it on in the student's panel and sets three limits: jobs per day (default 20, at most 1,000), jobs at the same time (default 1, at most 5) and minutes per job (default 5, at most 15, which is Lambda's own ceiling). Input at most 64 KB, result at most 100 KB, a finished job is kept one day (a database expiry).
+For work that takes longer than a request (a web request stops at 27 s, the same with the class AI). **Off by default per student**; the teacher switches it on in the student's panel and sets three limits: jobs per day (default 20, at most 1,000), jobs at the same time (default 1, at most 5) and minutes per job (default 5, at most 15, which is Lambda's own ceiling). Input at most 64 KB, result at most 100 KB, a finished job is kept one day (a database expiry).
 
 - **Second function.** The same zip is also deployed as `sd-<slug>_job` (the underscore cannot occur in a slug, so it never collides with another student's web function) with the longer time limit and a copy of the web function's environment variables (the class AI and class storage settings, the student's own variables). The web function keeps its 10 s (25 s) limit. Created or updated when the teacher switches jobs on and on every publish; AWS is told to refuse it when jobs are switched off; deleted with the backend.
 - **Routes.** The gateway answers the reserved path `/b/<slug>/_jobs...` itself (never the student's function): `POST .../_jobs/<name>` starts a job (202), `GET .../_jobs/<id>` reads it, `GET .../_jobs` lists the latest 20. The job id is 128 random bits and is the only key to it.
@@ -561,7 +567,7 @@ For work that takes longer than a request (a web request stops at 10 s, 25 s wit
 ### 4.7 Run allowance and in-flight limiter (F8)
 
 - **Allowance:** `runs_limit` (0 to 1,000,000) per `runs_period` (`day`, `month`, `total`; UTC), counted in `runs#<slug>#<period id>` with a TTL a week after the period ends. Exact under parallel load (tested with 60 callers). The student page shows a meter; the teacher edits the number or adds 1,000.
-- **In-flight limiter:** 3 requests in flight for all students together, 2 per student, so one student cannot consume the account's Lambda concurrency. **These two numbers were chosen for the original account limit of 10 concurrent executions; the limit is now 1,000 and the numbers are unchanged (see 12.3).**
+- **In-flight limiter:** 3 requests in flight for all students together, 2 per student, so one student cannot consume the account's Lambda concurrency. **These are the defaults for a new account (limit 10 concurrent executions). Since 2.3.2 the installer reads the account's Lambda limit and sets both caps from it (for example 247 requests at once and 8 per student for a limit of 1,000); `verify` warns until the account can serve a class of 30.**
 - **Per-visitor limit:** 120 requests per minute per visitor address and student.
 - API throttles: `BackendApi` 10 requests per second (burst 20), `DeployApi` 20 per second (burst 50).
 
@@ -580,7 +586,7 @@ For work that takes longer than a request (a web request stops at 10 s, 25 s wit
 
 Full detail, diagrams and the threat model are in [AI_CONNECTOR.md](AI_CONNECTOR.md); the binding rules are:
 
-<!-- diagram:bf3fcc23 -->
+<!-- diagram:50ae43e1 -->
 ![Diagram: 4.9 Class AI connector (F9)](diagrams/technical-specification/12-4-9-class-ai-connector-f9.png)
 
 <details><summary>Diagram source (Mermaid, editable; GitHub also draws it)</summary>
@@ -595,7 +601,7 @@ sequenceDiagram
   T->>P: POST /api/admin/tokens/id/ai {enabled: true}
   P->>O: create key "student:slug" with a dollar limit and period (management key from Secrets Manager)
   P->>D: store hash, key, limit in micro-dollars
-  P->>F: set OPENAI_API_KEY, OPENAI_BASE_URL, AI_MODEL, timeout 25 s
+  P->>F: set OPENAI_API_KEY, OPENAI_BASE_URL, AI_MODEL, timeout 27 s
   F->>O: chat completions with the student key
   O-->>F: answer, or 403 when the cap is used, or 401 when disabled
 ```
@@ -674,7 +680,7 @@ Enforcement, in four layers: (1) a **working scaffold** in the right layout; (2)
 - **Deploying from the computer:** `npm run login` (once) and `npm run deploy`, and the optional MCP server; see section 4.15.
 - **Kit versions:** 1.1.0 (baseline), 1.2.0 `npm run login` and the "Deploying" rules, 1.3.0 MCP server and `.vscode/mcp.json`, 1.3.1 masked token prompt, 1.4.0 class storage, 1.5.0 kit sync (update notice, `update_kit`, scripts added by `update`, `minKit`), 1.5.1 `mcp-config` prints a complete, clearly delimited file, 1.6.0 the computer-wide token (`login --global`, removed in 1.8.0) and the single MCP server source shared with the new package, 1.7.0 the "Features for you" block in `status`, the rule to check it before planning, and the deploy warning for a helper whose feature is off (MCP package 1.0.1). **2.0.0 (from here the platform, the kit and the editor package share one version and one tag, and a test checks it): the kit follows the teacher's platform automatically** (section 4.15, "Kit sync"), and the token lives only in the project. A test (`tests/kit-versions.json`) fails when the kit's contents change without a `kitVersion` bump.
 - **Local development:** `npm run dev` (site on 3000, backend on 8788; the site forwards `/api`), hot reload for both backends, `npm run doctor`.
-- **Kit delivery:** `node admin.mjs portal-publish` builds `starter-kit.zip` deterministically from `starter/` and publishes it with `kit-version.json`; the student page's **Start here** card offers it with repository deep links and a checklist. An optional public GitHub template repository is pending (12.3).
+- **Kit delivery:** `node admin.mjs portal-publish` builds `starter-kit.zip` deterministically from `starter/` and publishes it with `kit-version.json`; the student page's **Start here** card offers it with repository deep links and a checklist. An optional public GitHub template repository is pending ([FUTURE.md](FUTURE.md) item O13).
 - **Update:** `node tools/platform.mjs status|update [--apply] [--force]` touches only the platform-managed files listed in `platform.json`, verifies the zip against the published hash, refuses unsafe paths, protects files the student edited.
 - **Compatibility rule:** the server only ever *adds* routes, fields and error codes (an old kit keeps working, and the server enforces every limit itself); a change that would break old kits instead raises `minKit` in `starter/template/platform.json`, which `portal-publish` copies into `kit-version.json`, so those kits are told to update. What reaches students: server changes at once (teacher switches, caps, the storage API, injected variables); kit files only when the student updates (section 4.15); a deployed backend keeps the helper it was uploaded with until it is redeployed.
 - **Versioning rule:** bump `kitVersion` in `starter/template/platform.json` whenever anything in the kit changes.
@@ -694,7 +700,7 @@ Static pages from `web/`, built with a tiny DOM helper that never parses text as
 
 ### 4.14 Class storage connector (F14)
 
-Teacher-controlled **data and file storage** for a student's backend, capped and metered. Full description for teachers and students: [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md). Added after the baseline of sections 11 and 12; it is **off unless `StorageEnabled=true`**, which production has had since 2026-10-24 (section 12.3, item 12). Each student stays off until the teacher switches storage on.
+Teacher-controlled **data and file storage** for a student's backend, capped and metered. Full description for teachers and students: [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md). Added after the baseline of sections 11 and 12; it is **off unless `StorageEnabled=true`**, which production has had since 2026-10-24 (a live-tested release; the open items are in [FUTURE.md](FUTURE.md)). Each student stays off until the teacher switches storage on.
 
 **Design decisions.** (1) *Isolation by construction, not by IAM:* all student functions share one sandbox role, and per-student IAM roles would give the portal's function the power to create roles and add a propagation delay to every deploy. Instead the student's function holds an **opaque key** (`cs_<slug>.<secret>`); the storage API works out the owner from the key and builds every DynamoDB key and S3 key itself, so a student cannot name another student's data. (2) *Own API and function* (`StorageApi` + `StorageFunction`, throttled separately) so a busy loop cannot slow the portal. (3) *Hard caps everywhere* so cost cannot run away: bytes, items, file space, file count, value size, and an operations allowance. (4) *Not SQL*: a collection is a list ordered by id; **no RDS** (always-on cost, private network, shared server).
 
@@ -968,7 +974,7 @@ Least privilege per role; the code students run is signed (the kit's version fil
 | Teacher login | scrypt, constant-time compare, per-address lockout |
 | Student isolation | the session decides the site folder and function name; a student can only reach their own `sites/<slug>/`, `sd-<slug>` and AI key |
 | Bucket | private; only CloudFront reads `sites/*` and `portal/*` through origin access control; presigned PUT URLs expire in 10 minutes |
-| Student functions | sandbox role (logs only) under a permission boundary; 256 MB; 10 s; no AWS credentials worth having; internet egress is open (accepted for a class) |
+| Student functions | sandbox role (logs only) under a permission boundary; 3,008 MB; 27 s; no AWS credentials worth having; internet egress is open (accepted for a class) |
 | Control plane | `DeployFunction` may manage only `sd-*` functions, pass only the sandbox role and only to Lambda, write only the student log groups |
 | Gateway | direct calls refused (origin secret); nine ordered checks; request and response size limits; failure details never reach visitors or platform logs |
 | Secrets | environment variables write-only; the AI management key readable by two functions through one named-secret statement; student AI keys never in any API response; a test fails on any committed key, token or email |
@@ -1000,7 +1006,7 @@ A student can call their own public `/api` from anywhere and can use their own c
 |---|---|
 | Availability | managed AWS services only; no servers to patch; single region |
 | Latency targets (observed) | publish of a typical site about 25 s; backend ready in a few seconds; AI answer 1 to 2 s for a short Haiku reply |
-| Capacity | Lambda concurrency quota **1,000** (granted 2026-10-22); in-flight caps currently 3 and 2 (12.3); API throttles in 4.7 |
+| Capacity | Lambda concurrency quota **1,000** (granted 2026-10-22); in-flight caps 3 and 2 for a new account, set from the quota after an install (section 4.7); API throttles in 4.7 |
 | Cost model | pay per use (CloudFront, Lambda, API Gateway, DynamoDB on demand, S3); AI spend bounded per student by the cap and overall by the OpenRouter credit balance; a typical short AI answer costs well under $0.001 |
 | Durability | S3 versioning; DynamoDB PITR; archived sites kept |
 | Observability | CloudWatch logs per function (student logs retained 7 days); six alarms with email; the gateway logs one JSON line per call (slug, status, milliseconds) without bodies |
@@ -1045,9 +1051,9 @@ Stop one student's AI or backend with the teacher switches (effective within abo
 
 ## 11. Quality evidence at baseline
 
-- Local suite: 36 steps green (including the specification check, the identifier guard and the diagram image check), including mutation-tested guards on the allowance, limiter, IAM scopes, AI lifecycle, helper error mapping, checker rules and the update command.
-- CI: green on the baseline commit.
-- Production: stack `UPDATE_COMPLETE`; live smoke test 74 checks passed at the baseline and 110 pass now (36 new ones are class storage, section J, including clearing and an IAM simulation of the portal function's role); the owner completed the student journey end to end (token, kit download, AI editor, push, deploy, class AI).
+- Local suite: every test group in `tests/run.mjs` (the count is machine-checked in section 14) runs without AWS, including the specification check, the identifier guard and the diagram image check, and mutation-tested guards on the allowance, limiter, IAM scopes, AI lifecycle, helper error mapping, checker rules and the update command.
+- CI: runs the suite, `cfn-lint` and `checkov` on Ubuntu for every change. Windows and macOS runs of the no-AWS tests are not yet in CI (FUTURE.md item 5).
+- Production: the live smoke test (`tests/live_smoke.py`) covers sites, backends, class AI and class storage (section J, including clearing and an IAM simulation of the portal function's role). At the last full run it passed 110 checks, before knowledge, traces, jobs and sign-in were added; those are not yet in the live suite (FUTURE.md item 5). The author completed the student journey end to end (token, kit download, AI editor, push, deploy, class AI) and the sign-in journey (2.9.0).
 - AI evaluation of the kit: 13 agent runs, all pass the platform's gates; both adversarial prompts refused correctly.
 
 ---
@@ -1082,26 +1088,9 @@ Teacher tooling (found only by running against a real account): a versioned buck
 
 Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the change set catches them); the gateway must cache "no backend" briefly (2 s) so a fresh deploy is not refused; JSON from providers can start with whitespace; DynamoDB rejects floats; Windows Node can print a libuv assertion if a program calls `process.exit()` while sockets are closing; a test must not run a child synchronously when it hosts a server in the same process. More in [../HANDOFF.md](../HANDOFF.md), gotchas.
 
-### 12.3 Known limitations and open items (priority order)
+### 12.3 Known limitations and open items
 
-| # | Item | Status |
-|---|---|---|
-| 1 | **Re-tune capacity after the quota increase:** in-flight caps (3 and 2), `ConcurrencyAlarmThreshold` (8, to about 800) and per-student reserved concurrency were set for the old limit of 10 | open; do with a load test |
-| 2 | Publish the **public template repository** (`TEMPLATE_URL` in `web/github.js`) | waiting for the owner to create the empty repository |
-| 3 | **Deploy activity history** ("did my push go live?"); the checklist currently ticks "published" from the last deploy of any kind | planned |
-| 4 | A **capped per-student storage connector** (students need shared data; AI agents otherwise invent different external services) | **live** (section 4.14), deployed and live-tested 2026-10-24; a pilot is next |
-| 5 | **Pilot** with two or three real students | planned |
-| 6 | Alert when the OpenRouter credit balance runs low; teacher view of AI spend across students | planned |
-| 7 | "Rotate this student's key" button (manual runbook exists) | planned |
-| 8 | Custom-domain infrastructure into CloudFormation | known gap, documented |
-| 9 | Several teacher accounts; Content-Security-Policy; "Request more runs" from the student | backlog |
-| 10 | Whether each AI editor actually loads the rule files (agents in the evaluation were told to read `AGENTS.md`) | not verified |
-| 12 | Class storage: **deployed and live-tested** (36 live checks, including the presigned upload to real S3, S3's own size refusal, CORS headers and the off switch). Still open: the API throttle was not load-tested; decide whether the data table needs point-in-time recovery; pilot with real students | partly done |
-| 16 | The MCP package (`npx` from the portal URL, `setup`, `init_project`, roots) is tested end to end against the dev portal and **published** (a real `npx -y https://deploy.example.edu/class-platform-mcp.tgz version` was run against production); **not yet run in a real editor by the owner**: the editors' settings paths are the part most likely to differ between versions (Cursor and Claude Code are not set up by `setup`; the *Add to VS Code* install link is untried) | open: the owner's check in VS Code and Antigravity |
-| 13 | MCP server in real editors: **VS Code and Antigravity both confirmed by the owner.** VS Code needs the one-click *Migrate* that newer versions offer (it rewrites `.vscode/mcp.json` to `.mcp.json` with absolute paths and `"type": "local"`); the kit keeps shipping `.vscode/mcp.json` because a portable `.mcp.json` would need `${workspaceFolder}` to be expanded, which is unconfirmed. Antigravity needs the pasted file to be pure JSON with the `mcpServers` wrapper (kit 1.5.1 prints exactly that). Not yet exercised in a real editor: `update_kit` and the update notice | mostly verified |
-| 14 | **Re-run the AI evaluation** against the kit 1.2 to 1.5 rules (Deploying, class storage, keeping the kit current) | open |
-| 15 | `platform update` now adds missing kit scripts (kit 1.5.0); a project on kit 1.1 to 1.4 needs `update --apply` twice (the first run brings the new `platform.mjs`) | resolved, with that one caveat |
-| 11 | The kit's GitHub workflow has run on a real runner in the owner's test; a wider pilot will show real-world friction | partly verified |
+The open items are the register in [FUTURE.md](FUTURE.md) (one list, with what each item needs and when it is done). The limitations that hold today are in [STATUS.md](STATUS.md), section 7, and in the README's "Known limitations". The table of earlier items was retired in the 2.10.0 documentation cleanup; its history is in `CHANGELOG.md`.
 
 ---
 
@@ -1158,7 +1147,7 @@ Presigned URLs need a SigV4 client; cfn-lint misses circular dependencies (the c
   "reservedSlugs": ["sites", "uploads", "archive", "deploy", "www", "api", "admin", "mail", "ftp", "app", "apps", "static", "assets", "bs", "lenden"],
   "kitVersion": "2.11.0",
   "mcpPackage": { "version": "2.11.0" },
-  "testSteps": 60,
+  "testSteps": 61,
   "teacherTools": 11,
   "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors"]
 }

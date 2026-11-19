@@ -77,7 +77,7 @@ Class AI connector (needs `AiEnabled`; see AI_CONNECTOR.md). Body, any of:
 
 | Field | Type | Notes |
 |---|---|---|
-| `enabled` | boolean | ON creates (or re-enables) the student's capped OpenRouter key and sets `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `AI_MODEL` on the function with a 25 s timeout; OFF disables the key first, then removes them |
+| `enabled` | boolean | ON creates (or re-enables) the student's capped OpenRouter key and sets `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `AI_MODEL` on the function with a 27 s timeout; OFF disables the key first, then removes them |
 | `limit_usd` | number 0.01 to 20 | spending cap; the first time on it defaults to `AiDefaultLimitUsd` |
 | `period` | `"day"`, `"month"` or `"total"` | when the cap resets |
 | `model` | string | an OpenRouter model id; empty means the class default |
@@ -260,7 +260,7 @@ An API Gateway HTTP API **payload v2** event:
 | 429 | `too_many_requests` | one visitor over 120 requests per minute | `retry-after: 30` |
 | 429 | `busy` | in-flight cap reached (3 in total, 2 per student) or AWS throttled | `retry-after: 1` |
 | 429 | `allowance_exhausted` | the run allowance is used up | `resets_at` (epoch or `null`), `retry-after` |
-| 504 | `function_timeout` | the function ran longer than 10 s | |
+| 504 | `function_timeout` | the function ran longer than 27 s | |
 | 502 | `function_error` | the function crashed (details stay in the student's own logs) | |
 | 502 | `bad_response` | invalid status code, headers, or not JSON | |
 | 502 | `response_too_large` | response over 1 MB | |
@@ -402,7 +402,7 @@ Teacher: `GET|POST /api/admin/projects` (list; make a team project `{id, title, 
 | `POST /v1/trace` on the knowledge API | `{trace_id, spans: [...]}` (at most 30 steps): the helpers report their own steps once at the end of an answer; never an error for the app |
 
 
-## 8. Student identity: sign in with Google (not released; docs/STUDENT_IDENTITY_PLAN.md, phase 1)
+## 8. Student identity: sign in with Google (2.11.0; docs/STUDENT_IDENTITY_PLAN.md, phase 1)
 
 Off by default (`token-only`): every route below answers "not turned on" and the token sign-in works exactly as before.
 
@@ -458,3 +458,13 @@ No session (a computer asking for a code):
 | `POST /api/student/pair/poll` | `{code, hash}` | `pending`, `approved`, `denied`, `expired` or `unknown` (the same answer for a wrong code and a wrong hash) |
 
 A personal token is used like any other: `POST /api/student/login {token: "mdp_..."}`. The session names the paired computer, so signing it out stops it at once.
+
+### People on a project (teacher session)
+
+| Route | Body | Does |
+|---|---|---|
+| `GET /api/admin/tokens/{id}/people` | | `{members: [{sub, email, name, status, owner, since}], invites: [address], limit}` |
+| `POST /api/admin/tokens/{id}/people` | `{emails: [..]}` (or one text with spaces or commas) | Put people on the project. `result` says per address: `added` (had signed in: member now, and let in), `invited` (becomes a member at the first sign-in with a verified address), `already`, `refused` (`{email, reason}`: turned off, or the project is full). Returns the list too. |
+| `POST /api/admin/tokens/{id}/people/remove` | `{sub}` or `{email}` | Take a person or a waiting invitation off. Their paired computers are deleted and their open sessions stop at the next request. Their other projects are not touched. |
+
+A member sees the project in `GET /api/student/google/home` (`sites[].people` counts the people on it) and pairs their own computers (up to 5 per person and project).

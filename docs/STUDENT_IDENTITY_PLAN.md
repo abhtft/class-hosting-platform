@@ -1,6 +1,6 @@
 # Plan: student identity (Google sign-in), personal tokens, and access requests
 
-> **Status (2.11.0, not released): phases 1 to 4 are built and tested with stand-ins; the real-Cognito round trip is not yet tested live.** The guide for teachers and students is [STUDENT_IDENTITY.md](STUDENT_IDENTITY.md). The decisions in section 10 were all taken as recommended.
+> **Status (2.11.0, released): phases 1 to 4 are built and tested with stand-ins; the real-Cognito round trip is not yet tested live.** The guide for teachers and students is [STUDENT_IDENTITY.md](STUDENT_IDENTITY.md). The decisions in section 10 were all taken as recommended.
 
 > Planning only. No code. Private (`.temp/` is git-ignored). Written 2026-11-18 against version 2.10.0.
 > Source: the owner's draft ("token + email as security, verified by OAuth; a different token per user; student home with projects; request access; teacher accepts, rejects or edits").

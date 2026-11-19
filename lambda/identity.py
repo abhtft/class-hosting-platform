@@ -253,6 +253,10 @@ def google_login(body, event, now, post=None, fetch=None):
         raise PortalError(401, str(e))
     verified = claims.get("email_verified") in (True, "true")  # Cognito writes the fact as a boolean or as the text "true"
     decision = admit(claims.get("email"), verified, rules)
+    if decision["level"] != "member" and verified:
+        import access
+        if access.has_invite(claims.get("email")):  # a project invited this address: the teacher has let this person in
+            decision = {"level": "member", "reason": "Invited to a project by your teacher."}
     sub = claims["sub"]
     existing = get_user(sub)
     if decision["level"] == "denied" and existing and existing.get("granted") and verified:
@@ -262,6 +266,9 @@ def google_login(body, event, now, post=None, fetch=None):
     if existing and existing.get("status") == "disabled":
         raise PortalError(403, "This account has been turned off by your teacher.")
     user = upsert_user(sub, claims.get("email"), claims.get("name"), now)
+    import access
+    if access.apply_invites(user, now):
+        user = get_user(sub)
     return {"session": sign_session("user", sub, STUDENT_SESSION_SECONDS, now), "expires_at": now + STUDENT_SESSION_SECONDS,
             "user": user_view(user), "level": effective_level(user, decision["level"])}
 

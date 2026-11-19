@@ -2,6 +2,8 @@ import { capsText, classUsage } from './usage.js';
 import { api, ApiError, ask, copyText, date, duration, expiryBar, h, lifeText, now, session, statusPill, toast, usd } from './common.js';
 import { voiceRouteText } from './voice_route.js';
 import { createGoogleTab } from './google_admin.js';
+import { FILTERS, SORTS, filterProjects, sortProjects } from './cards.js';
+import { addedText, peopleSection } from './people.js';
 
 const $ = (id) => document.getElementById(id);
 const DURATIONS = [[7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days'], [90, '90 days'], [180, '180 days']];
@@ -15,6 +17,9 @@ let overview = null; // storage across the class (null until loaded, {unavailabl
 let tab = 'students';
 const googleTab = createGoogleTab({ call: (path, options) => call(path, options), render: () => render() }); // Google sign-in, students and requests (google_admin.js)
 let query = '';
+let filterBy = 'all';
+let sortBy = 'recent';
+let peopleBy = {}; // the people on each project whose panel was opened: {site id: {members, invites, limit}}
 let openId = null; // the student whose detail panel is open
 
 function show(signedIn) {
@@ -97,9 +102,9 @@ function render() {
   $('stats').replaceChildren(...stats());
   let rows;
   if (tab === 'students') {
-    const q = query.trim().toLowerCase();
-    const shown = tokens.filter((t) => !q || `${t.student_name} ${t.slug}`.toLowerCase().includes(q));
-    rows = shown.length ? shown.map(studentRow) : [h('div', { class: 'empty' }, tokens.length ? 'No student matches your search.' : 'No tokens yet. Click “New token” to create one.')];
+    const shown = sortProjects(filterProjects(tokens, { q: query, filter: filterBy, now: now() }), sortBy);
+    rows = [newProjectCard(), ...shown.map(projectCard)];
+    if (!shown.length) rows.push(h('div', { class: 'empty', style: 'grid-column:1/-1' }, tokens.length ? 'No project matches your search.' : 'No projects yet. Click “New project” to create one.'));
   } else if (tab === 'requests') {
     rows = requests.length ? requests.map(requestRow) : [h('div', { class: 'empty' }, 'No pending requests.')];
   } else if (tab === 'usage') {
@@ -117,6 +122,7 @@ function render() {
   } else {
     rows = storageTab();
   }
+  $('panel').className = tab === 'students' ? 'cards' : 'card list'; // the projects are cards, every other tab keeps its list
   $('panel').replaceChildren(...rows);
   refreshDrawer();
 }
@@ -127,14 +133,18 @@ function stats() {
   const stored = tokens.reduce((sum, t) => sum + (t.storage?.usage?.data_bytes || 0), 0);
   const users = tokens.filter((t) => t.storage?.enabled).length;
   return [
-    tile('Students', tokens.length, `${active.length} active`),
+    tile('Projects', tokens.length, `${active.length} active`),
     tile('Expiring soon', soon.length, soon.length ? 'within the warning window' : 'none right now'),
     tile('Requests', requests.length, requests.length ? 'waiting for you' : 'all clear'),
     tile('Class storage', users ? mb(stored) : '—', users ? `${users} student${users === 1 ? '' : 's'} using it` : 'switched on for no one'),
   ];
 }
 
-function studentRow(t) {
+/** The first card: make a new project (today this is a new site and its token; see docs/STUDENT_IDENTITY_PLAN.md). */
+const newProjectCard = () => h('button', { class: 'pcard new', onclick: newToken, 'aria-label': 'New project' }, h('span', { style: 'font-size:28px;line-height:1' }, '+'), h('span', {}, 'New project'));
+
+/** One project as a card: name, what is switched on, state, and when it was last worked on. A click opens the detail panel. */
+function projectCard(t) {
   const enabled = [
     t.backend.available && t.backend.enabled ? chip('Backend', 'Backend is on') : null,
     t.ai.available && t.ai.enabled ? chip('AI', 'Class AI is on') : null,
@@ -142,15 +152,13 @@ function studentRow(t) {
     t.knowledge?.available && t.knowledge.enabled ? chip('Books', 'Class knowledge is on') : null,
     t.custom_domain.available && t.custom_domain.enabled ? chip('Domain', 'Custom domain allowed') : null,
   ];
-  return h('button', { class: 'student', onclick: () => openDrawer(t.id), 'aria-label': `Open details for ${t.student_name || t.slug}` },
-    avatar(t),
-    h('span', { class: 'student-main' },
-      h('span', { class: 'title' }, t.student_name || t.slug),
-      h('span', { class: 'small muted' }, `${t.slug}${t.last_deploy_at ? ` · last deploy ${date(t.last_deploy_at)}` : ' · never deployed'}`)),
+  return h('button', { class: 'pcard', onclick: () => openDrawer(t.id), 'aria-label': `Open details for ${t.student_name || t.slug}` },
+    h('span', { class: 'pcard-head' }, avatar(t),
+      h('span', { class: 'student-main' }, h('span', { class: 'title' }, t.student_name || t.slug), h('span', { class: 'small muted' }, t.slug))),
     h('span', { class: 'student-chips' }, enabled),
     h('span', { class: 'student-state' }, statusPill(t), h('span', { class: 'small muted' }, lifeText(t)),
       t.regen.state === 'pending' ? h('span', { class: 'pill warn' }, 'Regeneration requested') : null),
-    h('span', { class: 'chevron', 'aria-hidden': 'true' }, '›'));
+    h('span', { class: 'small muted' }, t.last_deploy_at ? `Last deploy ${date(t.last_deploy_at)}` : 'Never deployed'));
 }
 
 function requestRow(t) {
@@ -722,9 +730,46 @@ document.body.append(drawer);
 drawer.addEventListener('click', (e) => { if (e.target === drawer) closeDrawer(); });
 drawer.addEventListener('close', () => { openId = null; });
 
+async function loadPeople(id) {
+  try {
+    peopleBy[id] = await call(`/api/admin/tokens/${id}/people`);
+  } catch (e) {
+    peopleBy[id] = { members: [], invites: [], limit: 0 };
+    toast(e.message);
+  }
+  if (openId === id) fillDrawer();
+}
+
+async function addPeople(t) {
+  const r = await ask({ title: `Add people to ${t.student_name || t.slug}`, text: 'E-mail addresses, separated by spaces or commas. Someone who has already signed in becomes a member now; the others join when they first sign in with Google. Their address is let in even if it is on no list.',
+    fields: [{ name: 'emails', label: 'E-mail addresses', placeholder: 'ann@school.edu, bob@school.edu', required: true }], confirm: 'Add' });
+  if (!r) return;
+  try {
+    const out = await call(`/api/admin/tokens/${t.id}/people`, { method: 'POST', body: { emails: r.emails } });
+    peopleBy[t.id] = out;
+    toast(addedText(out.result));
+    fillDrawer();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function removePerson(t, who, label) {
+  const r = await ask({ title: `Remove ${label}?`, text: 'Their computers stop working for this project at once. Their other projects are not affected.', confirm: 'Remove', danger: true });
+  if (!r) return;
+  try {
+    peopleBy[t.id] = await call(`/api/admin/tokens/${t.id}/people/remove`, { method: 'POST', body: who });
+    toast('Removed');
+    fillDrawer();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 function openDrawer(id) {
   openId = id;
   fillDrawer();
+  loadPeople(id);
   if (!drawer.open) drawer.showModal();
   const t = tokens.find((x) => x.id === id);
   if (t?.storage?.enabled) loadOverview().then(() => { if (openId === id) fillDrawer(); });
@@ -808,6 +853,7 @@ function drawerContent(t) {
         h('dt', {}, 'Goes offline'), h('dd', {}, date(t.offline_at)),
         h('dt', {}, 'Last deploy'), h('dd', {}, t.last_deploy_at ? date(t.last_deploy_at) : 'never')),
       live ? h('div', { class: 'btns' }, btn('Extend…', () => extend(t)), !t.archived ? btn('Take offline…', () => offline(t)) : (t.expires_at > now() ? btn('Bring online', () => online(t)) : null), btn('Revoke…', () => revoke(t), 'danger')) : h('p', { class: 'small muted', style: 'margin:0' }, 'This token is revoked. Features are locked.')),
+    peopleSection({ data: peopleBy[t.id] || null, locked: !live, onAdd: () => addPeople(t), onRemove: (who, label) => removePerson(t, who, label) }),
     h('h3', { class: 'section-title' }, 'Features'),
     ...(features.length ? features : [h('p', { class: 'small muted', style: 'margin:0' }, 'No optional features are switched on for this platform yet. Switch them on in your terminal with:  plan --enable backend,ai,gemini,storage  and then  apply <id>  (see the teacher guide). Each one stays off for every student until you switch it on here.')]));
 }
@@ -1031,7 +1077,7 @@ async function deny(t) {
 
 async function newToken() {
   const options = [...DURATIONS, ['custom', 'Custom…']];
-  const r = await ask({ title: 'New token', fields: [
+  const r = await ask({ title: 'New project', fields: [
     { name: 'days', label: 'Valid for', options, value: 30 },
     { name: 'student_name', label: 'Student name (optional)', maxlength: 60 },
     { name: 'slug', label: 'Site name (optional)', placeholder: 'defaults to the student name', maxlength: 30 },
@@ -1082,10 +1128,14 @@ $('login-form').addEventListener('submit', async (e) => {
     $('login-error').textContent = err.message;
   }
 });
-$('logout').onclick = () => { session('teacher', null); tokens = requests = []; overview = null; library = null; libraryBooks = {}; traceList = null; traceOpen = null; closeDrawer(); $('created').classList.add('hidden'); show(false); };
+$('logout').onclick = () => { session('teacher', null); tokens = requests = []; overview = null; library = null; peopleBy = {}; libraryBooks = {}; traceList = null; traceOpen = null; closeDrawer(); $('created').classList.add('hidden'); show(false); };
 $('refresh').onclick = load;
 $('new-token').onclick = newToken;
 $('search').addEventListener('input', (e) => { query = e.target.value; render(); });
+$('filter').replaceChildren(...FILTERS.map(([v, l]) => h('option', { value: v }, l)));
+$('sort').replaceChildren(...SORTS.map(([v, l]) => h('option', { value: v }, l)));
+$('filter').addEventListener('change', (e) => { filterBy = e.target.value; render(); });
+$('sort').addEventListener('change', (e) => { sortBy = e.target.value; render(); });
 $('tab-students').onclick = () => { tab = 'students'; render(); };
 $('tab-requests').onclick = () => { tab = 'requests'; render(); };
 $('tab-usage').onclick = () => { tab = 'usage'; render(); };

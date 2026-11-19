@@ -422,6 +422,30 @@ new_session = login()[1]["session"]
 assert call("POST", "/api/student/google/link", {"token": token_made["token"]}, new_session)[0] == 401, "a revoked token cannot be linked"
 print("  ok  request mode lets a stranger sign in and ask but not link; a member links their token once; another account cannot take it over; a revoked token cannot be linked")
 
+# an invited address: the teacher put an e-mail on a project's card; that person signs in although the address is on no list
+invited, pending_mail = addr("invited", "elsewhere.org"), addr("waiting", "elsewhere.org")
+LISTED = {"domains": ["school.edu"], "emails": [addr("guest", "gmail.com")], "portal_url": URL}
+assert call("POST", "/api/admin/identity", {"mode": "invite", **LISTED}, admin)[0] == 200  # only listed addresses are in; an invitation must be what lets the others in
+state["claims"] = claims(email=invited, sub="sub-invited")
+assert login()[0] == 403, "on no list and not invited: refused"
+status, shared = call("POST", "/api/admin/tokens", {"days": 5, "student_name": "Shared"}, admin)
+pid = shared["item"]["id"]
+status, data = call("POST", f"/api/admin/tokens/{pid}/people", {"emails": [invited.upper(), pending_mail]}, admin)
+assert status == 200 and data["result"]["invited"] == [invited, pending_mail] and data["invites"] == sorted([invited, pending_mail]), data
+status, out = login()
+assert status == 200 and out["level"] == "member", out
+home = call("GET", "/api/student/google/home", session=out["session"])[1]
+assert [s["slug"] for s in home["sites"]] == [shared["item"]["slug"]] and home["level"] == "member", "the project is on the home the moment they sign in"
+people = call("GET", f"/api/admin/tokens/{pid}/people", session=admin)[1]
+assert [m["email"] for m in people["members"]] == [invited] and people["invites"] == [pending_mail], "the invitation was used up; the other one still waits"
+# an unverified address does not use an invitation
+state["claims"] = claims(email=pending_mail, sub="sub-waiting", email_verified=False)
+assert login()[0] == 403 and identity.get_user("sub-waiting") is None
+assert call("GET", f"/api/admin/tokens/{pid}/people", session=admin)[1]["invites"] == [pending_mail]
+state["claims"] = claims()
+assert call("POST", "/api/admin/identity", {"mode": "domain", **LISTED}, admin)[0] == 200
+print("  ok  an invited address signs in although it is on no list and lands on the project at once; the invitation is used once; an unverified address does not use it")
+
 # the sign-in attempts are limited per address
 statuses = [login(ip="5.5.5.5")[0] for _ in range(identity.SIGNIN_PER_MINUTE + 3)]
 assert statuses[:identity.SIGNIN_PER_MINUTE] == [200] * identity.SIGNIN_PER_MINUTE and set(statuses[identity.SIGNIN_PER_MINUTE:]) == {429}

@@ -2862,8 +2862,8 @@
     {
       "key": "identity.devicesPerSite",
       "group": "identity",
-      "title": "Most paired computers per site",
-      "help": "How many computers may be paired with one site at the same time. The student can sign one out to pair another.",
+      "title": "Most paired computers per person and project",
+      "help": "How many computers one person may pair with one project at the same time. The student can sign one out to pair another.",
       "unit": "computers",
       "default": 5,
       "min": 1,
@@ -2872,6 +2872,21 @@
       "risk": "careful",
       "code": [
         "access.DEVICES_PER_SITE"
+      ]
+    },
+    {
+      "key": "identity.peoplePerProject",
+      "group": "identity",
+      "title": "Most people on one project",
+      "help": "How many people (members plus e-mail invitations still waiting) one project may have. The teacher adds them on the project's card.",
+      "unit": "people",
+      "default": 50,
+      "min": 1,
+      "max": 300,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "access.PEOPLE_PER_PROJECT"
       ]
     }
   ],

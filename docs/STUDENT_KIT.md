@@ -182,7 +182,4 @@ The rules are measured, not assumed: fresh AI agents get only the kit and a stud
 
 **The signal to act on:** every agent that needed data shared between visitors (a leaderboard, shared notes) invented a different external service and request format. The rules now recommend one convention (Supabase REST, `STORE_URL` and `STORE_KEY`), but at that time the platform had no storage of its own. The capped per-student **class storage** connector (section 4b) was built in response, with the same design as the class AI: the teacher switches it on, there is a quota, and nothing to sign up for.
 
-Next steps:
-1. **Publish the template repository** (section 7, optional) and set `TEMPLATE_URL`.
-2. **Deploy activity history** so the portal confirms "your GitHub push went live" (the checklist currently ticks "published" from the last deploy of any kind).
-3. **A pilot with outside students and teachers**, and read their friction (the storage connector is done).
+Open items for the kit are listed in [FUTURE.md](FUTURE.md) (section 12: the public template repository, the deploy activity history, and the re-check of the AI editor rules).
