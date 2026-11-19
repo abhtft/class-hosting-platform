@@ -1168,9 +1168,18 @@ Resources:
           CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction
       Policies:
         - Statement:
-            - Effect: Allow # one item per message: write it once, count a repeat, remove it when the hand-over failed (never a read, a scan or a query)
+            - Effect: Allow # one item per message (msg#...): write it once, count a repeat, remove it when the hand-over failed; never the registry
               Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem]
               Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['msg#*']
+            - Effect: Allow # read the registry: the agent and its tenant (single items, never a scan or a query)
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*']
             - Effect: Allow # start the worker (this one function)
               Action: lambda:InvokeFunction
               Resource: !GetAtt ChatwootWorkerFunction.Arn
@@ -1204,9 +1213,18 @@ Resources:
           CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle
       Policies:
         - Statement:
-            - Effect: Allow # claim the message and record the outcome (one item, never a read, a scan or a query)
+            - Effect: Allow # claim the message and record the outcome (msg#... only)
               Action: dynamodb:UpdateItem
               Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['msg#*']
+            - Effect: Allow # read the registry again just before replying: the agent and its tenant
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*']
             - Effect: Allow # the agent bot's token and account id: the same chatwoot/<agent name> secrets, nothing else
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:chatwoot/*'

@@ -2101,6 +2101,81 @@
       "template": "Parameter:ChatwootAuthStyle"
     },
     {
+      "key": "chatwoot.registryCacheSeconds",
+      "group": "chatwoot",
+      "title": "How long an agent's registration is remembered",
+      "help": "The receiver remembers an agent, its tenant and the inboxes it may serve this long, so a busy inbox does not read the table for every message (0 reads every time). A change, a switch-off or a new agent takes effect after this. The worker always reads fresh.",
+      "unit": "seconds",
+      "default": 15,
+      "min": 0,
+      "max": 300,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_registry.CACHE_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.maxVersionKB",
+      "group": "chatwoot",
+      "title": "Largest agent version",
+      "help": "The biggest configuration one published version of an agent may hold. A version is stored untouched and never changed.",
+      "unit": "KB",
+      "default": 100,
+      "min": 1,
+      "max": 300,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_registry.MAX_VERSION_BYTES"
+      ]
+    },
+    {
+      "key": "chatwoot.maxVersions",
+      "group": "chatwoot",
+      "title": "Most versions of one agent",
+      "help": "How many versions one agent may have. Versions are never deleted, so this is also the most that can pile up.",
+      "unit": "versions",
+      "default": 50,
+      "min": 1,
+      "max": 500,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_registry.MAX_VERSIONS"
+      ]
+    },
+    {
+      "key": "chatwoot.maxAgentsPerTenant",
+      "group": "chatwoot",
+      "title": "Most agents of one business",
+      "help": "How many agents one tenant (business owner) may register.",
+      "unit": "agents",
+      "default": 20,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_registry.MAX_AGENTS"
+      ]
+    },
+    {
+      "key": "chatwoot.maxInboxesPerAgent",
+      "group": "chatwoot",
+      "title": "Most inboxes of one agent",
+      "help": "How many Chatwoot inboxes (of its one account) one agent may serve.",
+      "unit": "inboxes",
+      "default": 10,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_registry.MAX_INBOXES"
+      ]
+    },
+    {
       "key": "projects.maxFiles",
       "group": "projects",
       "title": "Most files in a project",

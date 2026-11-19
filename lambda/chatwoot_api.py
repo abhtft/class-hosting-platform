@@ -17,6 +17,9 @@ reads them, the worker never reads bot_secret), refuses a message of another acc
 reply's id) or `failed` (with a short reason). There is no automatic retry: Chatwoot does not de-duplicate messages, so a second POST after an unknown outcome
 could answer a customer twice. A failure is recorded, logged and raised so it is visible; handing the conversation to a person is a later step.
 
+A message is served only for an agent that is registered (chatwoot_registry: its tenant, the one Chatwoot account and the inboxes it may serve, all enabled); the
+receiver asks first (answered 200 `ignored: not_mapped`, nothing stored) and the worker asks again just before it replies.
+
 What is stored: ids, status, a reason code and times of a message, never its text, the customer's name, a token or any other personal data. Items expire by
 themselves (ttl). What is logged: names and reason codes, never a secret, a token, a signature or a message."""
 import base64
@@ -29,7 +32,9 @@ import urllib.error
 import urllib.request
 
 import chatwoot_core as core
+import chatwoot_registry as registry
 import platform_settings
+from chatwoot_store import CONDITION_FAILED, DynamoStore, MemoryStore  # noqa: F401  (the table lives in chatwoot_store.py; these names stay importable from here)
 
 MAX_BODY_BYTES = platform_settings.kb("chatwoot.maxBodyKB")
 DEDUPE_TTL_DAYS = platform_settings.value("chatwoot.dedupeTtlDays")
@@ -39,7 +44,6 @@ BASE_URL = platform_settings.value("chatwoot.baseUrl")  # the one Chatwoot addre
 AUTH_STYLE = platform_settings.value("chatwoot.authStyle")  # bearer, or api_access_token for a Chatwoot older than 4.19
 SECRET_PREFIX = "chatwoot/"  # the secret of agent <id> is named chatwoot/<id>; the template lets the functions read exactly this prefix
 ROUTE = re.compile(r"/hooks/chatwoot/([^/]+)")
-CONDITION_FAILED = "ConditionalCheckFailedException"
 
 
 class NetworkFailure(Exception):
@@ -60,82 +64,6 @@ def log(what, **details):
 
 def reply(status, **body):
     return {"statusCode": status, "headers": {"content-type": "application/json", "cache-control": "no-store"}, "body": json.dumps(body)}
-
-
-# ---------- storage: one small table, string key "pk" = msg#<agent id>#<message id> ----------
-
-class DynamoStore:
-    def __init__(self, table):
-        self.table = table
-
-    def _conditional(self, **args):
-        """Run an update or put whose condition may fail: True when it was applied, False when the condition was not met."""
-        from botocore.exceptions import ClientError
-        try:
-            args.pop("kind")(**args)
-        except ClientError as error:
-            if error.response["Error"]["Code"] == CONDITION_FAILED:
-                return False
-            raise
-        return True
-
-    def claim(self, key, item):
-        """Write the message item only if there is none yet. True for the first delivery, False for a repeat."""
-        return self._conditional(kind=self.table.put_item, Item={**item, "pk": key}, ConditionExpression="attribute_not_exists(pk)")
-
-    def note_duplicate(self, key, now):
-        self._conditional(kind=self.table.update_item, Key={"pk": key}, UpdateExpression="ADD #d :one SET #t = :now", ConditionExpression="attribute_exists(pk)",
-                          ExpressionAttributeNames={"#d": "duplicates", "#t": "last_duplicate_at"}, ExpressionAttributeValues={":one": 1, ":now": now})
-
-    def forget(self, key):
-        self.table.delete_item(Key={"pk": key})
-
-    def begin(self, key, now):
-        """Claim the message for the worker: only one worker run may move it from received to processing."""
-        return self._conditional(kind=self.table.update_item, Key={"pk": key}, UpdateExpression="SET #s = :processing, #t = :now", ConditionExpression="#s = :received",
-                                 ExpressionAttributeNames={"#s": "status", "#t": "started_at"},
-                                 ExpressionAttributeValues={":processing": "processing", ":received": "received", ":now": now})
-
-    def finish(self, key, status, now, extra=None):
-        """Record the outcome (replied or failed) with a few more plain fields (the reply's id, a reason code)."""
-        names, values, sets = {"#s": "status", "#t": "finished_at"}, {":status": status, ":now": now}, ["#s = :status", "#t = :now"]
-        for number, (name, value) in enumerate(sorted((extra or {}).items())):
-            names[f"#x{number}"], values[f":x{number}"] = name, value
-            sets.append(f"#x{number} = :x{number}")
-        self._conditional(kind=self.table.update_item, Key={"pk": key}, UpdateExpression="SET " + ", ".join(sets), ConditionExpression="attribute_exists(pk)",
-                          ExpressionAttributeNames=names, ExpressionAttributeValues=values)
-
-
-class MemoryStore:
-    """Same interface as DynamoStore; used by tests."""
-
-    def __init__(self):
-        self.items = {}
-
-    def claim(self, key, item):
-        if key in self.items:
-            return False
-        self.items[key] = json.loads(json.dumps({**item, "pk": key}))
-        return True
-
-    def note_duplicate(self, key, now):
-        if key in self.items:
-            self.items[key]["duplicates"] = self.items[key].get("duplicates", 0) + 1
-            self.items[key]["last_duplicate_at"] = now
-
-    def forget(self, key):
-        self.items.pop(key, None)
-
-    def begin(self, key, now):
-        item = self.items.get(key)
-        if not item or item.get("status") != "received":
-            return False
-        item["status"], item["started_at"] = "processing", now
-        return True
-
-    def finish(self, key, status, now, extra=None):
-        if key in self.items:
-            self.items[key].update({"status": status, "finished_at": now, **(extra or {})})
 
 
 # ---------- the secret of an agent: one Secrets Manager secret, two readers that each take only their own fields ----------
@@ -232,8 +160,8 @@ def post_json(url, headers, body, timeout):
 
 
 class Deps:
-    def __init__(self, store, secrets, invoke=None, http=None):
-        self.store, self.secrets, self.invoke, self.http = store, secrets, invoke, http
+    def __init__(self, store, secrets, invoke=None, http=None, registry=None):
+        self.store, self.secrets, self.invoke, self.http, self.registry = store, secrets, invoke, http, registry
 
 
 _receiver_deps = None
@@ -245,7 +173,8 @@ def default_deps():
     global _receiver_deps
     if _receiver_deps is None:
         import boto3
-        _receiver_deps = Deps(DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"])), Secrets(read_secret, bot_secret_of), invoke_worker)
+        store = DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"]))
+        _receiver_deps = Deps(store, Secrets(read_secret, bot_secret_of), invoke_worker, registry=registry.Registry(store))
     return _receiver_deps
 
 
@@ -254,7 +183,8 @@ def default_worker_deps():
     global _worker_deps
     if _worker_deps is None:
         import boto3
-        _worker_deps = Deps(DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"])), Secrets(read_secret, credentials_of), http=post_json)
+        store = DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"]))
+        _worker_deps = Deps(store, Secrets(read_secret, credentials_of), http=post_json, registry=registry.Registry(store, ttl=0))  # ttl 0: asks the table every time
     return _worker_deps
 
 
@@ -293,6 +223,14 @@ def handler(event, context=None, now=None, deps=None):
     fields, ignored = core.classify(core.parse(body))
     if ignored:
         return reply(200, ok=True, ignored=ignored)
+    try:
+        unmapped = deps.registry.allows(agent_id, fields["account_id"], fields["inbox_id"])
+    except Exception as error:
+        log("registry_unavailable", agent=agent_id, error=type(error).__name__)
+        return reply(500, error="try_again")
+    if unmapped:  # not registered, disabled, or another account or inbox: acknowledged so Chatwoot does not retry, and nothing is kept
+        log("ignored", agent=agent_id, reason=unmapped)
+        return reply(200, ok=True, ignored=unmapped)
     key = f"msg#{agent_id}#{fields['message_id']}"
     delivery = re.sub(r"[^A-Za-z0-9-]", "", headers.get("x-chatwoot-delivery") or "")[:64]
     record = {**fields, "agent_id": agent_id, "delivery_id": delivery, "status": "received", "received_at": now, "ttl": now + DEDUPE_TTL_DAYS * 86400}
@@ -322,7 +260,14 @@ def failed(reason):
 
 def answer(event, deps):
     """What the worker does with an accepted message: post the placeholder reply. Returns {"status": "replied", "reply_id": n or None} or
-    {"status": "failed", "reason": code}. Every refusal below happens before anything is sent."""
+    {"status": "failed", "reason": code}. Every refusal below happens before anything is sent."""  # the registry is asked first, with no cache
+    try:
+        unmapped = deps.registry.allows(event["agent_id"], event["account_id"], event["inbox_id"])
+    except Exception as error:
+        log("registry_unavailable", agent=event["agent_id"], error=type(error).__name__)
+        return failed("registry_unavailable")
+    if unmapped:  # switched off or changed since the message was accepted
+        return failed(unmapped)
     base = core.base_url_of(BASE_URL)
     if not base:
         return failed("bad_base_url")

@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(root, "lambda"))
 
 import chatwoot_api as api  # noqa: E402
 import chatwoot_core as core  # noqa: E402
+import chatwoot_registry as reg  # noqa: E402
 
 LOGS = []  # what the functions print: collected, and checked at the end for secrets and message text
 api.log = lambda what, **details: LOGS.append(json.dumps({"chatwoot": what, **details}))
@@ -31,10 +32,16 @@ SAMPLE = {
 }
 
 
+def register(store, agent="shop", tenant="acme", account=1, inboxes=(3,), enabled=True, tenant_enabled=True):
+    """What the registry holds for an agent: its tenant and the one account and the inboxes it may serve (the message in SAMPLE is account 1, inbox 3)."""
+    store.claim(reg.tenant_key(tenant), {"tenant_id": tenant, "enabled": tenant_enabled, "key_hash": "x", "agents": [agent], "rev": 1})
+    store.claim(reg.agent_key(agent), {"tenant_id": tenant, "agent_id": agent, "account_id": account, "inbox_ids": list(inboxes), "enabled": enabled, "live_version": 0, "versions": 0, "rev": 1})
+
+
 class Fakes:
     """In-memory stand-ins: the table, Secrets Manager (a bot secret, the bot's token and the account id per agent), the worker invoke and the call to Chatwoot."""
 
-    def __init__(self, secrets=None, fail_invoke=False, extra=None):
+    def __init__(self, secrets=None, fail_invoke=False, extra=None, registered=True):
         self.store = api.MemoryStore()
         self.invoked = []
         self.fail_invoke = fail_invoke
@@ -43,8 +50,10 @@ class Fakes:
         self.extra = extra if extra is not None else {"api_token": TOKEN, "account_id": 1}
         self.requests = []
         self.answers = []  # what the next calls to Chatwoot return: (status, body bytes) or an exception to raise
-        self.deps = api.Deps(self.store, api.Secrets(self.read), self.invoke)
-        self.wdeps = api.Deps(self.store, api.Secrets(self.read, api.credentials_of), http=self.post)
+        if registered:
+            register(self.store)
+        self.deps = api.Deps(self.store, api.Secrets(self.read), self.invoke, registry=reg.Registry(self.store, ttl=0))
+        self.wdeps = api.Deps(self.store, api.Secrets(self.read, api.credentials_of), http=self.post, registry=reg.Registry(self.store, ttl=0))
 
     def read(self, name):
         self.secret_reads.append(name)
@@ -74,6 +83,11 @@ def event(payload, agent="shop", secret=SECRET, ts=NOW, method="POST", headers=N
             "body": base64.b64encode(raw).decode() if base64_body else raw.decode("utf8"), "isBase64Encoded": base64_body}
 
 
+def messages(fakes):
+    """The message items in the table (the registry items are not messages)."""
+    return [key for key in fakes.store.items if key.startswith("msg#")]
+
+
 def call(fakes, ev, now=NOW):
     out = api.handler(ev, None, now=now, deps=fakes.deps)
     return out["statusCode"], json.loads(out["body"])
@@ -100,18 +114,17 @@ call(f, event(SAMPLE, delivery="d-3"), now=NOW + 9)
 assert f.store.items["msg#shop#501"]["duplicates"] == 2 and f.store.items["msg#shop#501"]["last_duplicate_at"] == NOW + 9 and len(f.invoked) == 1
 status, _ = call(f, event({**SAMPLE, "id": 502}), now=NOW + 10)
 assert status == 200 and len(f.invoked) == 2 and "msg#shop#502" in f.store.items, "another message is another item"
-status, _ = call(Fakes(secrets={"shop": SECRET, "other": SECRET}), event(SAMPLE, agent="other"))
-assert status == 200
 g = Fakes(secrets={"shop": SECRET, "other": SECRET})
-call(g, event(SAMPLE)), call(g, event(SAMPLE, agent="other"))
-assert set(g.store.items) == {"msg#shop#501", "msg#other#501"}, "the same message id in two agents is two items"
+register(g.store, agent="other")
+assert call(g, event(SAMPLE))[1]["accepted"] and call(g, event(SAMPLE, agent="other"))[1]["accepted"]
+assert {k for k in g.store.items if k.startswith("msg#")} == {"msg#shop#501", "msg#other#501"}, "the same message id in two agents is two items"
 print("  ok  a repeat is only counted, a different message and another agent's message with the same id are separate")
 
 # ---- calls that are not from Chatwoot leave nothing behind ----
 def refused(ev, expect=401, note=""):
     f = Fakes()
     status, body = call(f, ev)
-    assert status == expect and not f.invoked and not f.store.items, (note, status, body)
+    assert status == expect and not f.invoked and not messages(f), (note, status, body)
     return body
 
 
@@ -152,15 +165,57 @@ for change, why in (({"message_type": "outgoing"}, "not_incoming"), ({"private":
                     ({"sender": {"type": "agent_bot", "id": 4}}, "from_bot"), ({"conversation": {"id": 12, "status": "open"}}, "not_pending"), ({"id": "x"}, "bad_payload")):
     f = Fakes()
     status, body = call(f, event({**SAMPLE, **change}))
-    assert (status, body) == (200, {"ok": True, "ignored": why}) and not f.invoked and not f.store.items, (change, status, body)
+    assert (status, body) == (200, {"ok": True, "ignored": why}) and not f.invoked and not messages(f), (change, status, body)
 f = Fakes()
 assert call(f, event(None, body=b"not json"))[1] == {"ok": True, "ignored": "not_json"}, "a signed body that is not JSON is ignored, not a crash"
 print("  ok  the bot's own replies, agents' replies, private notes, other events and taken-over conversations are acknowledged and ignored")
 
+# ---- only a registered agent is served: its tenant, account and inbox are checked before anything is stored ----
+for label, build in (
+        ("the agent is not registered", lambda f: f.store.forget("agent#shop")),
+        ("the agent is switched off", lambda f: f.store.items["agent#shop"].update(enabled=False)),
+        ("its tenant is switched off", lambda f: f.store.items["tenant#acme"].update(enabled=False)),
+        ("its tenant does not exist", lambda f: f.store.forget("tenant#acme")),
+        ("it belongs to another tenant than the one found", lambda f: f.store.items["agent#shop"].update(tenant_id="other")),
+        ("the message is from another Chatwoot account", lambda f: f.store.items["agent#shop"].update(account_id=2)),
+        ("the message is from an inbox the agent does not serve", lambda f: f.store.items["agent#shop"].update(inbox_ids=[4, 5])),
+        ("the agent serves no inbox", lambda f: f.store.items["agent#shop"].update(inbox_ids=[])),
+        ("enabled is text, not true", lambda f: f.store.items["agent#shop"].update(enabled="true"))):
+    f = Fakes()
+    build(f)
+    status, body = call(f, event(SAMPLE))
+    assert (status, body) == (200, {"ok": True, "ignored": "not_mapped"}), (label, status, body)
+    assert not f.invoked and not [k for k in f.store.items if k.startswith("msg#")], label
+f = Fakes(registered=False)
+assert call(f, event(SAMPLE))[1] == {"ok": True, "ignored": "not_mapped"} and not f.invoked, "an agent with a secret but no registration is not served"
+f = Fakes()
+f.store.items["agent#shop"]["inbox_ids"] = [1, 2, 3, 9]
+assert call(f, event(SAMPLE))[1] == {"ok": True, "accepted": True}, "one of several inboxes is enough"
+f = Fakes()
+register(f.store, agent="other", tenant="acme", account=1, inboxes=(3,))
+f.table["other"] = SECRET
+assert call(f, event(SAMPLE, agent="other"))[1] == {"ok": True, "accepted": True} and "msg#other#501" in f.store.items, "a second agent of the same tenant"
+print("  ok  an unregistered agent, a switched-off agent or tenant, another account or inbox are acknowledged with ignored:not_mapped and nothing is stored or handed over")
+
+
+class DownRegistry:
+    def allows(self, *args):
+        raise RuntimeError("down")
+
+
+f = Fakes()
+f.deps.registry = DownRegistry()
+assert call(f, event(SAMPLE))[0] == 500 and not f.invoked and not [k for k in f.store.items if k.startswith("msg#")], "a failing registry answers 500 so Chatwoot retries"
+print("  ok  a registry that cannot be read answers 500, never a guess")
+
+# a refusal never reveals a reason: a forged call is 401 whether or not the agent is registered
+f = Fakes(registered=False)
+assert call(f, event(SAMPLE, secret="forged"))[0] == 401
+
 # ---- the hand-over fails: 500 and no item, so Chatwoot's retry is accepted (it retries only 429 and 500) ----
 f = Fakes(fail_invoke=True)
 status, body = call(f, event(SAMPLE))
-assert (status, body) == (500, {"error": "try_again"}) and not f.store.items
+assert (status, body) == (500, {"error": "try_again"}) and not messages(f)
 f.fail_invoke = False
 status, body = call(f, event(SAMPLE), now=NOW + 3)
 assert (status, body) == (200, {"ok": True, "accepted": True}) and len(f.invoked) == 1 and "msg#shop#501" in f.store.items
@@ -175,7 +230,7 @@ class Boom:
 
 f = Fakes()
 f.deps.secrets = Boom()
-assert call(f, event(SAMPLE))[0] == 500 and not f.invoked and not f.store.items
+assert call(f, event(SAMPLE))[0] == 500 and not f.invoked and not messages(f)
 
 
 class BrokenStore(api.MemoryStore):
@@ -312,6 +367,24 @@ finally:
     api.AUTH_STYLE = "bearer"
 assert not f.requests
 print("  ok  another account's message, a missing, empty or odd token or account id, a missing secret, a down secret store, a wrong address and a wrong header setting all fail before anything is sent")
+
+# ---- the worker asks the registry again, fresh: a switch-off or a change after the message was accepted stops the reply ----
+for label, build in (("agent switched off", lambda f: f.store.items["agent#shop"].update(enabled=False)), ("tenant switched off", lambda f: f.store.items["tenant#acme"].update(enabled=False)),
+                     ("agent removed", lambda f: f.store.forget("agent#shop")), ("account changed", lambda f: f.store.items["agent#shop"].update(account_id=7)),
+                     ("inbox removed", lambda f: f.store.items["agent#shop"].update(inbox_ids=[8]))):
+    f, job = accepted()
+    build(f)
+    fails(f, job, "not_mapped")
+    assert not f.requests, label
+f, job = accepted()
+f.wdeps.registry = DownRegistry()
+fails(f, job, "registry_unavailable")
+assert not f.requests
+f, job = accepted()
+worker_registry = reg.Registry(f.store, ttl=0)
+worker_registry.load("shop")
+assert not worker_registry.cache, "a worker registry with ttl 0 remembers nothing"
+print("  ok  the worker asks the registry again just before replying: a message accepted earlier is not answered after its agent was switched off or changed")
 
 # ---- the worker only takes what the secret says it takes: never the bot secret ----
 f, job = accepted()

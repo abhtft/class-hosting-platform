@@ -43,13 +43,15 @@ assert "BackendApi" not in receiver and "GatewayFunction" not in receiver and "/
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in receiver and "CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction" in receiver
 
 # ---- the receiver: write its table, start the worker, read the chatwoot/ secrets, nothing else ----
-assert re.search(r"Action: \[dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn", receiver), "its table: write one item, count a repeat, remove on a failed hand-over"
+assert re.search(r"Action: \[dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['msg#\*'\]", receiver), \
+    "its table: write one message item, count a repeat, remove on a failed hand-over, and nothing of the registry"
+assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'tenant#\*'\]", receiver), "it may read the registry (single items)"
 assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootWorkerFunction\.Arn", receiver) and receiver.count("lambda:") == 1, "it may start the worker and nothing else"
 assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", receiver), \
     "it reads only secrets named chatwoot/..."
 assert receiver.count("Action: secretsmanager:") == 1
 code = re.sub(r"#[^\n]*", "", receiver)
-for forbidden in ("dynamodb:Scan", "dynamodb:Query", "dynamodb:GetItem", "dynamodb:BatchWriteItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:", "kms:", "iam:", "ssm:", "logs:",
+for forbidden in ("dynamodb:Scan", "dynamodb:Query", "dynamodb:BatchWriteItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:", "kms:", "iam:", "ssm:", "logs:",
                   "cloudfront", "StudentDataTable", "TracesTable", "KnowledgeWorker", "AiSecretName", "Resource: '*'", "Action: '*'"):
     assert forbidden not in code, f"the receiver must not have {forbidden}"
 
@@ -61,12 +63,13 @@ assert "Events:" not in worker and "HttpApi" not in worker, "nothing on the inte
 assert "VpcConfig" not in worker, "it must reach Chatwoot, so it is not in a private network without a way out"
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in worker
 assert "CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl" in worker and "CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle" in worker, "the one Chatwoot address and the header style come from parameters"
-assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn", worker)
+assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['msg#\*'\]", worker), "it updates message items only"
+assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'tenant#\*'\]", worker), "and reads the registry again before it replies"
 assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", worker), "it reads only secrets named chatwoot/..."
 assert worker.count("Action: secretsmanager:") == 1
 code = re.sub(r"#[^\n]*", "", worker)
-assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:UpdateItem", "secretsmanager:GetSecretValue"], "exactly these two permissions"
-for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:",
+assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:GetItem", "dynamodb:UpdateItem", "secretsmanager:GetSecretValue"], "exactly these three permissions"
+for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:",
                   "kms:", "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "AiSecretName", "Resource: '*'", "Action: '*'"):
     assert forbidden not in code, f"the worker must not have {forbidden}"
 base_url_parameter = re.search(r"  ChatwootBaseUrl:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
