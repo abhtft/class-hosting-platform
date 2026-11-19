@@ -1,0 +1,77 @@
+"""Guards the Chatwoot adapter in template.yaml: off by default and independent of student backends, everything about it exists only when it is on, its own API with
+its own throttle, a receiver that may only write its table, start the one worker and read the chatwoot/ secrets, a worker that may only update its table and is never
+retried by the platform or reachable from the internet, and nobody else (no student role, no existing function) gains anything."""
+import os
+import re
+
+root = os.path.join(os.path.dirname(__file__), "..")
+template = open(os.path.join(root, "template.yaml"), encoding="utf8").read().replace("\r\n", "\n")
+
+
+def block(name):
+    start = template.index(f"\n  {name}:\n") + 1
+    end = re.search(r"\n(?:  [A-Za-z]+:\n|  # -|\w+:\n|\n  # )", template[start + 1:])
+    return template[start:start + 1 + end.start()] if end else template[start:]
+
+
+# ---- off by default, and it does not need student backends ----
+params = template[template.index("\nParameters:"):template.index("\nConditions:")]
+assert re.search(r"  ChatwootEnabled:\n    Type: String\n    Default: 'false'\n    AllowedValues: \['false', 'true'\]", params), "the adapter is off unless asked for"
+assert "UseChatwoot: !Equals [!Ref ChatwootEnabled, 'true']" in template, "its own switch, not tied to backends"
+for name in ("ChatwootTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction"):
+    assert "Condition: UseChatwoot" in block(name), f"{name} exists only when the adapter is on"
+assert "ChatwootWebhookUrl:\n    Condition: UseChatwoot" in template, "its output exists only when it is on"
+globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
+assert "CHATWOOT" not in globals_, "the table and worker names go to the functions that need them only: in Globals every function would depend on them"
+
+# ---- the table: ids and times only, expiring by itself ----
+table = block("ChatwootTable")
+assert "AWS::DynamoDB::Table" in table and "BillingMode: PAY_PER_REQUEST" in table
+assert re.search(r"AttributeName: pk\n\s+KeyType: HASH", table) and "RANGE" not in table
+assert re.search(r"TimeToLiveSpecification:\n\s+AttributeName: ttl\n\s+Enabled: true", table), "every item expires by itself"
+assert "PointInTimeRecoveryEnabled: true" in table
+assert "DeletionPolicy" not in table, "it holds only short-lived de-duplication records: nothing to keep"
+
+# ---- its own API: the webhook route, its own throttle, not the student backend API ----
+api = block("ChatwootApi")
+assert "AWS::Serverless::HttpApi" in api and re.search(r"ThrottlingRateLimit: \d+", api) and re.search(r"ThrottlingBurstLimit: \d+", api), "its own throttle"
+receiver = block("ChatwootReceiverFunction")
+assert "Handler: chatwoot_api.handler" in receiver and "CodeUri: lambda/" in receiver and "Runtime: python3.12" in receiver
+assert re.search(r"Path: /hooks/chatwoot/\{agentId\}\n\s+Method: POST", receiver) and "ApiId: !Ref ChatwootApi" in receiver, "one route, POST only"
+assert receiver.count("Type: HttpApi") == 1
+assert "BackendApi" not in receiver and "GatewayFunction" not in receiver and "/b/{slug}" not in receiver, "it does not go through the student gateway"
+assert "CHATWOOT_TABLE: !Ref ChatwootTable" in receiver and "CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction" in receiver
+
+# ---- the receiver: write its table, start the worker, read the chatwoot/ secrets, nothing else ----
+assert re.search(r"Action: \[dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn", receiver), "its table: write one item, count a repeat, remove on a failed hand-over"
+assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootWorkerFunction\.Arn", receiver) and receiver.count("lambda:") == 1, "it may start the worker and nothing else"
+assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", receiver), \
+    "it reads only secrets named chatwoot/..."
+assert receiver.count("Action: secretsmanager:") == 1
+code = re.sub(r"#[^\n]*", "", receiver)
+for forbidden in ("dynamodb:Scan", "dynamodb:Query", "dynamodb:GetItem", "dynamodb:BatchWriteItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:", "kms:", "iam:", "ssm:", "logs:",
+                  "cloudfront", "StudentDataTable", "TracesTable", "KnowledgeWorker", "AiSecretName", "Resource: '*'", "Action: '*'"):
+    assert forbidden not in code, f"the receiver must not have {forbidden}"
+
+# ---- the worker: update its own table, never retried by the platform, not reachable from the internet ----
+worker = block("ChatwootWorkerFunction")
+assert "Handler: chatwoot_api.worker" in worker and "CodeUri: lambda/" in worker and "Runtime: python3.12" in worker
+assert re.search(r"EventInvokeConfig:\n\s+MaximumRetryAttempts: 0", worker), "no automatic second run: the message item decides what has been done (an event may still arrive twice, the worker claims it once)"
+assert "Events:" not in worker and "HttpApi" not in worker, "nothing on the internet reaches the worker directly"
+assert "CHATWOOT_TABLE: !Ref ChatwootTable" in worker
+assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn", worker)
+code = re.sub(r"#[^\n]*", "", worker)
+for forbidden in ("secretsmanager:", "lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:",
+                  "kms:", "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "Resource: '*'", "Action: '*'"):
+    assert forbidden not in code, f"the worker must not have {forbidden} (T1 only records the outcome; later steps widen this on purpose and update this test)"
+
+# ---- nobody else gains anything: no student role, no existing function mentions the adapter ----
+for name in ("StudentSandboxRole", "StudentSandboxBoundary", "GatewayFunction", "DeployFunction", "SweeperFunction", "KnowledgeFunction", "KnowledgeWorkerFunction", "AiProxyFunction",
+             "JobRunnerFunction", "StorageFunction", "BackendApi"):
+    assert "Chatwoot" not in block(name) and "chatwoot" not in block(name), f"{name} must not know about the adapter"
+assert not re.search(r"secretsmanager:\*|secret:\*", template)
+
+# ---- the address is an output only when on ----
+assert re.search(r"ChatwootWebhookUrl:\n    Condition: UseChatwoot\n    Description: [^\n]+\n    Value: !Sub 'https://\$\{ChatwootApi\}\.execute-api\.\$\{AWS::Region\}\.\$\{AWS::URLSuffix\}/hooks/chatwoot'", template)
+
+print("test_template_chatwoot.py: the Chatwoot adapter is off by default, scoped to its own table, secrets and worker, and nobody else gains anything")

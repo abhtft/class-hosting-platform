@@ -1,0 +1,94 @@
+"""Chatwoot Agent Bot adapter, the pure part: no AWS, no network, nothing to import but the standard library and the settings loader.
+
+A Chatwoot Agent Bot sends a webhook for every message in an inbox it is connected to. This module answers the questions that need no AWS:
+
+  * Is the call really from Chatwoot?   verify()   the signature header Chatwoot adds when the bot has a secret:
+        X-Chatwoot-Timestamp: <unix seconds>
+        X-Chatwoot-Signature: sha256=<hex of HMAC-SHA256(secret, "<timestamp>.<raw request body>")>
+    The raw bytes are signed (never a re-serialised JSON), the comparison is constant-time, and a timestamp outside the tolerance is refused.
+    (Chatwoot sends no signature at all for a bot without a secret: such a call is refused here, a bot must have one.)
+  * Is this a message the bot should answer?   classify()   Chatwoot also sends the bot's own replies, a human agent's replies, private notes and
+    events of conversations a human has taken over. Only a customer's message in a conversation that is still `pending` (the bot's) is accepted.
+
+The receiving function is chatwoot_api.py. Facts are from Chatwoot's source (lib/webhooks/trigger.rb, app/models/message.rb,
+app/presenters/conversations/event_data_presenter.rb): in a webhook the message has `message_type` as a word ("incoming", "outgoing", "template"),
+`conversation.id` is the number shown in the Chatwoot dashboard (its display id), and the account and inbox are objects with an `id`."""
+import hashlib
+import hmac
+import json
+import re
+
+import platform_settings
+
+TOLERANCE_SECONDS = platform_settings.value("chatwoot.timestampToleranceSeconds")
+AGENT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # the {agentId} in the webhook address: a short lowercase name, never a path. Always used with fullmatch (a "$" would let a trailing newline through)
+_TIMESTAMP = re.compile(r"[0-9]{1,12}")
+
+
+def sign(secret, timestamp, body):
+    """The signature header value Chatwoot would send for this secret, timestamp (text) and raw body (bytes)."""
+    message = str(timestamp).encode("ascii") + b"." + body
+    return "sha256=" + hmac.new(secret.encode("utf8"), message, hashlib.sha256).hexdigest()
+
+
+def verify(secret, headers, body, now):
+    """None when the call is authentic, else a short reason: missing_signature, bad_timestamp, stale_timestamp or bad_signature.
+    `headers` has lower-case names (an HTTP API gives them that way); `body` is the raw request bytes."""
+    timestamp = headers.get("x-chatwoot-timestamp")
+    given = headers.get("x-chatwoot-signature")
+    if not timestamp or not given:
+        return "missing_signature"
+    if not _TIMESTAMP.fullmatch(timestamp):
+        return "bad_timestamp"
+    if abs(int(now) - int(timestamp)) > TOLERANCE_SECONDS:
+        return "stale_timestamp"
+    expected = sign(secret, timestamp, body)
+    if not hmac.compare_digest(expected.encode("ascii"), given.encode("utf8", "replace")):
+        return "bad_signature"
+    return None
+
+
+def parse(body):
+    """The webhook body as a dict, or None when it is not a JSON object."""
+    try:
+        data = json.loads(body.decode("utf8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _id(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def classify(payload):
+    """(fields, None) for a message the bot should answer, else (None, reason). `fields` holds only numbers (message, conversation, account and inbox
+    ids): the text of the message is deliberately not part of it, nothing here may store it. Reasons: not_json, event_ignored, not_incoming, private,
+    from_bot, not_pending, bad_payload."""
+    if not isinstance(payload, dict):
+        return None, "not_json"
+    if payload.get("event") != "message_created":
+        return None, "event_ignored"
+    kind = payload.get("message_type")  # the word "incoming" in a webhook; its stored number (0) is accepted in case a version emits that
+    if not (kind == "incoming" or (isinstance(kind, int) and not isinstance(kind, bool) and kind == 0)):
+        return None, "not_incoming"
+    if payload.get("private") is not False:
+        return None, "private"
+    sender = payload.get("sender")
+    if isinstance(sender, dict) and sender.get("type") == "agent_bot":
+        return None, "from_bot"
+    conversation = payload.get("conversation")
+    if not isinstance(conversation, dict):
+        return None, "bad_payload"
+    if conversation.get("status") != "pending":
+        return None, "not_pending"
+    account, inbox = payload.get("account"), payload.get("inbox")
+    fields = {
+        "message_id": _id(payload.get("id")),
+        "conversation_id": _id(conversation.get("id")),
+        "account_id": _id(account.get("id")) if isinstance(account, dict) else None,
+        "inbox_id": _id(inbox.get("id")) if isinstance(inbox, dict) else None,
+    }
+    if None in fields.values():
+        return None, "bad_payload"
+    return fields, None

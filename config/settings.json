@@ -63,6 +63,11 @@
       "help": "The step-by-step record of answers: what is kept, for how long, and the drift alerts."
     },
     {
+      "id": "chatwoot",
+      "title": "Chatwoot adapter",
+      "help": "The Chatwoot Agent Bot webhook: how big a call may be, how old a signature may be, how long a message is remembered. Off unless the Chatwoot feature switch is on."
+    },
+    {
       "id": "projects",
       "title": "Project sync",
       "help": "Students' source files kept on the platform: sizes, counts, history."
@@ -1992,6 +1997,67 @@
       ]
     },
     {
+      "key": "chatwoot.maxBodyKB",
+      "group": "chatwoot",
+      "title": "Largest webhook body",
+      "help": "The biggest call the Chatwoot webhook accepts. A message event is a few KB; bigger is refused with 413.",
+      "unit": "KB",
+      "default": 256,
+      "min": 1,
+      "max": 1024,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.MAX_BODY_BYTES"
+      ]
+    },
+    {
+      "key": "chatwoot.timestampToleranceSeconds",
+      "group": "chatwoot",
+      "title": "How old a signed call may be",
+      "help": "A call whose signed time differs from the platform's clock by more than this is refused, so a captured call cannot be replayed later.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 30,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "security",
+      "code": [
+        "chatwoot_core.TOLERANCE_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.dedupeTtlDays",
+      "group": "chatwoot",
+      "title": "How long a message is remembered",
+      "help": "How long the record of an accepted message stays, so a repeated delivery of it is recognised. Only ids and times are kept, never the text.",
+      "unit": "days",
+      "default": 7,
+      "min": 1,
+      "max": 30,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.DEDUPE_TTL_DAYS"
+      ]
+    },
+    {
+      "key": "chatwoot.secretCacheSeconds",
+      "group": "chatwoot",
+      "title": "How long a bot secret is remembered",
+      "help": "A function remembers an agent's bot secret this long instead of asking Secrets Manager for every call (0 asks every time). A changed secret takes effect after this.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 0,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "cost": "Each Secrets Manager read costs a little.",
+      "code": [
+        "chatwoot_api.SECRET_CACHE_SECONDS"
+      ]
+    },
+    {
       "key": "projects.maxFiles",
       "group": "projects",
       "title": "Most files in a project",
@@ -2330,6 +2396,32 @@
       "template": "Api:StorageApi.ThrottlingBurstLimit"
     },
     {
+      "key": "apiThrottles.chatwootRate",
+      "group": "apiThrottles",
+      "title": "Chatwoot webhook API: requests per second",
+      "help": "Steady requests per second the Chatwoot webhook API accepts. All calls come from one Chatwoot server.",
+      "unit": "requests/second",
+      "default": 20,
+      "min": 1,
+      "max": 2000,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Api:ChatwootApi.ThrottlingRateLimit"
+    },
+    {
+      "key": "apiThrottles.chatwootBurst",
+      "group": "apiThrottles",
+      "title": "Chatwoot webhook API: burst",
+      "help": "Short burst the Chatwoot webhook API accepts.",
+      "unit": "requests",
+      "default": 40,
+      "min": 1,
+      "max": 4000,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Api:ChatwootApi.ThrottlingBurstLimit"
+    },
+    {
       "key": "lambdas.deployMemoryMB",
       "group": "lambdas",
       "title": "Portal function memory",
@@ -2408,6 +2500,59 @@
       "scope": "deploy",
       "risk": "low",
       "template": "Lambda:StorageFunction.Timeout"
+    },
+    {
+      "key": "lambdas.chatwootReceiverMemoryMB",
+      "group": "lambdas",
+      "title": "Chatwoot receiver memory",
+      "help": "Memory of the function that receives Chatwoot's webhook.",
+      "unit": "MB",
+      "default": 256,
+      "min": 128,
+      "max": 3008,
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Lambda:ChatwootReceiverFunction.MemorySize"
+    },
+    {
+      "key": "lambdas.chatwootReceiverTimeoutSeconds",
+      "group": "lambdas",
+      "title": "Chatwoot receiver time limit",
+      "help": "Time limit of the receiver. Chatwoot itself gives up after 5 seconds, so it must answer well inside that.",
+      "unit": "seconds",
+      "default": 10,
+      "min": 3,
+      "max": 29,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Lambda:ChatwootReceiverFunction.Timeout"
+    },
+    {
+      "key": "lambdas.chatwootWorkerMemoryMB",
+      "group": "lambdas",
+      "title": "Chatwoot worker memory",
+      "help": "Memory of the function that handles an accepted message in the background.",
+      "unit": "MB",
+      "default": 512,
+      "min": 128,
+      "max": 3008,
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "Billed per second of running time.",
+      "template": "Lambda:ChatwootWorkerFunction.MemorySize"
+    },
+    {
+      "key": "lambdas.chatwootWorkerTimeoutSeconds",
+      "group": "lambdas",
+      "title": "Chatwoot worker time limit",
+      "help": "Time limit of the worker for one message.",
+      "unit": "seconds",
+      "default": 120,
+      "min": 10,
+      "max": 900,
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Lambda:ChatwootWorkerFunction.Timeout"
     },
     {
       "key": "lambdas.sweeperMemoryMB",
@@ -2578,6 +2723,21 @@
       "risk": "careful",
       "cost": "A few dollars a month when used.",
       "template": "Parameter:WorkerEnabled"
+    },
+    {
+      "key": "features.chatwoot",
+      "group": "features",
+      "title": "Chatwoot Agent Bot adapter",
+      "help": "A webhook for Chatwoot Agent Bots: checks the signature, ignores repeats and the bot's own messages, and hands each customer message to a worker. Needs no student backends.",
+      "unit": "true or false",
+      "default": "false",
+      "scope": "deploy",
+      "risk": "careful",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "template": "Parameter:ChatwootEnabled"
     },
     {
       "key": "install.rootDomain",

@@ -116,6 +116,15 @@ Parameters:
       Traces: a step-by-step record of every answer (the question, which book passages were found, what the AI was asked and answered, the cost),
       stored per student in its own table and deleted automatically after 30, 60 or 90 days. The teacher sets how much text is stored (nothing by
       default). Needs BackendEnabled='true'. Off by default; with it off nothing changes. See docs/TRACE_SCHEMA.md.
+  ChatwootEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Chatwoot Agent Bot adapter (step T1): a webhook that a Chatwoot bot calls for every customer message. It checks Chatwoot's signature, ignores repeats and the
+      bot's own messages, answers at once and hands the message to a worker. Needs no student backends. Creates its own API, table and two functions; the bot's
+      secret is a Secrets Manager secret named chatwoot/<agent name> that the teacher creates. Off by default; with it off nothing is created and nothing else changes.
+      See docs/CHATWOOT_ADAPTER.md.
   WorkerEnabled:
     Type: String
     Default: 'false'
@@ -231,6 +240,7 @@ Conditions:
   UseStorage: !And [!Condition UseBackend, !Equals [!Ref StorageEnabled, 'true']]
   UseKnowledge: !And [!Condition UseBackend, !Equals [!Ref KnowledgeEnabled, 'true']]
   UseTraces: !And [!Condition UseBackend, !Equals [!Ref TracesEnabled, 'true']]
+  UseChatwoot: !Equals [!Ref ChatwootEnabled, 'true']
   UseWorker: !Equals [!Ref WorkerEnabled, 'true']
   UseAlerts: !Not [!Equals [!Ref AlertEmailParameter, '']]
   UseAlertsAndBackend: !And [!Condition UseAlerts, !Condition UseBackend]
@@ -485,6 +495,25 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
+
+  # Chatwoot adapter (chatwoot_api.py): one item per message the bot accepted (msg#<agent name>#<message id>) with ids, status and times only, never the text.
+  # The conditional write on that item is what makes a repeated delivery harmless. Every item expires by itself (ttl), so there is nothing to keep.
+  ChatwootTable:
+    Type: AWS::DynamoDB::Table
+    Condition: UseChatwoot
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
 
   # ---------- Compute worker (worker.py): one small machine, off by default ----------
   # Nothing can reach it from the internet (no inbound rule, no key pair); the teacher's terminal reaches it through Systems Manager. It may read and write
@@ -1098,6 +1127,71 @@ Resources:
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
 
+  # ---------- Chatwoot Agent Bot adapter (T1: receive, verify, deduplicate, hand over, record) ----------
+  # Its own API and two functions, so a burst of customer messages cannot slow the portal or any student. The receiver answers Chatwoot (which waits 5 seconds);
+  # the worker does the slow part later. Neither can reach anything but the one table; only the receiver reads secrets, and only those named chatwoot/...
+  ChatwootApi:
+    Type: AWS::Serverless::HttpApi
+    Condition: UseChatwoot
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 40
+        ThrottlingRateLimit: 20
+
+  ChatwootReceiverFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseChatwoot
+    Properties:
+      CodeUri: lambda/
+      Handler: chatwoot_api.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 10 # Chatwoot gives up after 5 seconds
+      Environment:
+        Variables:
+          CHATWOOT_TABLE: !Ref ChatwootTable
+          CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction
+      Policies:
+        - Statement:
+            - Effect: Allow # one item per message: write it once, count a repeat, remove it when the hand-over failed (never a read, a scan or a query)
+              Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem]
+              Resource: !GetAtt ChatwootTable.Arn
+            - Effect: Allow # start the worker (this one function)
+              Action: lambda:InvokeFunction
+              Resource: !GetAtt ChatwootWorkerFunction.Arn
+            - Effect: Allow # the bot secrets only: chatwoot/<agent name>
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:chatwoot/*'
+      Events:
+        Webhook:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChatwootApi
+            Path: /hooks/chatwoot/{agentId}
+            Method: POST
+
+  ChatwootWorkerFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseChatwoot
+    Properties:
+      CodeUri: lambda/
+      Handler: chatwoot_api.worker
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 120
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0 # the message item decides what was done; an automatic second run could answer a customer twice
+      Environment:
+        Variables:
+          CHATWOOT_TABLE: !Ref ChatwootTable
+      Policies:
+        - Statement:
+            - Effect: Allow # claim the message and record the outcome (T1 only records; later steps widen this on purpose)
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt ChatwootTable.Arn
+
   # ---------- Class AI proxy for Gemini ----------
   # Its own API and function (like storage), so a busy student cannot slow the portal. Students call it with their private ga_ key; the
   # Google key stays in Secrets Manager and is only readable by this function (and never given to a student function).
@@ -1691,6 +1785,10 @@ Outputs:
     Condition: UseKnowledge
     Description: Class knowledge API (given to student functions as CLASS_KNOWLEDGE_URL)
     Value: !Sub 'https://${KnowledgeApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  ChatwootWebhookUrl:
+    Condition: UseChatwoot
+    Description: Chatwoot Agent Bot webhook. Give Chatwoot this address followed by the agent name, for example .../hooks/chatwoot/shop
+    Value: !Sub 'https://${ChatwootApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/hooks/chatwoot'
   AiProxyUrl:
     Condition: UseGemini
     Description: Class AI proxy for Gemini (given to student functions as OPENAI_BASE_URL, plus /v1)

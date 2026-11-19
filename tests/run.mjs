@@ -97,6 +97,13 @@ await step('traces: the format and three privacy levels (metadata, masked, full)
   }
 });
 
+await step('Chatwoot adapter: the signature Chatwoot sends and the loop guard (only a customer message in a pending conversation is answered), the receiver and worker on in-memory fakes (one hand-over per message, repeats only counted, no text stored, forged and old calls refused, a failed hand-over lets the retry through), the conditional writes of the DynamoDB store; the template keeps it off by default, on its own table, API, secrets and worker', () => {
+  for (const test of ['test_chatwoot_core.py', 'test_chatwoot_api.py', 'test_template_chatwoot.py']) {
+    const r = spawnSync(python, [join(here, test)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
+  }
+});
+
 await step('traces from the student kit (Node): one answer carries one trace id to the search and the AI call, the helper own steps are sent once, an agent run sends a step per tool call and keeps its trace across approval, an unreachable trace service changes nothing; npm run traces lists and shows the own answers of a student in both views', () => {
   for (const test of ['test_class_trace.mjs', 'test_traces_cli.mjs']) {
     const r = spawnSync('node', [join(here, test)], { encoding: 'utf8' });
