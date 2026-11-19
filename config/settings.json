@@ -2673,6 +2673,32 @@
       "template": "Lambda:ChatwootWorkerFunction.Timeout"
     },
     {
+      "key": "lambdas.chatwootAdminMemoryMB",
+      "group": "lambdas",
+      "title": "Chatwoot admin memory",
+      "help": "Memory of the function behind the Studio-facing admin API of the Chatwoot adapter.",
+      "unit": "MB",
+      "default": 256,
+      "min": 128,
+      "max": 3008,
+      "scope": "deploy",
+      "risk": "careful",
+      "template": "Lambda:ChatwootAdminFunction.MemorySize"
+    },
+    {
+      "key": "lambdas.chatwootAdminTimeoutSeconds",
+      "group": "lambdas",
+      "title": "Chatwoot admin time limit",
+      "help": "Time limit of the admin function. It reads and writes a few table items and answers well inside this.",
+      "unit": "seconds",
+      "default": 10,
+      "min": 3,
+      "max": 29,
+      "scope": "deploy",
+      "risk": "low",
+      "template": "Lambda:ChatwootAdminFunction.Timeout"
+    },
+    {
       "key": "lambdas.sweeperMemoryMB",
       "group": "lambdas",
       "title": "Nightly clean-up memory",

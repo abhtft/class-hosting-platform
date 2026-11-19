@@ -1143,7 +1143,7 @@ Resources:
 
   # ---------- Chatwoot Agent Bot adapter (T1: receive, verify, deduplicate, hand over, record) ----------
   # Its own API and two functions, so a burst of customer messages cannot slow the portal or any student. The receiver answers Chatwoot (which waits 5 seconds);
-  # the worker does the slow part later and is the only one that calls out (to the one Chatwoot address). Neither can reach anything but the one table and the secrets named chatwoot/...
+  # the worker does the slow part later and is the only one that calls out (to the one Chatwoot address). A third function, behind /admin, is the Studio-facing API: it can only read and write the registry items of the one table. None of them can reach anything but that table and the secrets named chatwoot/...
   ChatwootApi:
     Type: AWS::Serverless::HttpApi
     Condition: UseChatwoot
@@ -1228,6 +1228,41 @@ Resources:
             - Effect: Allow # the agent bot's token and account id: the same chatwoot/<agent name> secrets, nothing else
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:chatwoot/*'
+
+  ChatwootAdminFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseChatwoot
+    Properties:
+      CodeUri: lambda/
+      Handler: chatwoot_admin.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 10
+      Environment:
+        Variables:
+          CHATWOOT_TABLE: !Ref ChatwootTable
+      Policies:
+        - Statement:
+            - Effect: Allow # the registry only (tenant#..., agent#...): single items, never a scan or a query, never a message item
+              Action: [dynamodb:GetItem, dynamodb:PutItem]
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*']
+            - Effect: Allow # take back an agent that could not be added to its business (an agent item only)
+              Action: dynamodb:DeleteItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['agent#*']
+      Events:
+        Admin:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ChatwootApi
+            Path: /admin/{proxy+}
+            Method: ANY
 
   # ---------- Class AI proxy for Gemini ----------
   # Its own API and function (like storage), so a busy student cannot slow the portal. Students call it with their private ga_ key; the
@@ -1824,12 +1859,16 @@ Outputs:
     Value: !Sub 'https://${KnowledgeApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
   ChatwootWebhookUrl:
     Condition: UseChatwoot
-    Description: Chatwoot Agent Bot webhook. Give Chatwoot this address followed by the agent name, for example .../hooks/chatwoot/shop
+    Description: Chatwoot Agent Bot webhook. Give Chatwoot this address followed by the agent name, for example .../hooks/chatwoot/shop. The admin API for a business's Studio is the same address with /admin/agents instead
     Value: !Sub 'https://${ChatwootApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/hooks/chatwoot'
   AiProxyUrl:
     Condition: UseGemini
     Description: Class AI proxy for Gemini (given to student functions as OPENAI_BASE_URL, plus /v1)
     Value: !Sub 'https://${AiProxyApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+  ChatwootTableName:
+    Condition: UseChatwoot
+    Description: The Chatwoot adapter's table. Give it to tools/chatwoot_ctl.py as --table to create businesses (tenants), their service keys and agents
+    Value: !Ref ChatwootTable
   StudentDataTableName:
     Condition: UseStorage
     Value: !Ref StudentDataTable

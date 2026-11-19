@@ -18,7 +18,7 @@ def block(name):
 params = template[template.index("\nParameters:"):template.index("\nConditions:")]
 assert re.search(r"  ChatwootEnabled:\n    Type: String\n    Default: 'false'\n    AllowedValues: \['false', 'true'\]", params), "the adapter is off unless asked for"
 assert "UseChatwoot: !Equals [!Ref ChatwootEnabled, 'true']" in template, "its own switch, not tied to backends"
-for name in ("ChatwootTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction"):
+for name in ("ChatwootTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction", "ChatwootAdminFunction"):
     assert "Condition: UseChatwoot" in block(name), f"{name} exists only when the adapter is on"
 assert "ChatwootWebhookUrl:\n    Condition: UseChatwoot" in template, "its output exists only when it is on"
 globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
@@ -77,6 +77,22 @@ assert "Default: ''" in base_url_parameter and "AllowedPattern: '^(https://" in 
 auth_style_parameter = re.search(r"  ChatwootAuthStyle:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
 assert "Default: bearer" in auth_style_parameter and "AllowedValues: [bearer, api_access_token]" in auth_style_parameter
 assert "CHATWOOT_BASE_URL" not in block("ChatwootReceiverFunction"), "the receiver never calls out"
+
+# ---- the admin function: the registry only, no secrets, no outbound calls, no other function ----
+admin = block("ChatwootAdminFunction")
+assert "Handler: chatwoot_admin.handler" in admin and "CodeUri: lambda/" in admin and "Runtime: python3.12" in admin
+assert re.search(r"Path: /admin/\{proxy\+\}\n\s+Method: ANY", admin) and "ApiId: !Ref ChatwootApi" in admin and admin.count("Type: HttpApi") == 1, "one route family, on the adapter's own API"
+assert "/hooks/chatwoot" not in admin and "BackendApi" not in admin and "GatewayFunction" not in admin
+assert "CHATWOOT_TABLE: !Ref ChatwootTable" in admin and "CHATWOOT_BASE_URL" not in admin and "CHATWOOT_AUTH_STYLE" not in admin and "CHATWOOT_WORKER_FUNCTION" not in admin
+assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*'\]", admin), "registry items only, one at a time"
+assert re.search(r"Action: dynamodb:DeleteItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*'\]", admin), "it may remove an agent item and nothing else"
+code = re.sub(r"#[^\n]*", "", admin)
+assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "dynamodb:DeleteItem"], "exactly these permissions"
+for forbidden in ("secretsmanager:", "lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem", "dynamodb:*", "msg#", "TokensTable", "SitesBucket", "s3:", "kms:",
+                  "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "AiSecretName", "Resource: '*'", "Action: '*'", "VpcConfig"):
+    assert forbidden not in code, f"the admin function must not have {forbidden}"
+assert "ChatwootAdminFunction" not in block("ChatwootReceiverFunction") and "/admin" not in block("ChatwootReceiverFunction"), "the webhook function does not serve the admin routes"
+assert re.search(r"ChatwootTableName:\n    Condition: UseChatwoot\n    Description: [^\n]+\n    Value: !Ref ChatwootTable\n", template), "the table name is an output only when the adapter is on"
 
 # ---- nobody else gains anything: no student role, no existing function mentions the adapter ----
 for name in ("StudentSandboxRole", "StudentSandboxBoundary", "GatewayFunction", "DeployFunction", "SweeperFunction", "KnowledgeFunction", "KnowledgeWorkerFunction", "AiProxyFunction",
