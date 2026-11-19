@@ -134,7 +134,8 @@ for bad in ("", None, 5, "short", "has space 12345678", "line\nbreak12345", 'quo
     assert not core.token_ok(bad), repr(bad)
 url, headers, body = core.reply_request("https://chat.example.org", "bearer", TOKEN, 1, 12, "Received (message 501)")
 assert url == "https://chat.example.org/api/v1/accounts/1/conversations/12/messages"
-assert headers == {"Content-Type": "application/json", "Accept": "application/json", "Authorization": "Bearer " + TOKEN}
+assert headers == {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": core.USER_AGENT, "Authorization": "Bearer " + TOKEN}
+assert "urllib" not in core.USER_AGENT.lower(), "Cloudflare refuses the default Python user-agent"
 assert json.loads(body) == {"content": "Received (message 501)", "message_type": "outgoing", "private": False}, "a public outgoing message"
 url, headers, _ = core.reply_request("https://chat.example.org:8443", "api_access_token", TOKEN, "7", 3, "x")
 assert url == "https://chat.example.org:8443/api/v1/accounts/7/conversations/3/messages" and headers["api_access_token"] == TOKEN and "Authorization" not in headers

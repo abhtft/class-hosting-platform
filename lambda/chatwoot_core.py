@@ -134,11 +134,15 @@ def token_ok(token):
     return isinstance(token, str) and _TOKEN.fullmatch(token) is not None
 
 
+USER_AGENT = "ClassPlatformChatwootAdapter/1.0"
+
+
 def reply_request(base_url, style, token, account_id, conversation_id, text):
     """(url, headers, body) of Chatwoot's Create New Message call: a public (private false) outgoing message in the conversation, sent with the agent bot's
     own token. The ids go into the path as whole numbers only."""
     url = f"{base_url}/api/v1/accounts/{int(account_id)}/conversations/{int(conversation_id)}/messages"
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    # A name of our own: a Chatwoot behind Cloudflare refuses Python's default "Python-urllib" user-agent with a 403 (error 1010) before the request reaches Chatwoot.
+    headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": USER_AGENT}
     if style == "bearer":
         headers["Authorization"] = "Bearer " + token
     elif style == "api_access_token":
