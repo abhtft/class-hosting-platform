@@ -180,6 +180,14 @@ class FakeTable:
             raise error(cs.CONDITION_FAILED)
         self.items[Item["pk"]] = dict(Item)
 
+    def update_item(self, Key, UpdateExpression, ExpressionAttributeNames, ExpressionAttributeValues, ReturnValues):
+        self.calls.append("update")
+        assert UpdateExpression == "ADD #m :n SET #t = :ttl" and ExpressionAttributeNames == {"#m": "micro", "#t": "ttl"} and ReturnValues == "UPDATED_NEW"
+        item = self.items.setdefault(Key["pk"], {"pk": Key["pk"]})
+        item["micro"] = Decimal(item.get("micro", 0)) + ExpressionAttributeValues[":n"]
+        item["ttl"] = ExpressionAttributeValues[":ttl"]
+        return {"Attributes": {"micro": item["micro"]}}
+
     def scan(self, FilterExpression, ExclusiveStartKey=None):
         self.calls.append("scan")
         return {"Items": [dict(i) for k, i in sorted(self.items.items()) if k.startswith("agent#")]}
@@ -212,5 +220,13 @@ for call in (lambda s: s.claim("k", {}), lambda s: s.replace_if("k", {}, "rev", 
     except ClientError:
         pass
 print("  ok  the DynamoDB table sends attribute_not_exists or a revision condition, understands a lost race, stores floats as Decimal and returns plain numbers")
+
+# ---- the monthly spend counter ----
+for label, spend_store in (("memory", cs.MemoryStore()), ("dynamo", cs.DynamoStore(FakeTable()))):
+    assert spend_store.usage("usage#acme#202701") == 0, label
+    assert spend_store.usage_add("usage#acme#202701", 5, 1000) == 5 and spend_store.usage_add("usage#acme#202701", 7, 2000) == 12, label
+    assert spend_store.usage("usage#acme#202701") == 12 and spend_store.usage("usage#acme#202702") == 0 and spend_store.usage("usage#beta#202701") == 0, "separate by business and month"
+    assert isinstance(spend_store.usage("usage#acme#202701"), int)
+print("  ok  the monthly spend counter adds atomically, reads back whole numbers, and is separate per business and month")
 
 print("test_chatwoot_registry.py: service key, validation, the serving rule, the reader and the table")

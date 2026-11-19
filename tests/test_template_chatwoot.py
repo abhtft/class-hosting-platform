@@ -55,28 +55,33 @@ for forbidden in ("dynamodb:Scan", "dynamodb:Query", "dynamodb:BatchWriteItem", 
                   "cloudfront", "StudentDataTable", "TracesTable", "KnowledgeWorker", "AiSecretName", "Resource: '*'", "Action: '*'"):
     assert forbidden not in code, f"the receiver must not have {forbidden}"
 
-# ---- the worker: update its own table, read the chatwoot/ secrets, call out; never retried by the platform, not reachable from the internet ----
+# ---- the worker: its message items and spend counters, the registry, the shelves of the businesses, the Google key; never retried, not reachable from the internet ----
 worker = block("ChatwootWorkerFunction")
-assert "Handler: chatwoot_api.worker" in worker and "CodeUri: lambda/" in worker and "Runtime: python3.12" in worker
+assert "Handler: chatwoot_api.worker" in worker and "CodeUri: lambda/" in worker and "Runtime: python3.12" in worker and "MemorySize: 1024" in worker, "a shelf is loaded into memory to be searched"
 assert re.search(r"EventInvokeConfig:\n\s+MaximumRetryAttempts: 0", worker), "no automatic second run: the message item decides what has been done (an event may still arrive twice, the worker claims it once)"
 assert "Events:" not in worker and "HttpApi" not in worker, "nothing on the internet reaches the worker directly"
-assert "VpcConfig" not in worker, "it must reach Chatwoot, so it is not in a private network without a way out"
+assert "VpcConfig" not in worker, "it must reach Chatwoot and Google, so it is not in a private network without a way out"
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in worker
 assert "CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl" in worker and "CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle" in worker, "the one Chatwoot address and the header style come from parameters"
-assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['msg#\*'\]", worker), "it updates message items only"
-assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'tenant#\*'\]", worker), "and reads the registry again before it replies"
-assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", worker), "it reads only secrets named chatwoot/..."
-assert worker.count("Action: secretsmanager:") == 1
+assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['msg#\*', 'usage#\*'\]", worker), "it updates message items and spend counters only"
+assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'tenant#\*', 'usage#\*'\]", worker), "and reads the registry and the spend counters"
+assert re.search(r"Action: s3:GetObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/knowledge/tenant/\*'", worker), "it reads the shelves of the businesses and nothing else in the bucket"
+assert re.search(r"Action: s3:ListBucket\n\s+Resource: !GetAtt SitesBucket\.Arn\n\s+Condition:\n\s+StringLike:\n\s+s3:prefix: \['knowledge/tenant/\*'\]", worker), "listing is limited to the same prefix"
+assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:\$\{AiSecretName\}-\?\?\?\?\?\?'", worker), "the platform's Google key, this one secret"
+assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", worker), "the bot token and account id: secrets named chatwoot/..."
+assert worker.count("Action: secretsmanager:") == 2, "exactly two secret statements: the bot token and the platform's Google key"
 code = re.sub(r"#[^\n]*", "", worker)
-assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:GetItem", "dynamodb:UpdateItem", "secretsmanager:GetSecretValue"], "exactly these three permissions"
-for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:",
-                  "kms:", "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "AiSecretName", "Resource: '*'", "Action: '*'"):
+assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:GetItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these permissions"
+assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}/knowledge/tenant/*"], "objects under knowledge/tenant/ only (not the class library, not a student's shelf, not a site)"
+for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:*", "s3:PutObject", "s3:DeleteObject", "s3:*", "TokensTable", "kms:", "iam:", "ssm:", "cloudfront",
+                  "StudentDataTable", "TracesTable", "Resource: '*'", "Action: '*'", "knowledge/student", "knowledge/class", "sites/", "portal/"):
     assert forbidden not in code, f"the worker must not have {forbidden}"
 base_url_parameter = re.search(r"  ChatwootBaseUrl:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
 assert "Default: ''" in base_url_parameter and "AllowedPattern: '^(https://" in base_url_parameter, "https only, empty until the teacher sets it"
 auth_style_parameter = re.search(r"  ChatwootAuthStyle:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
 assert "Default: bearer" in auth_style_parameter and "AllowedValues: [bearer, api_access_token]" in auth_style_parameter
 assert "CHATWOOT_BASE_URL" not in block("ChatwootReceiverFunction"), "the receiver never calls out"
+assert "secretsmanager" not in block("ChatwootAdminFunction") and "s3:" not in block("ChatwootReceiverFunction") and "knowledge" not in block("ChatwootReceiverFunction"), "only the worker reads shelves and the model's key"
 
 # ---- the admin function: the registry only, no secrets, no outbound calls, no other function ----
 admin = block("ChatwootAdminFunction")

@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import platform_settings
 
 TOLERANCE_SECONDS = platform_settings.value("chatwoot.timestampToleranceSeconds")
+MAX_QUESTION_CHARS = platform_settings.value("chatwoot.maxQuestionChars")
 AGENT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")  # the {agentId} in the webhook address: a short lowercase name, never a path. Always used with fullmatch (a "$" would let a trailing newline through)
 _TIMESTAMP = re.compile(r"[0-9]{1,12}")
 _HOST = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?")
@@ -99,6 +100,13 @@ def classify(payload):
     if None in fields.values():
         return None, "bad_payload"
     return fields, None
+
+
+def message_text(payload):
+    """The customer's words, cut to a limit. They are for the worker only: they travel in the asynchronous event and are never stored or logged, which is why
+    classify() does not return them."""
+    content = payload.get("content") if isinstance(payload, dict) else None
+    return content.strip()[:MAX_QUESTION_CHARS] if isinstance(content, str) else ""
 
 
 # ---------- the reply (step T2) ----------

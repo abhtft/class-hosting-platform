@@ -1202,7 +1202,7 @@ Resources:
       Handler: chatwoot_api.worker
       Runtime: python3.12
       Architectures: [arm64]
-      MemorySize: 512
+      MemorySize: 1024
       Timeout: 120
       EventInvokeConfig:
         MaximumRetryAttempts: 0 # the message item decides what was done; an automatic second run could answer a customer twice
@@ -1213,18 +1213,30 @@ Resources:
           CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle
       Policies:
         - Statement:
-            - Effect: Allow # claim the message and record the outcome (msg#... only)
+            - Effect: Allow # claim the message and record the outcome (msg#...), and count what an answer cost against its business's month (usage#...)
               Action: dynamodb:UpdateItem
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['msg#*']
-            - Effect: Allow # read the registry again just before replying: the agent and its tenant
+                  dynamodb:LeadingKeys: ['msg#*', 'usage#*']
+            - Effect: Allow # read the registry again just before replying (the agent, its tenant and its live version) and the business's spend so far
               Action: dynamodb:GetItem
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*']
+                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*']
+            - Effect: Allow # the shelves of the businesses (read only): knowledge/tenant/ and nothing else in the bucket
+              Action: s3:GetObject
+              Resource: !Sub '${SitesBucket.Arn}/knowledge/tenant/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt SitesBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: ['knowledge/tenant/*']
+            - Effect: Allow # the platform's Google key (this one secret): to embed a customer's question and to ask the model
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
             - Effect: Allow # the agent bot's token and account id: the same chatwoot/<agent name> secrets, nothing else
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:chatwoot/*'

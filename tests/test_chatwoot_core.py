@@ -161,4 +161,13 @@ for status, reason in ((401, "http_401"), (403, "http_403"), (404, "http_404"), 
     assert core.reply_result(status, b'{"id": 1}') == ("failed", reason), (status, core.reply_result(status, b"{}"))
 print("  ok  Chatwoot's answer is read as replied (with the message id) or failed with a short code; a redirect or an odd status is a failure, never followed")
 
+# ---- the customer's words (for the worker only) ----
+assert core.message_text({"content": "  What time do you open?  "}) == "What time do you open?"
+assert core.message_text({"content": "x" * (core.MAX_QUESTION_CHARS + 50)}) == "x" * core.MAX_QUESTION_CHARS, "cut to the limit"
+for odd in ({}, {"content": None}, {"content": 5}, {"content": ["a"]}, None, "text", []):
+    assert core.message_text(odd) == "", odd
+fields, reason = core.classify({**SAMPLE, "content": "secret words"})
+assert reason is None and "secret words" not in json.dumps(fields), "classify never returns the text"
+print("  ok  the customer's words are available as text for the worker (trimmed, cut, empty when missing) and never part of what classify returns")
+
 print("test_chatwoot_core.py: signature, loop guard, payload checks and the reply")

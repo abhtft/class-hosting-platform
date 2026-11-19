@@ -77,6 +77,17 @@ class DynamoStore:
         self._conditional(kind=self.table.update_item, Key={"pk": key}, UpdateExpression="SET " + ", ".join(sets), ConditionExpression="attribute_exists(pk)",
                           ExpressionAttributeNames=names, ExpressionAttributeValues=values)
 
+    def usage(self, key):
+        """What has been spent so far under this counter (micro-dollars)."""
+        item = self.table.get_item(Key={"pk": key}).get("Item")
+        return int(item["micro"]) if item and "micro" in item else 0
+
+    def usage_add(self, key, micro, now):
+        """Add to the counter atomically (it expires by itself after two months). Returns the new total."""
+        result = self.table.update_item(Key={"pk": key}, UpdateExpression="ADD #m :n SET #t = :ttl", ExpressionAttributeNames={"#m": "micro", "#t": "ttl"},
+                                        ExpressionAttributeValues={":n": int(micro), ":ttl": now + 62 * 86400}, ReturnValues="UPDATED_NEW")
+        return int(result["Attributes"]["micro"])
+
     def list_prefix(self, prefix):
         """Every item whose key starts with the prefix. A full scan: only the teacher's local command (tools/chatwoot_admin.py) uses it, never a function."""
         from boto3.dynamodb.conditions import Attr
@@ -129,6 +140,15 @@ class MemoryStore:
     def finish(self, key, status, now, extra=None):
         if key in self.items:
             self.items[key].update({"status": status, "finished_at": now, **(extra or {})})
+
+    def usage(self, key):
+        return int(self.items.get(key, {}).get("micro", 0))
+
+    def usage_add(self, key, micro, now):
+        item = self.items.setdefault(key, {"pk": key, "micro": 0})
+        item["micro"] += int(micro)
+        item["ttl"] = now + 62 * 86400
+        return item["micro"]
 
     def list_prefix(self, prefix):
         return [json.loads(json.dumps(item)) for key, item in sorted(self.items.items()) if key.startswith(prefix)]

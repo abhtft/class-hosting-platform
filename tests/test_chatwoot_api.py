@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import sys
+import time
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(root, "lambda"))
@@ -13,6 +14,7 @@ sys.path.insert(0, os.path.join(root, "lambda"))
 import chatwoot_api as api  # noqa: E402
 import chatwoot_core as core  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
+import chatwoot_runtime as rt  # noqa: E402
 
 LOGS = []  # what the functions print: collected, and checked at the end for secrets and message text
 api.log = lambda what, **details: LOGS.append(json.dumps({"chatwoot": what, **details}))
@@ -25,6 +27,8 @@ api.AUTH_STYLE = "bearer"
 NOW = 1_800_000_000
 EMAIL = "asha" + chr(64) + "example.org"  # built here so no address is written in the repository
 TEXT = "my card number is 4111 and my name is Asha Verma"
+LIVE_CONFIG = {"instructions": "Speak like a friendly shopkeeper.", "language": "en", "collections": ["faq"], "fallback_text": "Sorry, a person will help you soon.", "max_answer_chars": 300, "mode": "rag"}
+HIT = {"doc": "faq-doc", "title": "Faq handbook", "page": 1, "page_end": 1, "section": "Opening hours", "text": "Our shop is open from nine to six.", "vector": 0.9, "collection": "faq"}
 SAMPLE = {
     "event": "message_created", "id": 501, "content": TEXT, "message_type": "incoming", "private": False,
     "sender": {"id": 9, "type": "contact", "name": "Asha Verma", "email": EMAIL},
@@ -35,7 +39,8 @@ SAMPLE = {
 def register(store, agent="shop", tenant="acme", account=1, inboxes=(3,), enabled=True, tenant_enabled=True):
     """What the registry holds for an agent: its tenant and the one account and the inboxes it may serve (the message in SAMPLE is account 1, inbox 3)."""
     store.claim(reg.tenant_key(tenant), {"tenant_id": tenant, "enabled": tenant_enabled, "key_hash": "x", "agents": [agent], "rev": 1})
-    store.claim(reg.agent_key(agent), {"tenant_id": tenant, "agent_id": agent, "account_id": account, "inbox_ids": list(inboxes), "enabled": enabled, "live_version": 0, "versions": 0, "rev": 1})
+    store.claim(reg.agent_key(agent), {"tenant_id": tenant, "agent_id": agent, "account_id": account, "inbox_ids": list(inboxes), "enabled": enabled, "live_version": 1, "versions": 1, "rev": 1})
+    store.claim(reg.version_key(agent, 1), {"agent_id": agent, "tenant_id": tenant, "version": 1, "config": dict(LIVE_CONFIG), "published_at": 1})
 
 
 class Fakes:
@@ -50,10 +55,15 @@ class Fakes:
         self.extra = extra if extra is not None else {"api_token": TOKEN, "account_id": 1}
         self.requests = []
         self.answers = []  # what the next calls to Chatwoot return: (status, body bytes) or an exception to raise
+        self.searches, self.llm_calls = [], []
+        self.found = {"hits": [HIT], "confident": True, "tokens": 20, "cost_micro": 3, "missing": []}  # what the shelves return
+        self.llm_answer = {"text": "We open at nine and close at six.", "model": "m", "tokens": 100, "cost_micro": 40}  # what the model returns
+        self.search_error = self.llm_error = None
+        self.runtime = rt.Runtime(self.search_shelves, self.ask)
         if registered:
             register(self.store)
         self.deps = api.Deps(self.store, api.Secrets(self.read), self.invoke, registry=reg.Registry(self.store, ttl=0))
-        self.wdeps = api.Deps(self.store, api.Secrets(self.read, api.credentials_of), http=self.post, registry=reg.Registry(self.store, ttl=0))
+        self.wdeps = api.Deps(self.store, api.Secrets(self.read, api.credentials_of), http=self.post, registry=reg.Registry(self.store, ttl=0), runtime=self.runtime)
 
     def read(self, name):
         self.secret_reads.append(name)
@@ -64,6 +74,18 @@ class Fakes:
         if self.fail_invoke:
             raise RuntimeError("throttled")
         self.invoked.append(payload)
+
+    def search_shelves(self, tenant, collections, query):
+        self.searches.append((tenant, list(collections), query))
+        if self.search_error:
+            raise self.search_error
+        return self.found
+
+    def ask(self, messages, max_tokens):
+        self.llm_calls.append((messages, max_tokens))
+        if self.llm_error:
+            raise self.llm_error
+        return self.llm_answer
 
     def post(self, url, headers, body, timeout):
         self.requests.append((url, headers, body, timeout))
@@ -97,10 +119,10 @@ def call(fakes, ev, now=NOW):
 f = Fakes()
 status, body = call(f, event(SAMPLE))
 assert (status, body) == (200, {"ok": True, "accepted": True}), (status, body)
-assert len(f.invoked) == 1 and f.invoked[0] == {"agent_id": "shop", "delivery_id": "d-1", "message_id": 501, "conversation_id": 12, "account_id": 1, "inbox_id": 3}
+assert len(f.invoked) == 1 and f.invoked[0] == {"agent_id": "shop", "delivery_id": "d-1", "text": TEXT, "message_id": 501, "conversation_id": 12, "account_id": 1, "inbox_id": 3}, "the text reaches the worker in the event only"
 item = f.store.items["msg#shop#501"]
 assert item["status"] == "received" and item["received_at"] == NOW and item["ttl"] == NOW + api.DEDUPE_TTL_DAYS * 86400 and item["delivery_id"] == "d-1"
-stored = json.dumps(f.store.items) + json.dumps(f.invoked)
+stored = json.dumps(f.store.items)  # the table; the event to the worker carries the text on purpose and is not stored anywhere
 for secret_text in ("4111", "Asha", "Verma", EMAIL, "card number", SECRET, TOKEN):
     assert secret_text not in stored, f"{secret_text!r} must never be stored or handed over"
 assert all(value == SECRET for _, value in f.deps.secrets.cache.values()), "the receiver keeps only the bot secret from the secret"
@@ -202,6 +224,9 @@ class DownRegistry:
     def allows(self, *args):
         raise RuntimeError("down")
 
+    def load(self, name):
+        raise RuntimeError("down")
+
 
 f = Fakes()
 f.deps.registry = DownRegistry()
@@ -284,20 +309,20 @@ def fails(f, job, reason, now=NOW + 1):
 
 
 f, job = accepted()
-f.answers = [(200, b'{"id": 9001, "content": "Received (message 501)", "sender": {"name": "Bot"}}')]
+f.answers = [(200, b'{"id": 9001, "content": "We open at nine and close at six.", "sender": {"name": "Bot"}}')]
 assert run_worker(f, job) == {"replied": True}
 assert len(f.requests) == 1
 url, headers, body, timeout = f.requests[0]
 assert url == BASE + "/api/v1/accounts/1/conversations/12/messages", url
 assert headers["Authorization"] == "Bearer " + TOKEN and "api_access_token" not in headers and timeout == api.HTTP_TIMEOUT_SECONDS
-assert json.loads(body) == {"content": "Received (message 501)", "message_type": "outgoing", "private": False}
+assert json.loads(body) == {"content": "We open at nine and close at six.", "message_type": "outgoing", "private": False}
 item = f.store.items["msg#shop#501"]
 assert item["status"] == "replied" and item["reply_id"] == 9001 and item["started_at"] == NOW + 1 and item["finished_at"] == NOW + 1
 stored = json.dumps(f.store.items)
 for secret_text in (TOKEN, SECRET, "4111", "Asha", "Verma", EMAIL, "Bot", "chat.example.org"):
     assert secret_text not in stored, f"{secret_text!r} must not be stored after a reply"
 assert run_worker(f, job, now=NOW + 2) == {"skipped": "already_handled"} and len(f.requests) == 1, "the same event delivered twice sends ONE reply"
-print("  ok  the worker posts one public reply (fixed text with the message number, the bot's token as a Bearer header) and records replied with the reply's id only")
+print("  ok  the worker posts one public reply (the answer from the books, the bot's token as a Bearer header) and records replied with the reply's id only")
 
 f, job = accepted()
 api.AUTH_STYLE = "api_access_token"
@@ -386,6 +411,121 @@ worker_registry.load("shop")
 assert not worker_registry.cache, "a worker registry with ttl 0 remembers nothing"
 print("  ok  the worker asks the registry again just before replying: a message accepted earlier is not answered after its agent was switched off or changed")
 
+# ---- the answer: the live version, the books, the model and the month's spend ----
+MONTH = "usage#acme#" + time.strftime("%Y%m", time.gmtime(NOW + 1))
+f, job = accepted()
+assert run_worker(f, job) == {"replied": True}
+assert f.searches == [("acme", ["faq"], TEXT)] and len(f.llm_calls) == 1, "one search of the agent's own shelves, one model call"
+assert json.loads(f.requests[0][2])["content"] == "We open at nine and close at six."
+item = f.store.items["msg#shop#501"]
+assert (item["route"], item["confident"], item["hits"], item["shelves"], item["tokens"], item["cost_micro"], item["sources"]) == ("rag", True, 1, ["faq"], 120, 43, [["faq-doc", 1]])
+assert isinstance(item["retrieval_ms"], int) and isinstance(item["llm_ms"], int) and item["status"] == "replied" and item["reply_id"] == 9001
+assert f.store.usage(MONTH) == 43, "what the answer cost is counted against the business's month"
+stored = json.dumps({k: v for k, v in f.store.items.items() if k.startswith(("msg#", "usage#"))})  # message items and spend counters (the registry holds the business's own configuration)
+for words in ("4111", "Asha", "Verma", "nine", "close at six", "Opening hours", "friendly shopkeeper", TOKEN, SECRET, "Faq handbook"):
+    assert words not in stored, f"{words!r} must not be in the table"
+assert run_worker(f, job, now=NOW + 2) == {"skipped": "already_handled"} and len(f.llm_calls) == 1 and f.store.usage(MONTH) == 43, "a repeated event neither asks the model nor spends again"
+print("  ok  the worker answers from the agent's live version: one search of its own shelves, one model call, the reply posted, numbers-only metrics on the item and the cost counted for the month")
+
+f, job = accepted()
+f.found = {"hits": [HIT], "confident": False, "tokens": 20, "cost_micro": 3, "missing": []}
+assert run_worker(f, job) == {"replied": True}
+assert json.loads(f.requests[0][2])["content"] == LIVE_CONFIG["fallback_text"] and not f.llm_calls and f.store.items["msg#shop#501"]["route"] == "fallback" and f.store.usage(MONTH) == 3, "not sure: the fallback text, no model call, only the search is counted"
+f, job = accepted()
+f.llm_answer = {"text": rt.NOT_SURE, "model": "m", "tokens": 100, "cost_micro": 40}
+run_worker(f, job)
+assert json.loads(f.requests[0][2])["content"] == LIVE_CONFIG["fallback_text"] and f.store.usage(MONTH) == 43
+f, job = accepted()
+run_worker(f, {k: v for k, v in job.items() if k != "text"})
+assert json.loads(f.requests[0][2])["content"] == LIVE_CONFIG["fallback_text"] and not f.searches, "a message without text (an image) gets the fallback"
+print("  ok  when the books are not sure, the model does not know, or there is no text, the customer gets the agent's fallback text (and only what was spent is counted)")
+
+# the business's month
+cap = api.DEFAULT_CAP_USD * 1000000
+f, job = accepted()
+f.store.usage_add(MONTH, cap, NOW)
+fails(f, job, "cap_reached")
+assert not f.searches and not f.llm_calls and not f.requests, "a business at its cap costs nothing more and gets no reply"
+f, job = accepted()
+f.store.usage_add(MONTH, cap - 1, NOW)
+assert run_worker(f, job) == {"replied": True} and f.store.usage(MONTH) == cap - 1 + 43, "just under the cap is answered (one answer may go over it)"
+f, job = accepted()
+f.store.items["tenant#acme"]["monthly_cap_micro"] = 100
+f.store.usage_add(MONTH, 100, NOW)
+fails(f, job, "cap_reached")
+f, job = accepted()
+f.store.items["tenant#acme"]["monthly_cap_micro"] = 100000000
+f.store.usage_add(MONTH, cap, NOW)
+assert run_worker(f, job) == {"replied": True}, "a business's own cap replaces the default"
+f, job = accepted()
+f.store.items["tenant#acme"]["monthly_cap_micro"] = "lots"
+f.store.usage_add(MONTH, cap, NOW)
+fails(f, job, "cap_reached")
+f, job = accepted()
+f.store.usage_add(MONTH, cap, NOW)
+assert run_worker(f, job, now=NOW + 40 * 86400) == {"replied": True}, "a new month starts a new count"
+print("  ok  a business at its monthly cap is refused before anything is spent; its own cap replaces the default; a new month starts again")
+
+# the live version
+f, job = accepted()
+f.store.items["agent#shop"]["live_version"] = 0
+fails(f, job, "no_live_version")
+assert not f.searches and not f.requests
+f, job = accepted()
+f.store.forget("agent#shop#v1")
+fails(f, job, "bad_config")
+for change in ({"collections": []}, {"fallback_text": ""}, {"language": "fr"}, {"mode": "robot"}):
+    f, job = accepted()
+    f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, **change}
+    fails(f, job, "bad_config")
+    assert not f.searches and not f.requests, change
+f, job = accepted()
+f.store.items["agent#shop#v1"]["config"] = "not an object"
+fails(f, job, "bad_config")
+print("  ok  an agent with no live version, a missing version or an unusable configuration gets no reply and spends nothing")
+
+# failures while answering
+f, job = accepted()
+f.search_error = RuntimeError("an error that mentions 4111 and Asha")
+fails(f, job, "retrieval_error")
+item = f.store.items["msg#shop#501"]
+assert item["route"] == "fallback" and item["error"] == "RuntimeError" and "4111" not in json.dumps(f.store.items) and not f.requests and f.store.usage(MONTH) == 0
+f, job = accepted()
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": ["faq"]}
+fails(f, job, "no_shelf")
+f, job = accepted()
+f.llm_error = RuntimeError("the model is down")
+fails(f, job, "llm_error")
+assert f.store.usage(MONTH) == 3 and not f.requests, "the search was paid for even though the model failed, and nothing is sent"
+f, job = accepted()
+f.answers = [(500, b"oops")]
+fails(f, job, "http_5xx")
+item = f.store.items["msg#shop#501"]
+assert item["route"] == "rag" and item["cost_micro"] == 43 and f.store.usage(MONTH) == 43, "a reply that Chatwoot refused was still paid for: it is recorded and counted"
+
+
+class NoCounter(api.MemoryStore):
+    def usage_add(self, key, micro, now):
+        raise RuntimeError("down")
+
+
+f, job = accepted()
+f.store.__class__ = NoCounter
+assert run_worker(f, job) == {"replied": True}, "a counter that cannot be written does not stop the reply"
+print("  ok  a search error, a missing shelf, a model error and a refused reply are recorded with a code and numbers; what was spent is counted; a counter that cannot be written does not stop a reply")
+
+# the receiver cuts the text and sends nothing when there is none
+f = Fakes()
+long_text = "word " * 1000
+call(f, event({**SAMPLE, "content": long_text}))
+assert len(f.invoked[0]["text"]) == core.MAX_QUESTION_CHARS
+f = Fakes()
+payload = {k: v for k, v in SAMPLE.items() if k != "content"}
+call(f, event(payload))
+assert f.invoked[0]["text"] == "", "a message without text is handed over with empty text"
+assert "word" not in json.dumps(f.store.items)
+print("  ok  the receiver hands the worker the customer's words cut to the limit (empty when there are none) and stores none of them")
+
 # ---- the worker only takes what the secret says it takes: never the bot secret ----
 f, job = accepted()
 run_worker(f, job)
@@ -405,7 +545,7 @@ missing = dict(job, message_id=999)
 assert run_worker(f, missing) == {"skipped": "already_handled"} and "msg#shop#999" not in f.store.items and not f.requests, "a message with no item is not invented and not answered"
 
 original = api.answer
-api.answer = lambda event, deps: (_ for _ in ()).throw(RuntimeError("boom"))
+api.answer = lambda event, deps, now=None: (_ for _ in ()).throw(RuntimeError("boom"))
 try:
     f, job = accepted()
     try:

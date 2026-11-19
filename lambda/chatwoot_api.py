@@ -33,6 +33,7 @@ import urllib.request
 
 import chatwoot_core as core
 import chatwoot_registry as registry
+import chatwoot_runtime as engine
 import platform_settings
 from chatwoot_store import CONDITION_FAILED, DynamoStore, MemoryStore  # noqa: F401  (the table lives in chatwoot_store.py; these names stay importable from here)
 
@@ -40,6 +41,7 @@ MAX_BODY_BYTES = platform_settings.kb("chatwoot.maxBodyKB")
 DEDUPE_TTL_DAYS = platform_settings.value("chatwoot.dedupeTtlDays")
 SECRET_CACHE_SECONDS = platform_settings.value("chatwoot.secretCacheSeconds")
 HTTP_TIMEOUT_SECONDS = platform_settings.value("chatwoot.httpTimeoutSeconds")
+DEFAULT_CAP_USD = platform_settings.value("chatwoot.defaultMonthlyCapUsd")  # what one business may spend a month on answers, unless its tenant item says otherwise
 BASE_URL = platform_settings.value("chatwoot.baseUrl")  # the one Chatwoot address the worker may call (a template parameter)
 AUTH_STYLE = platform_settings.value("chatwoot.authStyle")  # bearer, or api_access_token for a Chatwoot older than 4.19
 SECRET_PREFIX = "chatwoot/"  # the secret of agent <id> is named chatwoot/<id>; the template lets the functions read exactly this prefix
@@ -160,8 +162,8 @@ def post_json(url, headers, body, timeout):
 
 
 class Deps:
-    def __init__(self, store, secrets, invoke=None, http=None, registry=None):
-        self.store, self.secrets, self.invoke, self.http, self.registry = store, secrets, invoke, http, registry
+    def __init__(self, store, secrets, invoke=None, http=None, registry=None, runtime=None):
+        self.store, self.secrets, self.invoke, self.http, self.registry, self.runtime = store, secrets, invoke, http, registry, runtime
 
 
 _receiver_deps = None
@@ -184,7 +186,8 @@ def default_worker_deps():
     if _worker_deps is None:
         import boto3
         store = DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"]))
-        _worker_deps = Deps(store, Secrets(read_secret, credentials_of), http=post_json, registry=registry.Registry(store, ttl=0))  # ttl 0: asks the table every time
+        _worker_deps = Deps(store, Secrets(read_secret, credentials_of), http=post_json, registry=registry.Registry(store, ttl=0),
+                             runtime=engine.real_runtime())  # ttl 0: asks the table every time; the runtime searches the shelves and asks the model
     return _worker_deps
 
 
@@ -220,7 +223,8 @@ def handler(event, context=None, now=None, deps=None):
     if refusal:
         log("refused", agent=agent_id, reason=refusal)
         return reply(401, error="unauthorized")
-    fields, ignored = core.classify(core.parse(body))
+    payload = core.parse(body)
+    fields, ignored = core.classify(payload)
     if ignored:
         return reply(200, ok=True, ignored=ignored)
     try:
@@ -244,7 +248,7 @@ def handler(event, context=None, now=None, deps=None):
         log("duplicate", agent=agent_id, message=fields["message_id"])
         return reply(200, ok=True, duplicate=True)
     try:
-        deps.invoke({"agent_id": agent_id, "delivery_id": delivery, **fields})
+        deps.invoke({"agent_id": agent_id, "delivery_id": delivery, "text": core.message_text(payload), **fields})  # the text goes to the worker in this event only
     except Exception as error:  # remove the item so Chatwoot's retry is accepted instead of being taken for a repeat
         deps.store.forget(key)
         log("hand_over_failed", agent=agent_id, error=type(error).__name__)
@@ -254,15 +258,68 @@ def handler(event, context=None, now=None, deps=None):
 
 # ---------- the worker ----------
 
-def failed(reason):
-    return {"status": "failed", "reason": reason}
+class Refused(Exception):
+    """The message gets no reply. `reason` is a short code, `metrics` are numbers and names only (what had been spent when it stopped)."""
+
+    def __init__(self, reason, metrics=None):
+        super().__init__(reason)
+        self.reason, self.metrics = reason, metrics or {}
 
 
-def answer(event, deps):
-    """What the worker does with an accepted message: post the placeholder reply. Returns {"status": "replied", "reply_id": n or None} or
-    {"status": "failed", "reason": code}. Every refusal below happens before anything is sent."""  # the registry is asked first, with no cache
+def failed(reason, metrics=None):
+    return {"status": "failed", "reason": reason, "metrics": metrics or {}}
+
+
+def usage_key(tenant_id, now):
+    return f"usage#{tenant_id}#{time.strftime('%Y%m', time.gmtime(now))}"
+
+
+def monthly_cap_micro(tenant):
+    cap = tenant.get("monthly_cap_micro")
+    return cap if isinstance(cap, int) and not isinstance(cap, bool) and cap >= 0 else DEFAULT_CAP_USD * 1000000
+
+
+def spend(deps, key, metrics, now):
+    """Count what an answer cost (the search embedding and the model) against the business's month. A counter that cannot be written is logged, not fatal."""
+    micro = int(metrics.get("cost_micro") or 0)
+    if micro > 0:
+        try:
+            deps.store.usage_add(key, micro, now)
+        except Exception as error:
+            log("usage_unavailable", error=type(error).__name__)
+
+
+def compose(event, agent, tenant, deps, now):
+    """The text to send: (reply, metrics). Reads the agent's live version, checks the business's monthly spend, then lets the runtime answer from the books.
+    Raises Refused with a reason code when there is nothing to send."""
+    live = agent.get("live_version") or 0
+    if not live:
+        raise Refused("no_live_version")
+    version = deps.store.get(registry.version_key(event["agent_id"], live))
     try:
-        unmapped = deps.registry.allows(event["agent_id"], event["account_id"], event["inbox_id"])
+        config = engine.clean_config((version or {}).get("config"))
+    except engine.ConfigError:
+        raise Refused("bad_config") from None
+    key = usage_key(tenant["tenant_id"], now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        raise Refused("cap_reached")
+    text = event.get("text") if isinstance(event.get("text"), str) else ""
+    try:
+        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime)
+    except engine.RuntimeFailure as failure:
+        spend(deps, key, failure.metrics, now)
+        raise Refused(failure.reason, failure.metrics) from None
+    spend(deps, key, made["metrics"], now)
+    return made["text"], made["metrics"]
+
+
+def answer(event, deps, now=None):
+    """What the worker does with an accepted message: answer from the books and post the reply. Returns {"status": "replied", "reply_id": n or None,
+    "metrics": {...}} or {"status": "failed", "reason": code, "metrics": {...}}. Every refusal before the answer is made happens before anything is spent or sent."""
+    now = int(now if now is not None else time.time())
+    try:
+        agent, tenant = deps.registry.load(event["agent_id"])  # fresh: no cache
+        unmapped = registry.check_mapping(agent, tenant, event["account_id"], event["inbox_id"])
     except Exception as error:
         log("registry_unavailable", agent=event["agent_id"], error=type(error).__name__)
         return failed("registry_unavailable")
@@ -286,15 +343,19 @@ def answer(event, deps):
         return failed("bad_secret")
     if credentials["account_id"] != event["account_id"]:  # the bot token may write in any conversation of its account: only this agent's own account is allowed
         return failed("account_mismatch")
-    url, headers, body = core.reply_request(base, AUTH_STYLE, credentials["api_token"], event["account_id"], event["conversation_id"], core.reply_text(event["message_id"]))
+    try:
+        text, metrics = compose(event, agent, tenant, deps, now)
+    except Refused as refusal:
+        return failed(refusal.reason, refusal.metrics)
+    url, headers, body = core.reply_request(base, AUTH_STYLE, credentials["api_token"], event["account_id"], event["conversation_id"], text)
     try:
         status, raw = deps.http(url, headers, body, HTTP_TIMEOUT_SECONDS)
     except TimeoutFailure:
-        return failed("timeout")
+        return failed("timeout", metrics)
     except NetworkFailure:
-        return failed("network")
+        return failed("network", metrics)
     kind, detail = core.reply_result(status, raw)
-    return {"status": "replied", "reply_id": detail} if kind == "replied" else failed(detail)
+    return {"status": "replied", "reply_id": detail, "metrics": metrics} if kind == "replied" else failed(detail, metrics)
 
 
 def worker(event, context=None, now=None, deps=None):
@@ -310,15 +371,15 @@ def worker(event, context=None, now=None, deps=None):
         log("already_handled", agent=agent_id, message=message_id)
         return {"skipped": "already_handled"}
     try:
-        outcome = answer(event, deps)
+        outcome = answer(event, deps, now)
     except Exception as error:  # a bug: record it, and let the error show
         deps.store.finish(key, "failed", now, {"reason": "error"})
         log("failed", agent=agent_id, message=message_id, reason="error", error=type(error).__name__)
         raise
     if outcome["status"] == "replied":
-        deps.store.finish(key, "replied", now, {"reply_id": outcome["reply_id"]} if outcome["reply_id"] else None)
+        deps.store.finish(key, "replied", now, {**outcome["metrics"], **({"reply_id": outcome["reply_id"]} if outcome["reply_id"] else {})})
         log("replied", agent=agent_id, message=message_id)
         return {"replied": True}
-    deps.store.finish(key, "failed", now, {"reason": outcome["reason"]})
+    deps.store.finish(key, "failed", now, {**outcome["metrics"], "reason": outcome["reason"]})
     log("failed", agent=agent_id, message=message_id, reason=outcome["reason"])
     raise ReplyFailed(outcome["reason"])

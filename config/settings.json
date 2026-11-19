@@ -2314,6 +2314,38 @@
       ]
     },
     {
+      "key": "chatwoot.maxQuestionChars",
+      "group": "chatwoot",
+      "title": "Longest customer message used",
+      "help": "The customer's message is cut to this many characters before it is searched and sent to the model. It is never stored.",
+      "unit": "characters",
+      "default": 1000,
+      "min": 50,
+      "max": 4000,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Longer messages make the model's input larger.",
+      "code": [
+        "chatwoot_core.MAX_QUESTION_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.defaultMonthlyCapUsd",
+      "group": "chatwoot",
+      "title": "Monthly spend of one business",
+      "help": "The most one business (tenant) may spend a month on answers (the search and the model), in US dollars. When it is reached the worker records cap_reached and sends nothing. A tenant can have its own cap.",
+      "unit": "US dollars",
+      "default": 10,
+      "min": 0,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "This is real Google money: the sum over all businesses is the most the adapter can spend a month.",
+      "code": [
+        "chatwoot_api.DEFAULT_CAP_USD"
+      ]
+    },
+    {
       "key": "projects.maxFiles",
       "group": "projects",
       "title": "Most files in a project",
@@ -2787,9 +2819,9 @@
       "key": "lambdas.chatwootWorkerMemoryMB",
       "group": "lambdas",
       "title": "Chatwoot worker memory",
-      "help": "Memory of the function that handles an accepted message in the background.",
+      "help": "Memory of the function that answers an accepted message in the background. It loads a book shelf into memory to search it, so it needs more than a plain webhook function.",
       "unit": "MB",
-      "default": 512,
+      "default": 1024,
       "min": 128,
       "max": 3008,
       "scope": "deploy",
