@@ -59,7 +59,7 @@ class Fakes:
         self.found = {"hits": [HIT], "confident": True, "tokens": 20, "cost_micro": 3, "missing": []}  # what the shelves return
         self.llm_answer = {"text": "We open at nine and close at six.", "model": "m", "tokens": 100, "cost_micro": 40}  # what the model returns
         self.search_error = self.llm_error = None
-        self.runtime = rt.Runtime(self.search_shelves, self.ask)
+        self.runtime = rt.make_runtime(self.search_shelves, self.ask)
         if registered:
             register(self.store)
         self.deps = api.Deps(self.store, api.Secrets(self.read), self.invoke, registry=reg.Registry(self.store, ttl=0))
@@ -513,6 +513,26 @@ f, job = accepted()
 f.store.__class__ = NoCounter
 assert run_worker(f, job) == {"replied": True}, "a counter that cannot be written does not stop the reply"
 print("  ok  a search error, a missing shelf, a model error and a refused reply are recorded with a code and numbers; what was spent is counted; a counter that cannot be written does not stop a reply")
+
+# the agent route inside the worker: mode auto, and the books are not sure
+f, job = accepted()
+f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "mode": "auto"}
+f.found = {"hits": [HIT], "confident": False, "tokens": 20, "cost_micro": 3, "missing": []}
+f.llm_answer = {"text": json.dumps({"final": "The agent answer."}), "model": "m", "tokens": 30, "cost_micro": 40}
+assert run_worker(f, job) == {"replied": True}
+assert json.loads(f.requests[0][2])["content"] == "The agent answer."
+item = f.store.items["msg#shop#501"]
+assert (item["route"], item["agent_steps"], item["agent_status"], item["confident"], item["cost_micro"]) == ("agent", 1, "done", False, 43) and f.store.usage(MONTH) == 43
+assert "agent answer" not in json.dumps({k: v for k, v in f.store.items.items() if k.startswith(("msg#", "usage#"))}), "the answer is sent, never stored"
+f, job = accepted()
+f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "mode": "auto"}
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+f.llm_error = RuntimeError("down")
+fails(f, job, "llm_error")
+f, job = accepted()
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+assert run_worker(f, job) == {"replied": True} and f.store.items["msg#shop#501"]["route"] == "fallback" and not f.llm_calls, "mode rag never starts the agent"
+print("  ok  in mode auto a message the books are not sure about is answered by the agent loop, counted and recorded as numbers; in mode rag the fallback is used")
 
 # the receiver cuts the text and sends nothing when there is none
 f = Fakes()

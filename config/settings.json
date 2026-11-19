@@ -2346,6 +2346,83 @@
       ]
     },
     {
+      "key": "chatwoot.agentMaxSteps",
+      "group": "chatwoot",
+      "title": "Most steps of the agent loop",
+      "help": "How many times the agent loop may ask the model for one answer (each tool use is a step). Used only for agents in mode auto, when the books alone are not sure.",
+      "unit": "steps",
+      "default": 4,
+      "min": 1,
+      "max": 8,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Each step is a model call.",
+      "code": [
+        "chatwoot_agent.MAX_STEPS"
+      ]
+    },
+    {
+      "key": "chatwoot.agentMaxSeconds",
+      "group": "chatwoot",
+      "title": "Longest agent loop",
+      "help": "How long the agent loop may run for one answer. When it runs out the customer gets the agent's fallback text.",
+      "unit": "seconds",
+      "default": 40,
+      "min": 5,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_agent.MAX_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.agentMaxTokens",
+      "group": "chatwoot",
+      "title": "Most thinking of the agent loop",
+      "help": "An estimate of everything sent to and received from the model in one agent run. When it is used up the run stops and the customer gets the fallback text.",
+      "unit": "tokens",
+      "default": 6000,
+      "min": 500,
+      "max": 20000,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Billed per token.",
+      "code": [
+        "chatwoot_agent.MAX_TOKENS"
+      ]
+    },
+    {
+      "key": "chatwoot.agentCallsPerTool",
+      "group": "chatwoot",
+      "title": "Most uses of one tool",
+      "help": "How many times the agent loop may use the same tool (searching the books, calculating) in one run.",
+      "unit": "uses",
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_agent.CALLS_PER_TOOL"
+      ]
+    },
+    {
+      "key": "chatwoot.agentResultChars",
+      "group": "chatwoot",
+      "title": "Longest tool result",
+      "help": "A tool's result is cut to this many characters before the model sees it.",
+      "unit": "characters",
+      "default": 1500,
+      "min": 200,
+      "max": 6000,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_agent.RESULT_CHARS"
+      ]
+    },
+    {
       "key": "projects.maxFiles",
       "group": "projects",
       "title": "Most files in a project",

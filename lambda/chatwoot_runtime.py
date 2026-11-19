@@ -2,7 +2,7 @@
 
   customer text --> search the agent's shelves (knowledge/tenant/<tenant>/<shelf>, the same store the class library and the students use)
         confident  --> ONE Gemini call with the passages fenced as data  --> the answer (cleaned, cut to the configured length)
-        not sure   --> the agent loop (chatwoot_agent.py, only when the agent's mode is "auto")  --> its answer, or
+        not sure   --> the budgeted agent loop (chatwoot_agent.py, only when the agent's mode is "auto"): search, calculate, then its answer, or
                    --> the agent's fallback text (no LLM call, no cost)
 
 The configuration comes from the agent's LIVE version (chatwoot_admin.py stores it untouched; clean_config() checks it here, when it is used):
@@ -171,9 +171,17 @@ class Runtime:
         self.search, self.llm, self.agent = search, llm, agent
 
 
+def make_runtime(search, llm):
+    """A Runtime with the agent route wired in: the loop of chatwoot_agent.py over the same search and model."""
+    def agent(config, text, tenant_id, metrics, result):
+        import chatwoot_agent  # imported here because chatwoot_agent imports this module
+        return chatwoot_agent.answer(config, text, tenant_id, metrics, result, search, llm)
+    return Runtime(search, llm, agent)
+
+
 def real_runtime():
     store = ks.Store(ks.S3Bucket())
-    return Runtime(lambda tenant_id, collections, query: search_shelves(store, tenant_id, collections, query), llm_gemini)
+    return make_runtime(lambda tenant_id, collections, query: search_shelves(store, tenant_id, collections, query), llm_gemini)
 
 
 # ---------- the answer ----------
