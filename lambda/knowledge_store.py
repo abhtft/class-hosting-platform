@@ -1,6 +1,6 @@
 """Knowledge storage: collections of documents in S3, the search index built from them, and a warm cache so a search reads almost nothing.
 
-Layout, per collection (base = knowledge/<scope>/<owner>/<collection>; scope is "class" for the teacher's library, "student" for a private one):
+Layout, per collection (base = knowledge/<scope>/<owner>/<collection>; scope is "class" for the teacher's library, "student" for a private one, "tenant" for a business's shelves in the Chatwoot adapter):
 
   <base>/meta.json                         the pointer: version, embedding settings, document summaries, which index directory is current
   <base>/docs/<doc>/passages.json.gz       one document's passages (page, section, text)       } written first, then
@@ -27,7 +27,7 @@ import platform_settings
 
 ROOT = "knowledge"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
-SCOPES = ("class", "student")
+SCOPES = ("class", "student", "tenant")  # "tenant": a business's shelves for the Chatwoot adapter (chatwoot_runtime.py); no student can name one
 CACHE_COLLECTIONS = platform_settings.value("knowledge.cacheShelves")          # collections kept in memory by one warm container
 CACHE_PASSAGES = platform_settings.value("knowledge.cachePassages")         # and never more passages than this in total
 REBUILD_TRIES = platform_settings.value("knowledge.rebuildTries")

@@ -2176,6 +2176,144 @@
       ]
     },
     {
+      "key": "chatwoot.searchK",
+      "group": "chatwoot",
+      "title": "Passages used for one answer",
+      "help": "How many of the best passages from the agent's shelves go into one answer.",
+      "unit": "passages",
+      "default": 4,
+      "min": 1,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "More passages make the model's input, and so its cost, larger.",
+      "code": [
+        "chatwoot_runtime.SEARCH_K"
+      ]
+    },
+    {
+      "key": "chatwoot.maxPassageChars",
+      "group": "chatwoot",
+      "title": "Most book text in one answer",
+      "help": "The most characters of book passages put in front of the model for one answer. Passages that do not fit are left out.",
+      "unit": "characters",
+      "default": 6000,
+      "min": 500,
+      "max": 20000,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "More text makes the model's input, and so its cost, larger.",
+      "code": [
+        "chatwoot_runtime.MAX_PASSAGE_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.llmMaxTokens",
+      "group": "chatwoot",
+      "title": "Longest model answer",
+      "help": "The most tokens the model may write for one answer. The reply is also cut to the agent's own length limit.",
+      "unit": "tokens",
+      "default": 400,
+      "min": 50,
+      "max": 2048,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Billed per token written.",
+      "code": [
+        "chatwoot_runtime.LLM_MAX_TOKENS"
+      ]
+    },
+    {
+      "key": "chatwoot.llmTimeoutSeconds",
+      "group": "chatwoot",
+      "title": "How long the worker waits for the model",
+      "help": "How long the worker waits for the model to answer. When it runs out the message is recorded as failed (llm_error) and nothing is sent.",
+      "unit": "seconds",
+      "default": 24,
+      "min": 5,
+      "max": 28,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.LLM_TIMEOUT_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.maxCollections",
+      "group": "chatwoot",
+      "title": "Most shelves of one agent",
+      "help": "How many book shelves one agent may search (the list in its live version).",
+      "unit": "shelves",
+      "default": 5,
+      "min": 1,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.MAX_COLLECTIONS"
+      ]
+    },
+    {
+      "key": "chatwoot.maxInstructionChars",
+      "group": "chatwoot",
+      "title": "Longest agent instructions",
+      "help": "The longest instructions text an agent's live version may hold.",
+      "unit": "characters",
+      "default": 4000,
+      "min": 100,
+      "max": 20000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.MAX_INSTRUCTION_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.answerCharsDefault",
+      "group": "chatwoot",
+      "title": "Default reply length",
+      "help": "The length limit of a reply when the agent's live version does not set one.",
+      "unit": "characters",
+      "default": 600,
+      "min": 50,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.ANSWER_CHARS_DEFAULT"
+      ]
+    },
+    {
+      "key": "chatwoot.answerCharsMax",
+      "group": "chatwoot",
+      "title": "Longest reply an agent may ask for",
+      "help": "The largest reply length an agent's live version may set.",
+      "unit": "characters",
+      "default": 2000,
+      "min": 100,
+      "max": 4000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.ANSWER_CHARS_MAX"
+      ]
+    },
+    {
+      "key": "chatwoot.fallbackMaxChars",
+      "group": "chatwoot",
+      "title": "Longest fallback text",
+      "help": "The longest fallback text (what the customer gets when the books do not answer) an agent's live version may hold.",
+      "unit": "characters",
+      "default": 500,
+      "min": 100,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.FALLBACK_MAX_CHARS"
+      ]
+    },
+    {
       "key": "projects.maxFiles",
       "group": "projects",
       "title": "Most files in a project",
