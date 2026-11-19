@@ -249,4 +249,27 @@ code, text = run("eval", "--tenant", "acme", "--collections", "faq", "--cases", 
 assert code == 2 and "--bucket" in text
 print("  ok  eval searches the real shelves and reports, per question, whether the books were sure and what matched; wrong expectations and unwanted answers fail the run")
 
+# publish and set-live: the way to give an agent its first version without Studio
+cfg = os.path.join(tempfile.mkdtemp(), "shop.json")
+good = {"instructions": "Be brief.", "language": "en", "collections": ["faq"], "fallback_text": "A person will reply.", "max_answer_chars": 600, "mode": "rag"}
+open(cfg, "w", encoding="utf8").write(json.dumps(good))
+assert run("publish", "shop", "--tenant", "nobody", "--config", cfg)[0] == 1
+assert run("publish", "nope", "--tenant", "acme", "--config", cfg)[0] == 1
+code, text = run("publish", "shop", "--tenant", "acme", "--config", os.path.join(os.path.dirname(cfg), "missing.json"))
+assert code == 2 and "Cannot read" in text
+bad = os.path.join(os.path.dirname(cfg), "bad.json")
+open(bad, "w", encoding="utf8").write(json.dumps({**good, "collections": []}))
+code, text = run("publish", "shop", "--tenant", "acme", "--config", bad)
+assert code == 2 and "collections" in text and (store.get(reg.agent_key("shop")).get("versions") or 0) == 0, "a configuration the worker cannot use is refused before it is stored"
+code, text = run("publish", "shop", "--tenant", "acme", "--config", cfg)
+assert code == 0 and "NOT live" in text and store.get(reg.agent_key("shop"))["versions"] == 1 and store.get(reg.agent_key("shop"))["live_version"] == 0
+assert run("set-live", "shop", "--tenant", "acme", "--version", "9")[0] == 1
+assert run("set-live", "shop", "--tenant", "acme", "--version", "1")[0] == 0 and store.get(reg.agent_key("shop"))["live_version"] == 1
+open(cfg, "w", encoding="utf8").write(json.dumps({**good, "mode": "auto"}))
+assert run("publish", "shop", "--tenant", "acme", "--config", cfg, "--live")[0] == 0
+shop = store.get(reg.agent_key("shop"))
+assert shop["versions"] == 2 and shop["live_version"] == 2 and store.get(reg.version_key("shop", 2))["config"]["mode"] == "auto"
+assert run("set-live", "shop", "--tenant", "acme", "--version", "0")[0] == 0 and store.get(reg.agent_key("shop"))["live_version"] == 0
+print("  ok  publish checks the configuration as the worker will, stores the next version without making it live (unless --live); set-live chooses or clears the live version")
+
 print("test_chatwoot_ctl.py: the teacher's local command")

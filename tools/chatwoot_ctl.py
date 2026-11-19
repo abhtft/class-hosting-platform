@@ -9,6 +9,8 @@ or a book), writes the adapter's table and a business's book shelves directly, a
   python tools/chatwoot_ctl.py --table <...> list                                                     tenants and their agents (never a key or a hash)
   python tools/chatwoot_ctl.py --table <...> agent-set shop --tenant acme --account 1 --inboxes 3,4 [--enabled true] [--type chatbot] [--purpose sales]
   python tools/chatwoot_ctl.py --table <...> show-agent shop
+  python tools/chatwoot_ctl.py --table <...> publish shop --tenant acme --config shop.json [--live]      publish the next version (checked as the worker will use it)
+  python tools/chatwoot_ctl.py --table <...> set-live shop --tenant acme --version 2                     choose the live version (0 = none)
 
   python tools/chatwoot_ctl.py --table <...> --bucket <sites bucket> knowledge-sync --tenant acme [--folder knowledge/acme] [--prune] [--dry-run]
         a folder of books -> the business's shelves. The folder holds one sub-folder per shelf: knowledge/acme/faq/returns.pdf. New and changed files (PDF, text,
@@ -160,6 +162,59 @@ def agent_set(store, args, out, now, shelves=None):
         return 2
     out(json.dumps(payload, indent=2))
     return 0 if status in (200, 201) else 1
+
+
+def publish(store, args, out, now, shelves=None):
+    """Publish the next version of an agent from a JSON file of its configuration (the same checks as the admin API, plus the runtime's own check so a
+    configuration the worker could not use is refused now). With --live the new version also becomes the live one."""
+    tenant = tenant_or_none(store, args.tenant)
+    agent = admin.owned(store, tenant, args.name) if tenant else None
+    if not agent:
+        out(f"No agent {args.name} for tenant {args.tenant}. Create the agent first with agent-set.")
+        return 1
+    try:
+        with open(args.config, encoding="utf8") as handle:
+            config = json.load(handle)
+    except (OSError, ValueError) as error:
+        out(f"Cannot read {args.config} as JSON ({type(error).__name__}).")
+        return 2
+    import chatwoot_runtime as runtime  # imported here: it loads the search code, which the other commands do not need
+    try:
+        runtime.clean_config(config)
+    except runtime.ConfigError as error:
+        out(f"The runtime could not use this configuration: {error}")
+        return 2
+    number = (agent.get("versions") or 0) + 1
+    try:
+        status, payload = admin.put_version(store, tenant, args.name, number, {"config": config}, now)
+    except reg.Invalid as error:
+        out(str(error))
+        return 2
+    out(json.dumps(payload, indent=2))
+    if status not in (200, 201):
+        return 1
+    if args.live:
+        return set_live_version(store, tenant, args.name, number, out, now)
+    out(f"Version {number} is published and NOT live. Make it live with: set-live {args.name} --tenant {args.tenant} --version {number}")
+    return 0
+
+
+def set_live_version(store, tenant, name, number, out, now):
+    try:
+        status, payload = admin.set_live(store, tenant, name, {"version": number}, now)
+    except reg.Invalid as error:
+        out(str(error))
+        return 2
+    out(json.dumps(payload, indent=2))
+    return 0 if status == 200 else 1
+
+
+def set_live(store, args, out, now, shelves=None):
+    tenant = tenant_or_none(store, args.tenant)
+    if not tenant:
+        out(f"No tenant {args.tenant}.")
+        return 1
+    return set_live_version(store, tenant, args.name, args.version, out, now)
 
 
 def show_agent(store, args, out, now, shelves=None):
@@ -321,6 +376,15 @@ def parser():
     s.add_argument("--type")
     s.add_argument("--purpose")
     sub.add_parser("show-agent").add_argument("name")
+    s = sub.add_parser("publish", help="publish the next version of an agent from a JSON configuration file")
+    s.add_argument("name")
+    s.add_argument("--tenant", required=True)
+    s.add_argument("--config", required=True, help="a JSON file: instructions, language, collections, fallback_text, max_answer_chars, mode")
+    s.add_argument("--live", action="store_true", help="also make the new version the live one")
+    s = sub.add_parser("set-live", help="choose which published version is live (0 = none, the agent stays silent)")
+    s.add_argument("name")
+    s.add_argument("--tenant", required=True)
+    s.add_argument("--version", type=int, required=True)
     s = sub.add_parser("knowledge-sync", help="a folder of books to a business's shelves")
     s.add_argument("--tenant", required=True)
     s.add_argument("--folder")
@@ -334,7 +398,7 @@ def parser():
     return p
 
 
-NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "list", "agent-set", "show-agent", "knowledge-sync"}
+NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync"}
 
 
 def main(argv=None, store=None, out=print, now=None, shelves=None):
@@ -348,7 +412,7 @@ def main(argv=None, store=None, out=print, now=None, shelves=None):
     if shelves is None and args.command in ("knowledge-sync", "eval"):
         shelves = real_shelves(args)
     commands = {"create-tenant": create_tenant, "rotate-key": rotate_key, "disable-tenant": lambda *a: set_enabled(*a[:4], False), "enable-tenant": lambda *a: set_enabled(*a[:4], True),
-                "set-cap": set_cap, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "knowledge-sync": knowledge_sync, "eval": eval_cases}
+                "set-cap": set_cap, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases}
     return commands[args.command](store, args, out, now, shelves)
 
 
