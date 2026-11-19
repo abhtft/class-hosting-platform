@@ -125,6 +125,20 @@ Parameters:
       bot's own messages, answers at once and hands the message to a worker. Needs no student backends. Creates its own API, table and two functions; the bot's
       secret is a Secrets Manager secret named chatwoot/<agent name> that the teacher creates. Off by default; with it off nothing is created and nothing else changes.
       See docs/CHATWOOT_ADAPTER.md.
+  ChatwootBaseUrl:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(https://[A-Za-z0-9.-]+(:[0-9]+)?)?$'
+    Description: >
+      Address of your Chatwoot server, for example https://chat.example.org (https, no path). The Chatwoot adapter's worker sends its replies to this one address and
+      to no other. Needed when ChatwootEnabled is 'true': empty makes every reply fail with the reason bad_base_url.
+  ChatwootAuthStyle:
+    Type: String
+    Default: bearer
+    AllowedValues: [bearer, api_access_token]
+    Description: >
+      How the worker sends the agent bot's token to Chatwoot: bearer (Authorization: Bearer, Chatwoot 4.19 and later) or api_access_token (the older header, for an
+      older Chatwoot).
   WorkerEnabled:
     Type: String
     Default: 'false'
@@ -1129,7 +1143,7 @@ Resources:
 
   # ---------- Chatwoot Agent Bot adapter (T1: receive, verify, deduplicate, hand over, record) ----------
   # Its own API and two functions, so a burst of customer messages cannot slow the portal or any student. The receiver answers Chatwoot (which waits 5 seconds);
-  # the worker does the slow part later. Neither can reach anything but the one table; only the receiver reads secrets, and only those named chatwoot/...
+  # the worker does the slow part later and is the only one that calls out (to the one Chatwoot address). Neither can reach anything but the one table and the secrets named chatwoot/...
   ChatwootApi:
     Type: AWS::Serverless::HttpApi
     Condition: UseChatwoot
@@ -1186,11 +1200,16 @@ Resources:
       Environment:
         Variables:
           CHATWOOT_TABLE: !Ref ChatwootTable
+          CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl
+          CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle
       Policies:
         - Statement:
-            - Effect: Allow # claim the message and record the outcome (T1 only records; later steps widen this on purpose)
+            - Effect: Allow # claim the message and record the outcome (one item, never a read, a scan or a query)
               Action: dynamodb:UpdateItem
               Resource: !GetAtt ChatwootTable.Arn
+            - Effect: Allow # the agent bot's token and account id: the same chatwoot/<agent name> secrets, nothing else
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:chatwoot/*'
 
   # ---------- Class AI proxy for Gemini ----------
   # Its own API and function (like storage), so a busy student cannot slow the portal. Students call it with their private ga_ key; the

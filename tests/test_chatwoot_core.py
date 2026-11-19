@@ -118,4 +118,47 @@ for bad in ("", "Shop", "-shop", "shop_1", "shop/1", "../x", "a" * 41, "shop 1",
     assert not core.AGENT_ID.fullmatch(bad), bad
 print("  ok  the agent name in the address is a short lowercase name and nothing like a path")
 
-print("test_chatwoot_core.py: signature, loop guard and payload checks")
+# ---- the reply (step T2) ----
+assert core.reply_text(501) == "Received (message 501)"
+for good in ("https://chat.example.org", "https://chat.example.org/", "https://chat.example.org:8443", "https://chat-1.example.org"):
+    assert core.base_url_of(good) == good.rstrip("/"), good
+for bad in ("", None, "http://chat.example.org", "chat.example.org", "https://", "https://user:pass" + chr(64) + "chat.example.org", "https://chat.example.org/api", "https://chat.example.org?x=1",
+            "https://chat.example.org#x", "https://[::1]", "https://chat.example.org:notaport", "https://-bad.example.org", "https://bad_host.example.org", "ftp://chat.example.org",
+            "https://chat.example.org\nHost: evil", "https://chat.example.org evil.org"):
+    assert core.base_url_of(bad) is None, bad
+print("  ok  the Chatwoot address is accepted only as https://host[:port]: no http, user name, path, query, fragment, odd host or line break")
+
+TOKEN = "abcDEF123456xyz789"
+assert core.token_ok(TOKEN) and core.token_ok("a1b2c3d4-e5.f6_g7~h8+i9/j0=")
+for bad in ("", None, 5, "short", "has space 12345678", "line\nbreak12345", 'quote"12345678', "a" * 257, "tab\t12345678", "\u00e9" * 10):
+    assert not core.token_ok(bad), repr(bad)
+url, headers, body = core.reply_request("https://chat.example.org", "bearer", TOKEN, 1, 12, "Received (message 501)")
+assert url == "https://chat.example.org/api/v1/accounts/1/conversations/12/messages"
+assert headers == {"Content-Type": "application/json", "Accept": "application/json", "Authorization": "Bearer " + TOKEN}
+assert json.loads(body) == {"content": "Received (message 501)", "message_type": "outgoing", "private": False}, "a public outgoing message"
+url, headers, _ = core.reply_request("https://chat.example.org:8443", "api_access_token", TOKEN, "7", 3, "x")
+assert url == "https://chat.example.org:8443/api/v1/accounts/7/conversations/3/messages" and headers["api_access_token"] == TOKEN and "Authorization" not in headers
+for style in ("Bearer", "", None, "basic"):
+    try:
+        core.reply_request("https://chat.example.org", style, TOKEN, 1, 1, "x")
+        raise AssertionError(style)
+    except ValueError:
+        pass
+for odd in ("1/../2", "1; drop", "x", None, 1.5 + 1j):
+    try:
+        core.reply_request("https://chat.example.org", "bearer", TOKEN, odd, 1, "x")
+        raise AssertionError(odd)
+    except (ValueError, TypeError):
+        pass
+print("  ok  the request is Create New Message: a public outgoing message, the token in exactly one header, the ids only as whole numbers in the path")
+
+assert core.reply_result(200, b'{"id": 77, "content": "x"}') == ("replied", 77)
+assert core.reply_result(201, b'{"id": 78}') == ("replied", 78)
+assert core.reply_result(200, b"not json") == ("replied", None) and core.reply_result(200, b"[]") == ("replied", None) and core.reply_result(200, b'{"id": "x"}') == ("replied", None)
+assert core.reply_result(200, b"\xff") == ("replied", None)
+for status, reason in ((401, "http_401"), (403, "http_403"), (404, "http_404"), (422, "http_422"), (429, "http_429"), (500, "http_5xx"), (502, "http_5xx"), (503, "http_5xx"), (599, "http_5xx"),
+                       (400, "http_other"), (302, "http_other"), (301, "http_other"), (204, "http_other"), (0, "http_other")):
+    assert core.reply_result(status, b'{"id": 1}') == ("failed", reason), (status, core.reply_result(status, b"{}"))
+print("  ok  Chatwoot's answer is read as replied (with the message id) or failed with a short code; a redirect or an odd status is a failure, never followed")
+
+print("test_chatwoot_core.py: signature, loop guard, payload checks and the reply")

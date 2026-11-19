@@ -1,6 +1,7 @@
 """The Chatwoot receiver and worker (lambda/chatwoot_api.py) run on in-memory fakes: a first delivery is accepted and handed over once, a repeat is only counted,
 nothing a customer wrote is ever stored, a forged or stale call is refused and leaves no trace, a failed hand-over lets Chatwoot's retry through, the worker
-handles a message once, and the DynamoDB store sends exactly the conditional writes the design relies on."""
+posts exactly one reply per message (never a second one, whatever fails), refuses another account's message, records every failure with a code, never leaks the
+token, and the DynamoDB store sends exactly the conditional writes the design relies on. The real HTTP client is tested in test_chatwoot_http.py."""
 import base64
 import json
 import os
@@ -16,6 +17,10 @@ LOGS = []  # what the functions print: collected, and checked at the end for sec
 api.log = lambda what, **details: LOGS.append(json.dumps({"chatwoot": what, **details}))
 
 SECRET = "test-only-secret-not-a-real-one"
+TOKEN = "test-only-token-abc123XYZ"
+BASE = "https://chat.example.org"
+api.BASE_URL = BASE
+api.AUTH_STYLE = "bearer"
 NOW = 1_800_000_000
 EMAIL = "asha" + chr(64) + "example.org"  # built here so no address is written in the repository
 TEXT = "my card number is 4111 and my name is Asha Verma"
@@ -27,24 +32,36 @@ SAMPLE = {
 
 
 class Fakes:
-    def __init__(self, secrets=None, fail_invoke=False):
+    """In-memory stand-ins: the table, Secrets Manager (a bot secret, the bot's token and the account id per agent), the worker invoke and the call to Chatwoot."""
+
+    def __init__(self, secrets=None, fail_invoke=False, extra=None):
         self.store = api.MemoryStore()
         self.invoked = []
         self.fail_invoke = fail_invoke
         self.secret_reads = []
-        table = secrets if secrets is not None else {"shop": SECRET}
+        self.table = secrets if secrets is not None else {"shop": SECRET}
+        self.extra = extra if extra is not None else {"api_token": TOKEN, "account_id": 1}
+        self.requests = []
+        self.answers = []  # what the next calls to Chatwoot return: (status, body bytes) or an exception to raise
         self.deps = api.Deps(self.store, api.Secrets(self.read), self.invoke)
-        self.table = table
+        self.wdeps = api.Deps(self.store, api.Secrets(self.read, api.credentials_of), http=self.post)
 
     def read(self, name):
         self.secret_reads.append(name)
         agent = name[len(api.SECRET_PREFIX):]
-        return json.dumps({"bot_secret": self.table[agent]}) if agent in self.table else None
+        return json.dumps({"bot_secret": self.table[agent], **self.extra}) if agent in self.table else None
 
     def invoke(self, payload):
         if self.fail_invoke:
             raise RuntimeError("throttled")
         self.invoked.append(payload)
+
+    def post(self, url, headers, body, timeout):
+        self.requests.append((url, headers, body, timeout))
+        answer = self.answers.pop(0) if self.answers else (200, b'{"id": 9001}')
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
 
 def event(payload, agent="shop", secret=SECRET, ts=NOW, method="POST", headers=None, path=None, body=None, base64_body=False, delivery="d-1"):
@@ -70,8 +87,10 @@ assert len(f.invoked) == 1 and f.invoked[0] == {"agent_id": "shop", "delivery_id
 item = f.store.items["msg#shop#501"]
 assert item["status"] == "received" and item["received_at"] == NOW and item["ttl"] == NOW + api.DEDUPE_TTL_DAYS * 86400 and item["delivery_id"] == "d-1"
 stored = json.dumps(f.store.items) + json.dumps(f.invoked)
-for secret_text in ("4111", "Asha", "Verma", EMAIL, "card number", SECRET):
+for secret_text in ("4111", "Asha", "Verma", EMAIL, "card number", SECRET, TOKEN):
     assert secret_text not in stored, f"{secret_text!r} must never be stored or handed over"
+assert all(value == SECRET for _, value in f.deps.secrets.cache.values()), "the receiver keeps only the bot secret from the secret"
+assert TOKEN not in repr(f.deps.secrets.cache), "the receiver never holds the bot's token"
 print("  ok  a first delivery is accepted, handed to the worker once, and only ids and times are stored (no text, no name, no e-mail)")
 
 # ---- the same message again (Chatwoot's retry, or a double delivery): counted, not handed over again ----
@@ -186,34 +205,154 @@ for bad in (None, "", "not json", "[]", "{}", '{"bot_secret": ""}', '{"bot_secre
 assert api.bot_secret_of('{"bot_secret": "ok"}') == "ok"
 print("  ok  the secret is chatwoot/<agent> with a bot_secret field, remembered briefly, a missing or unusable one refused and never remembered")
 
-# ---- the worker: handles a message once ----
-f = Fakes()
-call(f, event(SAMPLE))
-job = f.invoked[0]
-assert api.worker(job, None, now=NOW + 1, deps=f.deps) == {"processed": True}
+# ---- the worker: one reply per message ----
+def accepted(**kw):
+    f = Fakes(**kw)
+    assert call(f, event(SAMPLE))[0] == 200
+    return f, f.invoked[0]
+
+
+def run_worker(f, job, now=NOW + 1):
+    return api.worker(job, None, now=now, deps=f.wdeps)
+
+
+def fails(f, job, reason, now=NOW + 1):
+    try:
+        run_worker(f, job, now)
+    except api.ReplyFailed as error:
+        assert str(error) == reason, (str(error), reason)
+    else:
+        raise AssertionError(f"the worker must raise so the failure is visible ({reason})")
+    item = f.store.items["msg#shop#501"]
+    assert item["status"] == "failed" and item["reason"] == reason and item["finished_at"] == now and "reply_id" not in item, item
+    assert run_worker(f, job, now + 1) == {"skipped": "already_handled"}, "a failed message is not run again by itself"
+
+
+f, job = accepted()
+f.answers = [(200, b'{"id": 9001, "content": "Received (message 501)", "sender": {"name": "Bot"}}')]
+assert run_worker(f, job) == {"replied": True}
+assert len(f.requests) == 1
+url, headers, body, timeout = f.requests[0]
+assert url == BASE + "/api/v1/accounts/1/conversations/12/messages", url
+assert headers["Authorization"] == "Bearer " + TOKEN and "api_access_token" not in headers and timeout == api.HTTP_TIMEOUT_SECONDS
+assert json.loads(body) == {"content": "Received (message 501)", "message_type": "outgoing", "private": False}
 item = f.store.items["msg#shop#501"]
-assert item["status"] == "processed" and item["started_at"] == NOW + 1 and item["finished_at"] == NOW + 1
-assert api.worker(job, None, now=NOW + 2, deps=f.deps) == {"skipped": "already_handled"} and item["started_at"] == NOW + 1, "a second event for the same message does nothing"
-for bad in ({}, {"agent_id": "shop"}, {"agent_id": "Shop", "message_id": 1}, {"agent_id": "shop", "message_id": "501"}, {"agent_id": "shop", "message_id": True}):
-    assert api.worker(bad, None, deps=f.deps) == {"skipped": "bad_event"}, bad
-assert api.worker({"agent_id": "shop", "message_id": 999}, None, deps=f.deps) == {"skipped": "already_handled"}, "a message with no item is not invented"
-assert "msg#shop#999" not in f.store.items
+assert item["status"] == "replied" and item["reply_id"] == 9001 and item["started_at"] == NOW + 1 and item["finished_at"] == NOW + 1
+stored = json.dumps(f.store.items)
+for secret_text in (TOKEN, SECRET, "4111", "Asha", "Verma", EMAIL, "Bot", "chat.example.org"):
+    assert secret_text not in stored, f"{secret_text!r} must not be stored after a reply"
+assert run_worker(f, job, now=NOW + 2) == {"skipped": "already_handled"} and len(f.requests) == 1, "the same event delivered twice sends ONE reply"
+print("  ok  the worker posts one public reply (fixed text with the message number, the bot's token as a Bearer header) and records replied with the reply's id only")
+
+f, job = accepted()
+api.AUTH_STYLE = "api_access_token"
+try:
+    run_worker(f, job)
+finally:
+    api.AUTH_STYLE = "bearer"
+headers = f.requests[0][1]
+assert headers["api_access_token"] == TOKEN and "Authorization" not in headers
+print("  ok  the older api_access_token header is used when the setting says so")
+
+for status, reason in ((401, "http_401"), (403, "http_403"), (404, "http_404"), (422, "http_422"), (429, "http_429"), (500, "http_5xx"), (503, "http_5xx"), (400, "http_other"), (302, "http_other")):
+    f, job = accepted()
+    f.answers = [(status, b'{"error": "nope", "echo": "' + TOKEN.encode() + b'"}')]
+    fails(f, job, reason)
+    assert len(f.requests) == 1, "no automatic retry, whatever the answer"
+f, job = accepted()
+f.answers = [api.TimeoutFailure("timeout")]
+fails(f, job, "timeout")
+assert len(f.requests) == 1, "after a timeout the message may exist: it is never sent again"
+f, job = accepted()
+f.answers = [api.NetworkFailure("ConnectionRefusedError")]
+fails(f, job, "network")
+assert len(f.requests) == 1
+print("  ok  every failure (401, 403, 404, 422, 429, 5xx, other, timeout, network) is recorded with its code, raised, and never retried")
+
+# ---- refused before anything is sent ----
+f, job = accepted(extra={"api_token": TOKEN, "account_id": 2})
+fails(f, job, "account_mismatch")
+assert not f.requests, "a message of another account never gets a reply"
+f, job = accepted(extra={"api_token": TOKEN, "account_id": "1"})
+assert run_worker(f, job) == {"replied": True}, "an account id written as text in the secret is accepted"
+for extra, reason in (({"account_id": 1}, "no_token"), ({"api_token": "", "account_id": 1}, "no_token"), ({"api_token": TOKEN}, "bad_secret"), ({"api_token": TOKEN, "account_id": 0}, "bad_secret"),
+                      ({"api_token": TOKEN, "account_id": True}, "bad_secret"), ({"api_token": TOKEN, "account_id": "one"}, "bad_secret"), ({"api_token": "has a space 12345", "account_id": 1}, "bad_secret"),
+                      ({"api_token": "line\nbreak12345678", "account_id": 1}, "bad_secret"), ({"api_token": 12345678901, "account_id": 1}, "no_token")):
+    f, job = accepted(extra=extra)
+    fails(f, job, reason)
+    assert not f.requests, extra
+f, job = accepted()
+f.table.pop("shop")
+fails(f, job, "no_secret")
+assert not f.requests
+f, job = accepted()
+
+
+class DownSecrets:
+    def credentials(self, agent):
+        raise RuntimeError("down")
+
+
+f.wdeps.secrets = DownSecrets()
+fails(f, job, "secret_unavailable")
+assert not f.requests
+for base in ("", "http://chat.example.org", "https://chat.example.org/api", "https://user:pw" + chr(64) + "chat.example.org"):
+    f, job = accepted()
+    api.BASE_URL = base
+    try:
+        fails(f, job, "bad_base_url")
+    finally:
+        api.BASE_URL = BASE
+    assert not f.requests, base
+f, job = accepted()
+api.AUTH_STYLE = "basic"
+try:
+    fails(f, job, "bad_setting")
+finally:
+    api.AUTH_STYLE = "bearer"
+assert not f.requests
+print("  ok  another account's message, a missing, empty or odd token or account id, a missing secret, a down secret store, a wrong address and a wrong header setting all fail before anything is sent")
+
+# ---- the worker only takes what the secret says it takes: never the bot secret ----
+f, job = accepted()
+run_worker(f, job)
+assert all("bot_secret" not in value for _, value in f.wdeps.secrets.cache.values()) and SECRET not in repr(f.wdeps.secrets.cache), "the worker never holds the bot secret"
+print("  ok  the worker's copy of the secret holds the token and the account id and not the bot secret")
+
+# ---- a bug and a bad event ----
+for bad in ({}, {"agent_id": "shop"}, {"agent_id": "Shop", "message_id": 1, "conversation_id": 1, "account_id": 1, "inbox_id": 1},
+            {"agent_id": "shop", "message_id": "501", "conversation_id": 12, "account_id": 1, "inbox_id": 3},
+            {"agent_id": "shop", "message_id": True, "conversation_id": 12, "account_id": 1, "inbox_id": 3},
+            {"agent_id": "shop", "message_id": 501, "conversation_id": 0, "account_id": 1, "inbox_id": 3},
+            {"agent_id": "shop", "message_id": 501, "conversation_id": 12, "account_id": "1", "inbox_id": 3}):
+    f = Fakes()
+    assert api.worker(bad, None, deps=f.wdeps) == {"skipped": "bad_event"} and not f.requests, bad
+f, job = accepted()
+missing = dict(job, message_id=999)
+assert run_worker(f, missing) == {"skipped": "already_handled"} and "msg#shop#999" not in f.store.items and not f.requests, "a message with no item is not invented and not answered"
 
 original = api.answer
 api.answer = lambda event, deps: (_ for _ in ()).throw(RuntimeError("boom"))
 try:
-    g = Fakes()
-    call(g, event(SAMPLE))
+    f, job = accepted()
     try:
-        api.worker(g.invoked[0], None, now=NOW + 1, deps=g.deps)
+        run_worker(f, job)
         raise AssertionError("the worker must raise so the failure is visible")
     except RuntimeError:
         pass
-    assert g.store.items["msg#shop#501"]["status"] == "failed" and g.store.items["msg#shop#501"]["finished_at"] == NOW + 1
-    assert api.worker(g.invoked[0], None, now=NOW + 2, deps=g.deps) == {"skipped": "already_handled"}, "a failed message is not run twice by itself"
+    assert f.store.items["msg#shop#501"]["status"] == "failed" and f.store.items["msg#shop#501"]["reason"] == "error" and not f.requests
+    assert run_worker(f, job, now=NOW + 2) == {"skipped": "already_handled"}
 finally:
     api.answer = original
-print("  ok  the worker claims a message once, records processed or failed, and ignores a repeat, a bad event and a message with no item")
+f, job = accepted()
+f.answers = [ValueError("an unexpected error from the client")]
+try:
+    run_worker(f, job)
+    raise AssertionError
+except ValueError:
+    pass
+assert f.store.items["msg#shop#501"]["reason"] == "error" and len(f.requests) == 1
+print("  ok  a bad event, a message with no item and an unexpected error are handled without a second reply and the error stays visible")
 
 
 # ---- the DynamoDB store sends exactly the conditional writes the design needs ----
@@ -270,9 +409,12 @@ store.note_duplicate("msg#a#7", NOW + 4)
 store.note_duplicate("msg#a#gone", NOW + 4)  # an item that expired meanwhile: no error, nothing created
 assert table.items["msg#a#7"]["duplicates"] == 1 and "msg#a#gone" not in table.items
 assert store.begin("msg#a#7", NOW + 5) is True and store.begin("msg#a#7", NOW + 6) is False and table.items["msg#a#7"]["status"] == "processing"
-store.finish("msg#a#7", "processed", NOW + 7)
-assert table.items["msg#a#7"]["status"] == "processed" and table.items["msg#a#7"]["finished_at"] == NOW + 7
-store.finish("msg#a#gone", "processed", NOW)
+store.finish("msg#a#7", "replied", NOW + 7, {"reply_id": 9001})
+assert table.items["msg#a#7"]["status"] == "replied" and table.items["msg#a#7"]["finished_at"] == NOW + 7 and table.items["msg#a#7"]["reply_id"] == 9001
+store.finish("msg#a#7", "failed", NOW + 8, {"reason": "http_401"})
+assert table.items["msg#a#7"]["status"] == "failed" and table.items["msg#a#7"]["reason"] == "http_401"
+store.finish("msg#a#7", "processed", NOW + 9)
+store.finish("msg#a#gone", "replied", NOW, {"reply_id": 1})
 store.forget("msg#a#7")
 assert "msg#a#7" not in table.items
 assert [c[0] for c in table.calls].count("put") == 2 and all(c[2] in ("attribute_exists(pk)", "#s = :received") for c in table.calls if c[0] == "update")
@@ -293,8 +435,8 @@ print("  ok  the DynamoDB store claims with attribute_not_exists, counts repeats
 # ---- nothing that was logged holds a secret, a signature, a customer's words or a name ----
 logged = chr(10).join(LOGS)
 assert logged and "refused" in logged and "duplicate" in logged and "failed" in logged, "the functions do log what happened"
-for leak in (SECRET, "forged", "sha256=", "4111", "Asha", "Verma", EMAIL, "card number", "bot_secret"):
+for leak in (SECRET, TOKEN, "forged", "sha256=", "4111", "Asha", "Verma", EMAIL, "card number", "bot_secret", "api_token", "Bearer", "chat.example.org"):
     assert leak not in logged, f"{leak!r} must never be logged"
 print("  ok  the log lines hold names, reasons and ids only: no secret, no signature, no message text, no name")
 
-print("test_chatwoot_api.py: receiver, worker, secret and store")
+print("test_chatwoot_api.py: receiver, worker reply, secrets and store")

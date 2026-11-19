@@ -74,7 +74,7 @@ Start here. Section 1 is a one-page overview of the project. Section 2 says whic
 | [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
 | [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
 | [KNOWLEDGE_CONNECTOR.md](KNOWLEDGE_CONNECTOR.md) | Class knowledge: books and a class library to answer from; limits, cost, permissions |
-| [CHATWOOT_ADAPTER.md](CHATWOOT_ADAPTER.md) | Chatwoot Agent Bot webhook (step T1: receive, verify, de-duplicate, record; no reply yet); how to turn it on, what is stored, permissions |
+| [CHATWOOT_ADAPTER.md](CHATWOOT_ADAPTER.md) | Chatwoot Agent Bot webhook (steps T1 and T2: receive, verify, de-duplicate, placeholder reply; no AI yet); how to turn it on, what is stored, permissions |
 | [RAG_GUIDE.md](RAG_GUIDE.md) | How class knowledge works end to end in plain words, every setting, a tuning playbook |
 | [AGENT_GUIDE.md](AGENT_GUIDE.md) | The student agent: one run step by step, guardrails, approval, settings, cost |
 | [BACKGROUND_JOBS.md](BACKGROUND_JOBS.md) | Work longer than a request: parts, states, limits, security, cost |

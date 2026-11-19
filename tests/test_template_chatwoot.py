@@ -1,6 +1,6 @@
 """Guards the Chatwoot adapter in template.yaml: off by default and independent of student backends, everything about it exists only when it is on, its own API with
-its own throttle, a receiver that may only write its table, start the one worker and read the chatwoot/ secrets, a worker that may only update its table and is never
-retried by the platform or reachable from the internet, and nobody else (no student role, no existing function) gains anything."""
+its own throttle, a receiver that may only write its table, start the one worker and read the chatwoot/ secrets, a worker that may only update its table, read the same chatwoot/ secrets and call the one
+Chatwoot address, and is never retried by the platform or reachable from the internet, and nobody else (no student role, no existing function) gains anything."""
 import os
 import re
 
@@ -53,17 +53,27 @@ for forbidden in ("dynamodb:Scan", "dynamodb:Query", "dynamodb:GetItem", "dynamo
                   "cloudfront", "StudentDataTable", "TracesTable", "KnowledgeWorker", "AiSecretName", "Resource: '*'", "Action: '*'"):
     assert forbidden not in code, f"the receiver must not have {forbidden}"
 
-# ---- the worker: update its own table, never retried by the platform, not reachable from the internet ----
+# ---- the worker: update its own table, read the chatwoot/ secrets, call out; never retried by the platform, not reachable from the internet ----
 worker = block("ChatwootWorkerFunction")
 assert "Handler: chatwoot_api.worker" in worker and "CodeUri: lambda/" in worker and "Runtime: python3.12" in worker
 assert re.search(r"EventInvokeConfig:\n\s+MaximumRetryAttempts: 0", worker), "no automatic second run: the message item decides what has been done (an event may still arrive twice, the worker claims it once)"
 assert "Events:" not in worker and "HttpApi" not in worker, "nothing on the internet reaches the worker directly"
+assert "VpcConfig" not in worker, "it must reach Chatwoot, so it is not in a private network without a way out"
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in worker
+assert "CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl" in worker and "CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle" in worker, "the one Chatwoot address and the header style come from parameters"
 assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn", worker)
+assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", worker), "it reads only secrets named chatwoot/..."
+assert worker.count("Action: secretsmanager:") == 1
 code = re.sub(r"#[^\n]*", "", worker)
-for forbidden in ("secretsmanager:", "lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:",
-                  "kms:", "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "Resource: '*'", "Action: '*'"):
-    assert forbidden not in code, f"the worker must not have {forbidden} (T1 only records the outcome; later steps widen this on purpose and update this test)"
+assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:UpdateItem", "secretsmanager:GetSecretValue"], "exactly these two permissions"
+for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:*", "TokensTable", "SitesBucket", "s3:",
+                  "kms:", "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "AiSecretName", "Resource: '*'", "Action: '*'"):
+    assert forbidden not in code, f"the worker must not have {forbidden}"
+base_url_parameter = re.search(r"  ChatwootBaseUrl:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
+assert "Default: ''" in base_url_parameter and "AllowedPattern: '^(https://" in base_url_parameter, "https only, empty until the teacher sets it"
+auth_style_parameter = re.search(r"  ChatwootAuthStyle:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
+assert "Default: bearer" in auth_style_parameter and "AllowedValues: [bearer, api_access_token]" in auth_style_parameter
+assert "CHATWOOT_BASE_URL" not in block("ChatwootReceiverFunction"), "the receiver never calls out"
 
 # ---- nobody else gains anything: no student role, no existing function mentions the adapter ----
 for name in ("StudentSandboxRole", "StudentSandboxBoundary", "GatewayFunction", "DeployFunction", "SweeperFunction", "KnowledgeFunction", "KnowledgeWorkerFunction", "AiProxyFunction",

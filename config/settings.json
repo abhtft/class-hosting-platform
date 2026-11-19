@@ -2058,6 +2058,49 @@
       ]
     },
     {
+      "key": "chatwoot.httpTimeoutSeconds",
+      "group": "chatwoot",
+      "title": "How long the worker waits for Chatwoot",
+      "help": "How long the worker waits for Chatwoot to answer a reply. When it runs out the reply is recorded as failed (timeout) and not sent again, because the message may have been created.",
+      "unit": "seconds",
+      "default": 10,
+      "min": 1,
+      "max": 25,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.HTTP_TIMEOUT_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.baseUrl",
+      "group": "chatwoot",
+      "title": "Chatwoot server address",
+      "help": "The one address the worker sends replies to, for example https://chat.example.org. https only, no path. Empty: replies fail until it is set.",
+      "unit": "address",
+      "default": "",
+      "scope": "deploy",
+      "risk": "security",
+      "env": "CHATWOOT_BASE_URL",
+      "template": "Parameter:ChatwootBaseUrl"
+    },
+    {
+      "key": "chatwoot.authStyle",
+      "group": "chatwoot",
+      "title": "How the bot's token is sent",
+      "help": "bearer sends Authorization: Bearer (Chatwoot 4.19 and later); api_access_token sends the older header for an older Chatwoot.",
+      "unit": "choice",
+      "default": "bearer",
+      "scope": "deploy",
+      "risk": "careful",
+      "choices": [
+        "bearer",
+        "api_access_token"
+      ],
+      "env": "CHATWOOT_AUTH_STYLE",
+      "template": "Parameter:ChatwootAuthStyle"
+    },
+    {
       "key": "projects.maxFiles",
       "group": "projects",
       "title": "Most files in a project",

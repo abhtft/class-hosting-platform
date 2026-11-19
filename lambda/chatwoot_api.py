@@ -1,23 +1,32 @@
-"""Chatwoot Agent Bot adapter, the AWS part (step T1: receive, verify, deduplicate, answer 200 at once, hand over, record). No AI and no call back to
-Chatwoot yet. Two Lambda functions in template.yaml, both created only when ChatwootEnabled is 'true':
+"""Chatwoot Agent Bot adapter, the AWS part (steps T1 and T2: receive, verify, deduplicate, answer 200 at once, hand over, reply). No AI yet: the reply is a
+fixed placeholder (chatwoot_core.reply_text); the agent runtime replaces it later. Two Lambda functions in template.yaml, both created only when ChatwootEnabled
+is 'true':
 
   Chatwoot --POST /hooks/chatwoot/{agentId}--> ChatwootApi (its own throttle) --> handler()    the receiver
                                                                                      |  Lambda Event invoke
                                                                                      v
-                                                                                   worker()    the worker (records the outcome; T2 replies here)
+                                                  worker()  --POST Create New Message--> the one Chatwoot address (ChatwootBaseUrl)
 
 The receiver: reads the bot secret of the agent (Secrets Manager, name chatwoot/<agentId>, field bot_secret), checks the signature (chatwoot_core.verify),
 ignores everything the bot must not answer (chatwoot_core.classify), writes ONE item per message with a conditional write (the second delivery of a message
 finds it and is only counted), hands the message to the worker asynchronously and answers 200. Chatwoot waits 5 seconds and retries only on 429 and 500, so
 a failure to hand over answers 500 (after removing the item, so the retry is accepted) and everything else answers fast.
 
-What is stored: ids, status and times of a message, never its text, the customer's name or any other personal data. Items expire by themselves (ttl).
-What is logged: names and reasons, never a secret, a signature or a message."""
+The worker: claims the message once, reads the agent bot's token and account id from the same secret (fields api_token and account_id; the receiver never
+reads them, the worker never reads bot_secret), refuses a message of another account, posts ONE reply to the conversation and records `replied` (with the
+reply's id) or `failed` (with a short reason). There is no automatic retry: Chatwoot does not de-duplicate messages, so a second POST after an unknown outcome
+could answer a customer twice. A failure is recorded, logged and raised so it is visible; handing the conversation to a person is a later step.
+
+What is stored: ids, status, a reason code and times of a message, never its text, the customer's name, a token or any other personal data. Items expire by
+themselves (ttl). What is logged: names and reason codes, never a secret, a token, a signature or a message."""
 import base64
 import json
 import os
 import re
+import socket
 import time
+import urllib.error
+import urllib.request
 
 import chatwoot_core as core
 import platform_settings
@@ -25,9 +34,24 @@ import platform_settings
 MAX_BODY_BYTES = platform_settings.kb("chatwoot.maxBodyKB")
 DEDUPE_TTL_DAYS = platform_settings.value("chatwoot.dedupeTtlDays")
 SECRET_CACHE_SECONDS = platform_settings.value("chatwoot.secretCacheSeconds")
+HTTP_TIMEOUT_SECONDS = platform_settings.value("chatwoot.httpTimeoutSeconds")
+BASE_URL = platform_settings.value("chatwoot.baseUrl")  # the one Chatwoot address the worker may call (a template parameter)
+AUTH_STYLE = platform_settings.value("chatwoot.authStyle")  # bearer, or api_access_token for a Chatwoot older than 4.19
 SECRET_PREFIX = "chatwoot/"  # the secret of agent <id> is named chatwoot/<id>; the template lets the functions read exactly this prefix
 ROUTE = re.compile(r"/hooks/chatwoot/([^/]+)")
 CONDITION_FAILED = "ConditionalCheckFailedException"
+
+
+class NetworkFailure(Exception):
+    """The call to Chatwoot got no answer (connection refused, DNS, TLS...)."""
+
+
+class TimeoutFailure(NetworkFailure):
+    """The call to Chatwoot got no answer in time. The message may or may not have been created."""
+
+
+class ReplyFailed(Exception):
+    """The worker could not reply. Raised after the failure is recorded, so the Lambda error is visible; the text is only the reason code."""
 
 
 def log(what, **details):
@@ -72,9 +96,14 @@ class DynamoStore:
                                  ExpressionAttributeNames={"#s": "status", "#t": "started_at"},
                                  ExpressionAttributeValues={":processing": "processing", ":received": "received", ":now": now})
 
-    def finish(self, key, status, now):
-        self._conditional(kind=self.table.update_item, Key={"pk": key}, UpdateExpression="SET #s = :status, #t = :now", ConditionExpression="attribute_exists(pk)",
-                          ExpressionAttributeNames={"#s": "status", "#t": "finished_at"}, ExpressionAttributeValues={":status": status, ":now": now})
+    def finish(self, key, status, now, extra=None):
+        """Record the outcome (replied or failed) with a few more plain fields (the reply's id, a reason code)."""
+        names, values, sets = {"#s": "status", "#t": "finished_at"}, {":status": status, ":now": now}, ["#s = :status", "#t = :now"]
+        for number, (name, value) in enumerate(sorted((extra or {}).items())):
+            names[f"#x{number}"], values[f":x{number}"] = name, value
+            sets.append(f"#x{number} = :x{number}")
+        self._conditional(kind=self.table.update_item, Key={"pk": key}, UpdateExpression="SET " + ", ".join(sets), ConditionExpression="attribute_exists(pk)",
+                          ExpressionAttributeNames=names, ExpressionAttributeValues=values)
 
 
 class MemoryStore:
@@ -104,15 +133,15 @@ class MemoryStore:
         item["status"], item["started_at"] = "processing", now
         return True
 
-    def finish(self, key, status, now):
+    def finish(self, key, status, now, extra=None):
         if key in self.items:
-            self.items[key]["status"], self.items[key]["finished_at"] = status, now
+            self.items[key].update({"status": status, "finished_at": now, **(extra or {})})
 
 
-# ---------- the bot secret ----------
+# ---------- the secret of an agent: one Secrets Manager secret, two readers that each take only their own fields ----------
 
 def bot_secret_of(raw):
-    """The bot secret inside a secret's text ({"bot_secret": "..."}), or None when the text is not that."""
+    """The bot secret inside a secret's text ({"bot_secret": "..."}), or None when the text is not that. What the receiver reads: nothing else."""
     try:
         data = json.loads(raw or "")
     except ValueError:
@@ -121,22 +150,41 @@ def bot_secret_of(raw):
     return value if isinstance(value, str) and value else None
 
 
+def credentials_of(raw):
+    """{"api_token": text or None, "account_id": whole number or None} from a secret's text, or None when the text is not a JSON object. What the worker
+    reads: it never takes the bot secret."""
+    try:
+        data = json.loads(raw or "")
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    account = data.get("account_id")
+    if isinstance(account, str) and account.isdigit():
+        account = int(account)
+    return {"api_token": data.get("api_token") if isinstance(data.get("api_token"), str) else None,
+            "account_id": account if isinstance(account, int) and not isinstance(account, bool) and account > 0 else None}
+
+
 class Secrets:
-    """Looks the bot secret up and remembers it for a few minutes (Secrets Manager costs a little per call). A missing or unusable secret is never
-    remembered, so a secret created a moment ago works at once."""
+    """Looks an agent's secret up and remembers what `parse` took from it for a few minutes (Secrets Manager costs a little per call). A missing or unusable
+    secret is never remembered, so a secret created a moment ago works at once."""
 
-    def __init__(self, read, clock=time.time):
-        self.read, self.clock, self.cache = read, clock, {}
+    def __init__(self, read, parse=bot_secret_of, clock=time.time):
+        self.read, self.parse, self.clock, self.cache = read, parse, clock, {}
 
-    def bot_secret(self, agent_id):
+    def get(self, agent_id):
         now = self.clock()
         hit = self.cache.get(agent_id)
         if hit and hit[0] > now:
             return hit[1]
-        secret = bot_secret_of(self.read(SECRET_PREFIX + agent_id))
-        if secret and SECRET_CACHE_SECONDS > 0:
-            self.cache[agent_id] = (now + SECRET_CACHE_SECONDS, secret)
-        return secret
+        value = self.parse(self.read(SECRET_PREFIX + agent_id))
+        if value and SECRET_CACHE_SECONDS > 0:
+            self.cache[agent_id] = (now + SECRET_CACHE_SECONDS, value)
+        return value
+
+    bot_secret = get  # the receiver's name for it
+    credentials = get  # the worker's name for it
 
 
 def read_secret(name):
@@ -157,21 +205,57 @@ def invoke_worker(payload):
         raise RuntimeError(f"the worker was not started (status {response.get('StatusCode')})")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # a redirect is an answer like any other here: the token must never follow it to another address
+
+
+def post_json(url, headers, body, timeout):
+    """POST and return (status, first bytes of the answer). Redirects are not followed. Raises TimeoutFailure or NetworkFailure when there is no answer."""
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
+            return response.status, response.read(65536)
+    except urllib.error.HTTPError as error:  # Chatwoot answered with a status that is not a success (a redirect included)
+        try:
+            return error.code, error.read(65536)
+        except OSError:
+            return error.code, b""
+    except (socket.timeout, TimeoutError):
+        raise TimeoutFailure("timeout") from None
+    except urllib.error.URLError as error:
+        if isinstance(error.reason, (socket.timeout, TimeoutError)):
+            raise TimeoutFailure("timeout") from None
+        raise NetworkFailure(type(error.reason).__name__) from None
+    except OSError as error:
+        raise NetworkFailure(type(error).__name__) from None
+
+
 class Deps:
-    def __init__(self, store, secrets, invoke):
-        self.store, self.secrets, self.invoke = store, secrets, invoke
+    def __init__(self, store, secrets, invoke=None, http=None):
+        self.store, self.secrets, self.invoke, self.http = store, secrets, invoke, http
 
 
-_deps = None
+_receiver_deps = None
+_worker_deps = None
 
 
 def default_deps():
-    """The real dependencies, built once per warm container."""
-    global _deps
-    if _deps is None:
+    """The receiver's real dependencies, built once per warm container: it reads bot secrets and starts the worker."""
+    global _receiver_deps
+    if _receiver_deps is None:
         import boto3
-        _deps = Deps(DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"])), Secrets(read_secret), invoke_worker)
-    return _deps
+        _receiver_deps = Deps(DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"])), Secrets(read_secret, bot_secret_of), invoke_worker)
+    return _receiver_deps
+
+
+def default_worker_deps():
+    """The worker's real dependencies: it reads tokens and account ids, and calls Chatwoot."""
+    global _worker_deps
+    if _worker_deps is None:
+        import boto3
+        _worker_deps = Deps(DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"])), Secrets(read_secret, credentials_of), http=post_json)
+    return _worker_deps
 
 
 # ---------- the receiver ----------
@@ -232,27 +316,64 @@ def handler(event, context=None, now=None, deps=None):
 
 # ---------- the worker ----------
 
+def failed(reason):
+    return {"status": "failed", "reason": reason}
+
+
 def answer(event, deps):
-    """What the worker does with an accepted message. T1: nothing (the message is only recorded). T2 replies to the conversation here."""
-    return None
+    """What the worker does with an accepted message: post the placeholder reply. Returns {"status": "replied", "reply_id": n or None} or
+    {"status": "failed", "reason": code}. Every refusal below happens before anything is sent."""
+    base = core.base_url_of(BASE_URL)
+    if not base:
+        return failed("bad_base_url")
+    if AUTH_STYLE not in core.AUTH_STYLES:
+        return failed("bad_setting")
+    try:
+        credentials = deps.secrets.credentials(event["agent_id"])
+    except Exception as error:
+        log("secret_unavailable", agent=event["agent_id"], error=type(error).__name__)
+        return failed("secret_unavailable")
+    if not credentials:
+        return failed("no_secret")
+    if not credentials["api_token"]:
+        return failed("no_token")
+    if not core.token_ok(credentials["api_token"]) or not credentials["account_id"]:
+        return failed("bad_secret")
+    if credentials["account_id"] != event["account_id"]:  # the bot token may write in any conversation of its account: only this agent's own account is allowed
+        return failed("account_mismatch")
+    url, headers, body = core.reply_request(base, AUTH_STYLE, credentials["api_token"], event["account_id"], event["conversation_id"], core.reply_text(event["message_id"]))
+    try:
+        status, raw = deps.http(url, headers, body, HTTP_TIMEOUT_SECONDS)
+    except TimeoutFailure:
+        return failed("timeout")
+    except NetworkFailure:
+        return failed("network")
+    kind, detail = core.reply_result(status, raw)
+    return {"status": "replied", "reply_id": detail} if kind == "replied" else failed(detail)
 
 
 def worker(event, context=None, now=None, deps=None):
     now = int(now if now is not None else time.time())
-    deps = deps or default_deps()
+    deps = deps or default_worker_deps()
     agent_id, message_id = event.get("agent_id"), event.get("message_id")
-    if not core.AGENT_ID.fullmatch(str(agent_id)) or not isinstance(message_id, int) or isinstance(message_id, bool):
+    ids = [event.get(name) for name in ("conversation_id", "account_id", "inbox_id")]
+    if not core.AGENT_ID.fullmatch(str(agent_id)) or any(not isinstance(i, int) or isinstance(i, bool) or i < 1 for i in [message_id, *ids]):
         log("bad_event")
         return {"skipped": "bad_event"}
     key = f"msg#{agent_id}#{message_id}"
-    if not deps.store.begin(key, now):  # a second run of the same message (Lambda may deliver an event twice) does nothing
+    if not deps.store.begin(key, now):  # a second run of the same message (Lambda may deliver an event twice) does nothing: one claim, one POST
         log("already_handled", agent=agent_id, message=message_id)
         return {"skipped": "already_handled"}
     try:
-        answer(event, deps)
-    except Exception as error:
-        deps.store.finish(key, "failed", now)
-        log("failed", agent=agent_id, message=message_id, error=type(error).__name__)
+        outcome = answer(event, deps)
+    except Exception as error:  # a bug: record it, and let the error show
+        deps.store.finish(key, "failed", now, {"reason": "error"})
+        log("failed", agent=agent_id, message=message_id, reason="error", error=type(error).__name__)
         raise
-    deps.store.finish(key, "processed", now)
-    return {"processed": True}
+    if outcome["status"] == "replied":
+        deps.store.finish(key, "replied", now, {"reply_id": outcome["reply_id"]} if outcome["reply_id"] else None)
+        log("replied", agent=agent_id, message=message_id)
+        return {"replied": True}
+    deps.store.finish(key, "failed", now, {"reason": outcome["reason"]})
+    log("failed", agent=agent_id, message=message_id, reason=outcome["reason"])
+    raise ReplyFailed(outcome["reason"])
