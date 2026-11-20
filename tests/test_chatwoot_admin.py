@@ -472,6 +472,60 @@ store.items["suiterun#shop#aaaaaaaaaaaa"] = {"results": [{"id": "p", "title": "P
 assert admin.weak_spots(store, "shop") == ["Price of the plan"] and admin.weak_spots(store, "nobody") == []
 print("  ok  the interview: one open question at a time, answers become facts the next question knows, a summary is written and confirmed or corrected, a model that fails or a business at its cap is reported plainly, the suite's failures steer the questions")
 
+# ---- teach sessions (T-C): a proposal, the owner's decisions, a version from them, a comparison ----
+status, made = teach_call("POST", "/admin/agents/shop/teach", {"config": {"collections": ["faq"], "fallback_text": "Sorry.", "instructions": "Be brief."}})
+psid = made["sid"]
+pbase = f"/admin/agents/shop/teach/{psid}"
+teach_call("POST", pbase + "/start", {})
+assert teach_call("POST", pbase + "/propose")[0] == 400, "nothing to learn from yet"
+teach_call("POST", pbase + "/turn", {"kind": "fact", "text": "We close on Sundays."})
+teach_call("POST", pbase + "/turn", {"kind": "ask", "text": "What does social media cost?"}, invoke=worker_says("Rs 2,000."))
+teach_call("POST", pbase + "/turn", {"kind": "feedback", "of": 2, "verdict": "wrong", "correction": "Rs 2,500 a month"})
+
+
+def distiller(payload):
+    asked.append(payload)
+    return {"result": {"knowledge": [{"text": "Social media costs Rs 2,500 a month.", "turns": [3]}, {"text": "The office is closed on Sundays.", "turns": [1]}], "instructions_add": "Never promise a discount.", "spent_micro": 21}}
+
+
+status, proposed = teach_call("POST", pbase + "/propose", invoke=distiller)
+assert status == 200 and [i["id"] for i in proposed["proposal"]["items"]] == ["k1", "k2"] and asked[-1]["kind"] == "distill" and asked[-1]["config"]["collections"] == ["faq"] and [e["n"] for e in asked[-1]["evidence"]] == [1, 3]
+assert store.items[f"teach#shop#{psid}"]["spent_micro"] > 21 and teach_call("GET", pbase)[1]["proposal"]["items"][0]["quotes"], "the cost counts and the owner sees what the client said for each fact"
+assert "proposal" not in teach_call("GET", pbase, query={"view": "client"})[1], "the client never sees the proposal"
+assert teach_call("POST", pbase + "/draft")[0] == 400, "nothing accepted yet"
+status, decided = teach_call("PUT", pbase + "/proposal", {"items": {"k1": {"status": "accepted"}, "k2": {"status": "rejected"}}, "instructions": {"status": "accepted", "text": "Never promise a discount to anyone."}})
+assert status == 200 and decided["proposal"]["items"][0]["status"] == "accepted" and teach_call("PUT", pbase + "/proposal", {"items": {"k7": {"status": "accepted"}}})[0] == 400
+store.items.pop(f"agent#shop#v{store.items['agent#shop']['versions'] + 1}", None)  # an item left by the test of an interrupted publish earlier in this file
+versions_before = store.items["agent#shop"]["versions"]
+status, drafted = teach_call("POST", pbase + "/draft")
+assert status == 200 and drafted["version"] == versions_before + 1 and drafted["facts_added"] == 1 and drafted["instruction_lines_added"] is True and drafted["tests_added"] == 1
+new_config = store.items[f"agent#shop#v{drafted['version']}"]["config"]
+assert new_config["extras"] == ["Social media costs Rs 2,500 a month."] and new_config["instructions"].endswith("Never promise a discount to anyone.") and store.items["agent#shop"]["live_version"] != drafted["version"], "published but not live"
+assert any(c["id"] == f"teach-{psid}-2" for c in teach_call("GET", "/admin/agents/shop/suite")[1]["cases"]), "the corrected answer is now a test of the agent"
+assert teach_call("POST", pbase + "/draft")[1]["error"] == "already_made" and teach_call("POST", pbase + "/propose", invoke=distiller)[1]["error"] == "already_made" and teach_call("PUT", pbase + "/proposal", {"items": {}})[0] == 400
+compared = []
+
+
+def comparer(payload):
+    compared.append(payload)
+    return {"result": {"rows": [{"q": q, "a": {"text": "old", "route": "rag"}, "b": {"text": "new", "route": "rag"}} for q in payload["questions"]], "versions": payload["versions"]}}
+
+
+status, rows = teach_call("POST", pbase + "/compare", {"a": 1, "b": drafted["version"]}, invoke=comparer)
+assert status == 200 and rows["rows"][0]["b"]["text"] == "new" and compared[-1] == {"kind": "compare", "tenant_id": "acme", "agent_id": "shop", "versions": [1, drafted["version"]], "questions": ["What does social media cost?"]}
+for bad in ({"a": 1, "b": 1}, {"a": 1, "b": 99}, {"a": "1", "b": 2}, {"a": 1}, {"a": 1, "b": 2, "c": 3}):
+    assert teach_call("POST", pbase + "/compare", bad, invoke=comparer)[0] == 400, bad
+assert teach_call("POST", f"/admin/agents/shop/teach/{empty['sid']}/compare", {"a": 1, "b": drafted["version"]}, invoke=comparer)[0] == 400, "a session with no questions has nothing to compare"
+status, body = teach_call("POST", pbase + "/compare", {"a": 1, "b": drafted["version"]}, invoke=lambda p: {"error": "cap_reached"})
+assert status == 429
+assert teach_call("POST", pbase + "/draft", key="beta")[0] == 404 and teach_call("PUT", pbase + "/proposal", {}, key="beta")[0] == 404
+status, tiny = teach_call("POST", "/admin/agents/shop/teach", {"version": 1})
+teach_call("POST", f"/admin/agents/shop/teach/{tiny['sid']}/start", {})
+teach_call("POST", f"/admin/agents/shop/teach/{tiny['sid']}/turn", {"kind": "fact", "text": "A fact"})
+status, body = teach_call("POST", f"/admin/agents/shop/teach/{tiny['sid']}/propose", invoke=lambda p: {"error": "bad_answer"})
+assert status == 502 and body["error"] == "bad_answer"
+print("  ok  T-C: the model's proposal (each fact with what the client said), the owner's decisions, a new version that is not live with the accepted facts and lines, a test for each corrected answer, and the same questions asked of two versions")
+
 # ---- nothing secret is returned or logged ----
 everything = json.dumps([call(store, "GET", "/admin/agents"), call(store, "GET", "/admin/agents/shop"), refusals]) + "\n".join(LOGS)
 for key in ALL_KEYS:
@@ -480,7 +534,7 @@ for key in ALL_KEYS:
 for item in store.items.values():
     assert not any(key.split(".", 1)[1] in json.dumps(item) for key in ALL_KEYS), "only hashes are in the table"
 assert "key_hash" not in everything and not re.search(r"cs_[a-z0-9-]+\.[A-Za-z0-9_-]{32,}", everything), "no key, hash or key-shaped text in a response or a log"
-assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable", "suite_saved", "teach_created", "suite_started", "suite_not_started") for line in LOGS)
+assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable", "suite_saved", "teach_created", "teach_propose", "teach_draft", "suite_started", "suite_not_started") for line in LOGS)
 print("  ok  no service key, its hash or a bearer header is in any response or log line, and the table holds only hashes")
 
 print("test_chatwoot_admin.py: service-key access, agents, versions, tenant isolation, concurrency and secrecy")

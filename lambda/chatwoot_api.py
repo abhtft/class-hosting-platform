@@ -51,6 +51,7 @@ HTTP_TIMEOUT_SECONDS = platform_settings.value("chatwoot.httpTimeoutSeconds")
 DEFAULT_CAP_USD = platform_settings.value("chatwoot.defaultMonthlyCapUsd")  # what one business may spend a month on answers, unless its tenant item says otherwise
 BASE_URL = platform_settings.value("chatwoot.baseUrl")  # the one Chatwoot address the worker may call (a template parameter)
 INTERVIEW_MAX_TOKENS = platform_settings.value("chatwoot.teachInterviewMaxTokens")  # the question or the summary is short
+DISTILL_MAX_TOKENS = INTERVIEW_MAX_TOKENS * len(interview_topics.TOPICS)  # the whole list of facts is longer than one question
 SUITE_PARALLEL = platform_settings.value("chatwoot.suiteParallel")  # test cases run at the same time
 SUITE_RUN_DAYS = platform_settings.value("chatwoot.suiteRunDays")  # how long the record of a suite run is kept
 SUITE_BUDGET_SECONDS = platform_settings.value("chatwoot.suiteBudgetSeconds")  # no new case is started after this long: the worker has 120 seconds
@@ -481,6 +482,75 @@ def interview(event, deps, now):
     return {"result": {"text": text, "spent_micro": spent}} if text else {"error": "bad_answer"}
 
 
+def distill(event, deps, now):
+    """Turn what a teach session's client said into proposed facts and instruction lines (started by the admin function and nobody else). `event["evidence"]` is the numbered
+    notes ([{"n", "text"}]); the base (a version or a draft) gives the instructions, the language and the model. One model call; nothing is stored here; the cost is counted against the
+    business's month. Returns {"result": {"knowledge": [...], "instructions_add", "spent_micro"}} or {"error": code}."""
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    config, used = dry_target(event["agent_id"], tenant, event, deps)
+    if used is None:
+        return config
+    key = usage_key(event["tenant_id"], now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+    notes = [{"n": e["n"], "text": e["text"][:teach.TEXT_CHARS * 2]} for e in (event.get("evidence") or [])
+             if isinstance(e, dict) and isinstance(e.get("n"), int) and not isinstance(e.get("n"), bool) and isinstance(e.get("text"), str) and e["text"].strip()][:teach.MAX_TURNS]
+    if not notes:
+        return {"error": "bad_event"}
+    extra = {k: config[k] for k in ("provider", "model") if config.get(k)}
+    messages = interview_topics.distill_messages(engine.LANGUAGES[config["language"]], config["instructions"], notes)
+    try:
+        answer = deps.runtime.llm(messages, DISTILL_MAX_TOKENS, **extra)
+    except Exception as error:
+        log("distill_failed", error=type(error).__name__)
+        return {"error": "model_unavailable"}
+    spend(deps, key, {"cost_micro": answer.get("cost_micro")}, now)
+    proposal = interview_topics.parse_proposal(answer.get("text"), {n["n"] for n in notes}, engine.EXTRA_CHARS)
+    return {"result": {**proposal, "spent_micro": int(answer.get("cost_micro") or 0)}} if proposal else {"error": "bad_answer"}
+
+
+def compare(event, deps, now):
+    """Ask the same few questions of two published versions, side by side (the owner's before and after of a teach session). The questions come from the admin function; every answer is a dry
+    turn (nothing posted, nothing stored) whose cost is counted against the business's month. Returns {"result": {"rows": [{"q", "a", "b"}], "spent_micro"}} or {"error": code}."""
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    versions = event.get("versions")
+    if not (isinstance(versions, list) and len(versions) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in versions)):
+        return {"error": "bad_event"}
+    configs = []
+    for number in versions:
+        config, used = dry_target(event["agent_id"], tenant, {"version": number}, deps)
+        if used is None:
+            return config
+        configs.append(config)
+    questions = [q.strip()[:core.MAX_QUESTION_CHARS] for q in (event.get("questions") or []) if isinstance(q, str) and q.strip()][:teach.COMPARE_QUESTIONS]
+    if not questions:
+        return {"error": "bad_event"}
+    key = usage_key(event["tenant_id"], now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+    context = {"channel": "web_widget", "inbox_id": None, "facts": []}
+
+    def ask(job):
+        question, config = job
+        try:
+            out = dry_turn(config, question, [], context, event["tenant_id"], deps, key, now)
+            return {"text": out["text"], "route": out["route"]}
+        except Exception as error:
+            log("compare_failed", error=type(error).__name__)
+            return {"text": None, "route": "error"}
+    jobs = [(q, c) for q in questions for c in configs]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=SUITE_PARALLEL) as pool:
+        answers = list(pool.map(ask, jobs))
+    rows = [{"q": q, "a": answers[2 * i], "b": answers[2 * i + 1]} for i, q in enumerate(questions)]
+    return {"result": {"rows": rows, "versions": versions}}
+
+
 def run_case(case, config, tenant, deps, key, now):
     """One test case: its customer messages in order (each answered with the history so far, like a conversation), the last answer judged. A failed case is tried once more: a pass on
     the retry is a pass marked flaky (the model answered differently). Returns the case's record: {"id", "title", "severity", "ok", "flaky", "route", "failed": [...], "answer"}."""
@@ -702,6 +772,10 @@ def worker(event, context=None, now=None, deps=None):
         return sweep(event, deps, now)
     if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
         return test(event, deps, now)
+    if event.get("kind") == "distill":  # from the admin function: a teach session's facts, distilled for the owner to review
+        return distill(event, deps, now)
+    if event.get("kind") == "compare":  # from the admin function: the same questions asked of two versions
+        return compare(event, deps, now)
     if event.get("kind") in ("interview", "summary"):  # from the admin function: the interviewer of a teach session, answered in the same invocation
         return interview(event, deps, now)
     if event.get("kind") == "suite":  # from the admin function or the local command: a test suite run, asynchronous

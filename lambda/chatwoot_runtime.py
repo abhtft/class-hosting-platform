@@ -32,6 +32,10 @@ DEFAULT_PROVIDER = platform_settings.value("chatwoot.provider")  # the model pro
 PROVIDERS = ("gemini", "bedrock")
 MAX_COLLECTIONS = platform_settings.value("chatwoot.maxCollections")
 MAX_INSTRUCTION_CHARS = platform_settings.value("chatwoot.maxInstructionChars")
+MAX_EXTRAS = platform_settings.value("chatwoot.maxExtras")
+EXTRA_CHARS = platform_settings.value("chatwoot.extraChars")
+WORD_STEM = 5
+STOP_WORDS = frozenset("this that what does have your with from about please kitna kitne kitni aapka aapki aapke aapko kaise kahan kaun hain hota hoti hote kare karna karen liye mujhe batao bataiye".split())
 ANSWER_CHARS_DEFAULT = platform_settings.value("chatwoot.answerCharsDefault")
 ANSWER_CHARS_MAX = platform_settings.value("chatwoot.answerCharsMax")
 FALLBACK_MAX_CHARS = platform_settings.value("chatwoot.fallbackMaxChars")
@@ -98,12 +102,17 @@ def clean_config(config):
         raise ConfigError("provider must be " + " or ".join(PROVIDERS) + " (left out: the platform's own choice).")
     if model is not None and model not in (gemini.models() if (provider or DEFAULT_PROVIDER) == "gemini" else bedrock.models()):
         raise ConfigError("model must be one offered by the provider: " + ", ".join(gemini.models() if (provider or DEFAULT_PROVIDER) == "gemini" else bedrock.models()) + ".")
+    extras = config.get("extras", [])
+    if not isinstance(extras, list) or len(extras) > MAX_EXTRAS or any(not isinstance(e, str) or not e.strip() or len(e.strip()) > EXTRA_CHARS for e in extras):
+        raise ConfigError(f"extras must be a list of at most {MAX_EXTRAS} facts, each text of at most {EXTRA_CHARS} characters.")
     followup = config.get("followup_fallback_text")
     if followup is not None and (not isinstance(followup, str) or not followup.strip() or len(followup) > FALLBACK_MAX_CHARS):
         raise ConfigError(f"followup_fallback_text, when given, must be text of at most {FALLBACK_MAX_CHARS} characters (what the customer gets when the books are not sure in a conversation that has already started).")
     out = {"instructions": instructions.strip(), "language": language, "collections": list(collections), "fallback_text": fallback.strip(), "max_answer_chars": limit, "mode": mode,
            "handover_text": handover_text.strip(), "handover_on": list(handover_on), "inbox_notes": {k: v.strip() for k, v in notes.items()},
            "followup_fallback_text": followup.strip() if isinstance(followup, str) else None}
+    if extras:
+        out["extras"] = [e.strip() for e in extras]
     if provider is not None:
         out["provider"] = provider
     if model is not None:
@@ -154,6 +163,20 @@ def wrap_passages(hits, limit=None):
         included.append(hit)
         used += len(block) + 2
     return "<books>\n" + "\n\n".join(blocks) + "\n</books>", included
+
+
+def words_of(text):
+    """The words of a text that can tell one thing from another: lowercase words of four letters or more, without the very common ones, cut to their first five letters so that
+    student / students and discount / discounts meet."""
+    return {w[:WORD_STEM] for w in re.findall(r"[a-z0-9\u0900-\u097f]{4,}", str(text).lower()) if w not in STOP_WORDS}
+
+
+def relevant_extras(extras, text, limit=None):
+    """The version's extra facts that share a real word with the customer's message, best first (at most `limit`, the search size by default). A fact the message has nothing to
+    do with is not shown, so an unrelated question still gets the books' answer or the fallback and costs no extra model call."""
+    asked = words_of(text)
+    scored = sorted(((len(asked & words_of(e)), e) for e in extras or []), key=lambda pair: -pair[0])
+    return [e for score, e in scored if score > 0][:(SEARCH_K if limit is None else limit)]
 
 
 def search_query(text, history):
@@ -309,9 +332,11 @@ def respond(config, text, tenant_id, runtime, history=None, context=None, explai
     if len(found["missing"]) == len(config["collections"]):
         raise RuntimeFailure("no_shelf", metrics)
     facts = (context or {}).get("facts") or []
-    if facts:  # a teach session: what the client confirmed counts as a passage of its own, so a corrected answer works at once (and the model is always asked)
-        found = {**found, "confident": True, "hits": [{"doc": "session", "title": "Confirmed by the client", "page": number, "text": fact, "vector": 1.0, "section": ""}
-                                                       for number, fact in enumerate(facts, 1)] + found["hits"]}
+    extras = relevant_extras(config.get("extras"), text)
+    if facts or extras:  # facts the client confirmed in a teach session, and the extra facts of this version that match the message: each is a passage of its own, so a taught answer works (and the model is asked)
+        added = [{"doc": "session", "title": "Confirmed by the client", "page": number, "text": fact, "vector": 1.0, "section": ""} for number, fact in enumerate(facts, 1)]
+        added += [{"doc": "extras", "title": "Added by the business", "page": number, "text": fact, "vector": 1.0, "section": ""} for number, fact in enumerate(extras, 1)]
+        found = {**found, "confident": True, "hits": added + found["hits"]}
         metrics["confident"], metrics["hits"] = True, len(found["hits"])
     if explain:
         metrics["explain"] = [{"title": str(hit["title"])[:80], "page": hit["page"], "section": str(hit.get("section") or "")[:80], "score": round(float(hit["vector"]), 2), "used": False} for hit in found["hits"]]

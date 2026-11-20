@@ -357,6 +357,29 @@ runtime2 = rt.Runtime(Stub(CONFIDENT).search, lambda messages, max_tokens, **ext
 rt.respond(rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry.", "provider": "bedrock", "model": "claude-sonnet-5-5"}), "hello?", "acme", runtime2)
 rt.respond(rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry."}), "hello?", "acme", runtime2)
 assert ran == [{"provider": "bedrock", "model": "claude-sonnet-5-5"}, {}], "the version's provider and model reach the model call; a version without them passes nothing"
+# ---- the extras of a version (T-C): extra facts the owner added from a teach session ----
+base_cfg = {"collections": ["faq"], "fallback_text": "Sorry."}
+assert "extras" not in rt.clean_config(base_cfg) and rt.clean_config({**base_cfg, "extras": [" Students get 10 percent off. ", "We close on Sundays."]})["extras"] == ["Students get 10 percent off.", "We close on Sundays."]
+for bad in ("x", [""], [5], ["x" * 401], ["a"] * 41):
+    try:
+        rt.clean_config({**base_cfg, "extras": bad})
+        raise AssertionError(bad)
+    except rt.ConfigError:
+        pass
+assert rt.relevant_extras(["Students get 10 percent off.", "We close on Sundays.", "Parking is free."], "Is there a student discount? students?") == ["Students get 10 percent off."]
+assert rt.relevant_extras(["Students get 10 percent off."], "Hi") == [] and rt.relevant_extras(None, "price") == [] and rt.relevant_extras(["aapka kitna hai"], "aapka kitna") == [], "stop words alone are not a match"
+assert rt.relevant_extras(["office subah 10 baje khulta hai"], "office kab khulta hai") == ["office subah 10 baje khulta hai"]
+unsure_stub = Stub(unsure)
+answers_seen = []
+extras_runtime = rt.Runtime(unsure_stub.search, lambda messages, max_tokens, **extra: (answers_seen.append(messages), {"text": "Yes, 10 percent off.", "tokens": 5, "cost_micro": 3})[1])
+cfg_extras = rt.clean_config({**base_cfg, "extras": ["Students get 10 percent off with a valid ID."]})
+asked_for = rt.respond(cfg_extras, "Do you give a student discount?", "acme", extras_runtime, [], {}, explain=True)
+assert asked_for["route"] == "rag" and asked_for["text"] == "Yes, 10 percent off." and "10 percent off with a valid ID" in answers_seen[-1][-1]["content"] and asked_for["metrics"]["explain"][0]["title"] == "Added by the business"
+unrelated = rt.respond(cfg_extras, "What is the capital of France?", "acme", extras_runtime, [], {})
+assert unrelated["route"] == "fallback" and len(answers_seen) == 1, "a question the extras have nothing to do with gets the fallback and no extra model call"
+assert rt.respond(rt.clean_config(base_cfg), "Do you give a student discount?", "acme", extras_runtime, [], {})["route"] == "fallback", "a version without extras is unchanged"
+print("  ok  a version's extra facts: checked, shown to the model only when they match the customer's message, never for an unrelated one")
+
 print("  ok  a version may name its provider (gemini or bedrock) and model; the other provider is the spare; the cost is the answering provider's; Bedrock errors carry no AWS detail")
 print("  ok  the model call sends the fixed model with the token limit, prices the usage, and turns an odd answer into empty text and a refusal into an error")
 

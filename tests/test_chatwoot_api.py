@@ -1136,4 +1136,30 @@ f.store.items[MONTH] = {"micro": 10 ** 9}
 assert api.worker(interview_event(), None, now=NOW + 12, deps=f.wdeps) == {"error": "cap_reached"}, "a business at its cap is not asked anything more"
 print("  ok  the interviewer asks the model one question about a topic or writes the summary, from the agent's own instructions and the session's facts only, counts the cost, and refuses odd events and a business at its cap")
 
+# ---- T-C: the worker distils a session's notes and compares two versions ----
+f = Fakes()
+register(f.store) if False else None
+f.llm_answer = {"text": '{"knowledge": [{"text": "Social media starts at Rs 2,500.", "turns": [2]}, {"text": "Invented", "turns": [77]}], "instructions_add": "Never promise a discount."}', "model": "m", "tokens": 9, "cost_micro": 60}
+out = api.worker({"kind": "distill", "tenant_id": "acme", "agent_id": "shop", "version": 1, "evidence": [{"n": 2, "text": "Asked: a? The client answered: Rs 2,500."}, {"n": "x", "text": "odd"}, {"n": 3, "text": ""}]}, None, now=NOW + 20, deps=f.wdeps)
+assert out == {"result": {"knowledge": [{"text": "Social media starts at Rs 2,500.", "turns": [2]}], "instructions_add": "Never promise a discount.", "spent_micro": 60}}, out
+assert f.llm_calls[-1][1] == api.DISTILL_MAX_TOKENS and "[2] Asked: a?" in f.llm_calls[-1][0][1]["content"] and "odd" not in f.llm_calls[-1][0][1]["content"] and f.store.usage(MONTH) == 60
+assert api.worker({"kind": "distill", "tenant_id": "acme", "agent_id": "shop", "version": 1, "evidence": []}, None, now=NOW + 21, deps=f.wdeps) == {"error": "bad_event"}
+f.llm_answer = {"text": "no json at all", "tokens": 1, "cost_micro": 1}
+assert api.worker({"kind": "distill", "tenant_id": "acme", "agent_id": "shop", "version": 1, "evidence": [{"n": 2, "text": "x y"}]}, None, now=NOW + 22, deps=f.wdeps) == {"error": "bad_answer"}
+f.llm_error = RuntimeError("down")
+assert api.worker({"kind": "distill", "tenant_id": "acme", "agent_id": "shop", "version": 1, "evidence": [{"n": 2, "text": "x y"}]}, None, now=NOW + 23, deps=f.wdeps) == {"error": "model_unavailable"}
+f.llm_error = None
+f.store.items["agent#shop#v2"] = {**f.store.items["agent#shop#v1"], "version": 2, "config": {**LIVE_CONFIG, "extras": ["Students get 10 percent off."]}}
+f.store.items["agent#shop"]["versions"] = 2
+f.llm_answer = {"text": "We open at nine.", "model": "m", "tokens": 5, "cost_micro": 4}
+out = api.worker({"kind": "compare", "tenant_id": "acme", "agent_id": "shop", "versions": [1, 2], "questions": ["when do you open?", "student discount?", "x" * 5000]}, None, now=NOW + 24, deps=f.wdeps)
+rows = out["result"]["rows"]
+assert out["result"]["versions"] == [1, 2] and [r["q"][:12] for r in rows] == ["when do you ", "student disc", "x" * 12] and all(r["a"]["text"] == "We open at nine." and r["b"]["route"] == "rag" for r in rows) and len(rows[2]["q"]) < 5000
+for bad in ({"versions": [1]}, {"versions": [1, 1.5]}, {"versions": [1, 2], "questions": []}, {"versions": [1, 9], "questions": ["q"]}):
+    assert "error" in api.worker({"kind": "compare", "tenant_id": "acme", "agent_id": "shop", **bad}, None, now=NOW + 25, deps=f.wdeps), bad
+f.search_error = RuntimeError("shelf down")
+out = api.worker({"kind": "compare", "tenant_id": "acme", "agent_id": "shop", "versions": [1, 2], "questions": ["q one"]}, None, now=NOW + 26, deps=f.wdeps)
+assert out["result"]["rows"][0]["a"]["route"] == "handover", "a failed answer is shown as it would be: a hand-over"
+print("  ok  the worker distils notes into sourced facts and instruction lines, and asks the same questions of two versions side by side, counting the cost")
+
 print("test_chatwoot_api.py: receiver, worker reply, secrets and store")

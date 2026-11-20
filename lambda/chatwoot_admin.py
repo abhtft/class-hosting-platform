@@ -49,6 +49,8 @@ SUITE = re.compile(rf"/admin/agents/({_NAME})/suite")
 TEACH = re.compile(rf"/admin/agents/({_NAME})/teach")
 TEACH_ONE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})")
 TEACH_ACT = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(turn|start|finish|revoke|interview|summary|confirm)")
+TEACH_PROPOSAL = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/proposal")
+TEACH_IMPROVE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(propose|draft|compare)")
 TEACH_TEST = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/turns/([0-9]{{1,4}})/test")
 SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
@@ -508,6 +510,101 @@ TEACH_CLOSED = {"expired": "This session has ended.", "revoked": "This link is n
                 "cap_reached": "This session reached its limit."}
 
 
+def worker_result(made):
+    """(result, None) from a worker's answer, or (None, (status, payload)) with a plain message for the caller."""
+    if isinstance(made, dict) and isinstance(made.get("result"), dict):
+        return made["result"], None
+    code = made.get("error") if isinstance(made, dict) else None
+    if code in ("model_unavailable", "bad_answer"):
+        return None, problem(502, str(code), "The assistant could not work this out. Try again in a moment.")
+    status, message = test_error(code)
+    return None, problem(status, "test_failed" if status == 502 else str(code), message)
+
+
+def base_config(store, name, session):
+    """The configuration a session talks to: the draft it was opened on, or the stored configuration of its version."""
+    if "config" in session["base"]:
+        return session["base"]["config"]
+    found = store.get(reg.version_key(name, session["base"]["version"]))
+    if not found:
+        raise reg.Invalid("The version this session talks to is no longer there.")
+    return found["config"]
+
+
+def teach_improve(store, tenant, name, sid, action, body, now, invoke):
+    """What the owner does with a finished session: propose (the model turns what the client said into facts and instruction lines to review), draft (the accepted ones become the next
+    version, with a test for every corrected answer) and compare (the same questions asked of two versions). Nothing here changes what customers see: the new version is not live."""
+    session = load_session(store, tenant, name, sid)
+    if session is None:
+        return problem(404, "not_found", "No such session.")
+    agent = owned(store, tenant, name)
+    if action == "compare":
+        unknown = sorted(set(body) - {"a", "b"})
+        if unknown:
+            raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+        versions = [body.get("a"), body.get("b")]
+        if not all(isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= (agent.get("versions") or 0) for v in versions) or versions[0] == versions[1]:
+            raise reg.Invalid("a and b must be two different published versions.")
+        asked = list(dict.fromkeys(t["q"] for t in session["turns"] if t["kind"] == "ask"))[:teach.COMPARE_QUESTIONS]
+        if not asked:
+            raise reg.Invalid("The session has no customer questions to compare.")
+        result, trouble = worker_result((invoke or invoke_worker)({"kind": "compare", "tenant_id": tenant["tenant_id"], "agent_id": name, "versions": versions, "questions": asked}))
+        return trouble or (200, result)
+    proposal = session.get("proposal")
+    if action == "propose":
+        if proposal and proposal.get("version"):
+            return problem(409, "already_made", "A version was already made from this session.")
+        evidence = teach.evidence(session)
+        if not evidence:
+            raise reg.Invalid("Nothing has been said yet to learn from: answer some questions or correct an answer first.")
+        result, trouble = worker_result((invoke or invoke_worker)({"kind": "distill", "tenant_id": tenant["tenant_id"], "agent_id": name, "evidence": evidence, **session["base"]}))
+        if trouble:
+            return trouble
+        changed = teach.set_proposal(session, result, now)
+        changed["spent_micro"] = session["spent_micro"] + int(result.get("spent_micro") or 0)
+        extra = {}
+    else:  # draft
+        if not proposal:
+            raise reg.Invalid("There is no proposal yet.")
+        if proposal.get("version"):
+            return problem(409, "already_made", f"Version {proposal['version']} was already made from this session.")
+        config, facts, lines = teach.draft_config(base_config(store, name, session), session, engine.MAX_EXTRAS, engine.MAX_INSTRUCTION_CHARS)
+        try:
+            engine.clean_config(config)
+        except engine.ConfigError as error:
+            raise reg.Invalid(str(error)) from None
+        number = (agent.get("versions") or 0) + 1
+        status, made = put_version(store, tenant, name, number, {"config": config}, now)
+        if status != 201:
+            return status, made
+        added = 0
+        try:
+            _, current = get_suite(store, tenant, name)
+            have = {c["id"] for c in current["cases"]}
+            new = [case for case, _ in teach.corrected_cases(session) if case["id"] not in have]
+            if new:
+                status, saved = put_suite(store, tenant, name, {"cases": current["cases"] + new, "expected_rev": current["rev"]}, now)
+                added = len(new) if status in (200, 201) else 0
+        except (reg.Invalid, KeyError):
+            added = 0  # a full or unreadable suite must not undo a published version
+        changed = {**session, "proposal": {**proposal, "version": number}, "rev": session["rev"] + 1}
+        extra = {"version": number, "facts_added": facts, "instruction_lines_added": lines, "tests_added": added}
+    if not store.replace_if(reg.teach_key(name, sid), changed, "rev", session["rev"]):
+        return problem(409, "changed", "The session changed at the same moment. Try again.")
+    log("teach_" + action, tenant=tenant["tenant_id"], agent=name)
+    return 200, {**extra, "proposal": changed["proposal"]}
+
+
+def save_teach_proposal(store, tenant, name, sid, body, now):
+    session = load_session(store, tenant, name, sid)
+    if session is None:
+        return problem(404, "not_found", "No such session.")
+    changed = teach.decide(session, body, now)
+    if not store.replace_if(reg.teach_key(name, sid), changed, "rev", session["rev"]):
+        return problem(409, "changed", "The session changed at the same moment. Try again.")
+    return 200, {"proposal": changed["proposal"]}
+
+
 def weak_spots(store, name):
     """Titles of the cases the agent's latest suite run got wrong (at most five): what the interviewer should ask about first. Best effort: no suite, no run, nothing."""
     try:
@@ -569,6 +666,14 @@ def route(store, tenant, method, path, event, now, invoke=None):
         if method != "POST":
             return problem(405, "method_not_allowed", "Use POST.")
         return set_live(store, tenant, found.group(1), parse_body(event), now)
+    found = TEACH_PROPOSAL.fullmatch(path)
+    if found:
+        return save_teach_proposal(store, tenant, found.group(1), found.group(2), parse_body(event), now) if method == "PUT" else problem(405, "method_not_allowed", "Use PUT.")
+    found = TEACH_IMPROVE.fullmatch(path)
+    if found:
+        if method != "POST":
+            return problem(405, "method_not_allowed", "Use POST.")
+        return teach_improve(store, tenant, found.group(1), found.group(2), found.group(3), parse_body(event), now, invoke)
     found = TEACH_TEST.fullmatch(path)
     if found:
         return save_teach_test(store, tenant, found.group(1), found.group(2), int(found.group(3)), now) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")

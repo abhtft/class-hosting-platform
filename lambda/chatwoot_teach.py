@@ -67,7 +67,7 @@ def create(tenant_id, agent_id, sid, body, base, now):
         raise Invalid(f"client_name must be text of at most {NAME_MAX} characters.")
     expires = now + int(hours * 3600)
     return {"sid": sid, "tenant_id": tenant_id, "agent_id": agent_id, "status": "open", "created_at": now, "expires_at": expires, "cap_micro": round(cap * MICRO), "spent_micro": 0,
-            "client_name": name.strip(), "consent_at": None, "base": base, "turns": [], "facts": [], "counts": {}, "summary": None, "rev": 1, "ttl": expires + RETENTION_DAYS * 86400}
+            "client_name": name.strip(), "consent_at": None, "base": base, "turns": [], "facts": [], "counts": {}, "summary": None, "proposal": None, "rev": 1, "ttl": expires + RETENTION_DAYS * 86400}
 
 
 def closed_reason(session, now):
@@ -248,7 +248,7 @@ def view(session, now, owner):
            "interview": {"open_question": (pending_question(session) or {}).get("n"), "topics_left": sum(1 for t in TOPIC_IDS if session.get("counts", {}).get(t, 0) < QUESTIONS_PER_TOPIC)}}
     if owner:
         out.update(base=session["base"] if "version" in session["base"] else {"config": "a draft"}, cap_usd=session["cap_micro"] / MICRO, spent_usd=session["spent_micro"] / MICRO,
-                   facts=session["facts"])
+                   facts=session["facts"], proposal=session.get("proposal"))
     return out
 
 
@@ -274,3 +274,98 @@ def test_case(session, number):
     case = {"id": f"teach-{session['sid']}-{number}", "title": ("Client: " + ask["q"])[:100], "severity": "should", "turns": [ask["q"]], "checks": checks}
     note = "Checks the numbers in the client's correction: " + ", ".join(numbers) + "." if numbers else "The correction has no number, so only the default checks apply: read the client's words and add a check."
     return case, note
+
+
+COMPARE_QUESTIONS = platform_settings.value("chatwoot.teachCompareQuestions")
+STATUSES = ("pending", "accepted", "rejected")
+
+
+def evidence(session):
+    """The numbered things the client said, for the model to distil: an answer to the interviewer (with the question), a fact, a correction (with the question it corrects) and what
+    they said was wrong in the summary. Returns [{"n", "text"}]."""
+    asked, out = {**questions(session), **answers(session)}, []
+    for t in session["turns"]:
+        if t["kind"] == "ia" and t["of"] in asked:
+            out.append({"n": t["n"], "text": f"Asked: {asked[t['of']]['q']} The client answered: {t['text']}"[:TEXT_CHARS * 2]})
+        elif t["kind"] == "fact":
+            out.append({"n": t["n"], "text": t["text"]})
+        elif t["kind"] == "feedback" and t["verdict"] == "wrong" and t["correction"] and t["of"] in asked:
+            out.append({"n": t["n"], "text": f"For the customer question \"{asked[t['of']]['q']}\" the right answer is: {t['correction']}"[:TEXT_CHARS * 2]})
+        elif t["kind"] == "confirm" and not t["ok"] and t.get("text"):
+            out.append({"n": t["n"], "text": f"The client said this was missing or wrong: {t['text']}"})
+    return out
+
+
+def set_proposal(session, result, now):
+    """The session with a proposal for the owner to review: the model's facts (each with what the client said as its quote) and lines for the instructions, all pending."""
+    said = {e["n"]: e["text"] for e in evidence(session)}
+    items = [{"id": f"k{number}", "text": f["text"], "turns": f["turns"], "quotes": [said[n][:TEXT_CHARS] for n in f["turns"] if n in said][:3], "status": "pending"}
+             for number, f in enumerate(result["knowledge"], 1)]
+    add = result.get("instructions_add")
+    return {**session, "proposal": {"items": items, "instructions": {"text": add, "status": "pending"} if add else None, "created_at": now, "version": None}, "rev": session["rev"] + 1}
+
+
+def decide(session, body, now):
+    """The owner's decisions: {"items": {"k1": {"status": "accepted" | "rejected" | "pending", "text"?}}, "instructions": {"status", "text"?}}. The text of a fact or of the instruction
+    lines may be edited. Returns the session; raises Invalid for an unknown id or status."""
+    proposal = session.get("proposal")
+    if not proposal:
+        raise Invalid("There is no proposal yet.")
+    if proposal.get("version"):
+        raise Invalid("A version was already made from this proposal.")
+    unknown = sorted(set(body) - {"items", "instructions"})
+    if unknown:
+        raise Invalid(f"Unknown field: {unknown[0]}.")
+    items = {i["id"]: dict(i) for i in proposal["items"]}
+    given = body.get("items", {})
+    if not isinstance(given, dict):
+        raise Invalid("items must be an object keyed by the fact's id.")
+    for key, change in given.items():
+        if key not in items or not isinstance(change, dict) or set(change) - {"status", "text"}:
+            raise Invalid(f"Unknown fact or field: {key}.")
+        if "status" in change:
+            if change["status"] not in STATUSES:
+                raise Invalid("status must be pending, accepted or rejected.")
+            items[key]["status"] = change["status"]
+        if "text" in change:
+            items[key]["text"] = _text(change["text"], "text")
+    lines = dict(proposal["instructions"]) if proposal.get("instructions") else None
+    if "instructions" in body:
+        change = body["instructions"]
+        if lines is None or not isinstance(change, dict) or set(change) - {"status", "text"}:
+            raise Invalid("There are no instruction lines to decide on.")
+        if "status" in change:
+            if change["status"] not in STATUSES:
+                raise Invalid("status must be pending, accepted or rejected.")
+            lines["status"] = change["status"]
+        if "text" in change:
+            lines["text"] = _text(change["text"], "text")
+    return {**session, "proposal": {**proposal, "items": list(items.values()), "instructions": lines}, "rev": session["rev"] + 1}
+
+
+def draft_config(base_config, session, max_extras, max_instruction_chars):
+    """The configuration of the version to make: the base with the accepted facts added to its `extras` and the accepted lines added to its instructions. Raises Invalid when
+    nothing is accepted or the result would be too big. Returns (config, how many facts, whether lines were added)."""
+    proposal = session.get("proposal") or {}
+    accepted = [i["text"] for i in proposal.get("items", []) if i["status"] == "accepted"]
+    lines = proposal.get("instructions")
+    add_lines = lines["text"] if lines and lines["status"] == "accepted" else None
+    if not accepted and not add_lines:
+        raise Invalid("Accept at least one fact or the instruction lines first.")
+    config = dict(base_config)
+    extras = list(config.get("extras") or [])
+    extras += [t for t in accepted if t not in extras]
+    if len(extras) > max_extras:
+        raise Invalid(f"A version holds at most {max_extras} extra facts and this would make {len(extras)}: reject some.")
+    config["extras"] = extras
+    if add_lines:
+        config["instructions"] = (config.get("instructions", "").strip() + "\n" + add_lines).strip()
+        if len(config["instructions"]) > max_instruction_chars:
+            raise Invalid(f"The instructions would be longer than {max_instruction_chars} characters: shorten the lines.")
+    return config, len(accepted), bool(add_lines)
+
+
+def corrected_cases(session):
+    """A suite case for every answer the client corrected (see test_case): [(case, note)]."""
+    done = sorted({t["of"] for t in session["turns"] if t["kind"] == "feedback" and t["verdict"] == "wrong" and t["correction"]})
+    return [test_case(session, n) for n in done]

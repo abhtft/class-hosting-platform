@@ -2393,6 +2393,66 @@
       ]
     },
     {
+      "key": "chatwoot.maxExtras",
+      "group": "chatwoot",
+      "title": "Extra facts in an agent version",
+      "help": "How many short facts a version may carry in `extras` (facts the owner added from a teach session). Those that match a customer's question are shown to the model with the books.",
+      "unit": "facts",
+      "default": 40,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.MAX_EXTRAS"
+      ]
+    },
+    {
+      "key": "chatwoot.extraChars",
+      "group": "chatwoot",
+      "title": "Longest extra fact",
+      "help": "The longest single fact in a version's `extras`.",
+      "unit": "characters",
+      "default": 400,
+      "min": 50,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.EXTRA_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.teachCompareQuestions",
+      "group": "chatwoot",
+      "title": "Questions in a before and after comparison",
+      "help": "How many of a teach session's questions are asked of both versions when the owner compares them. Each is two model calls, and the answer must come back within a request.",
+      "unit": "questions",
+      "default": 6,
+      "min": 1,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.COMPARE_QUESTIONS"
+      ]
+    },
+    {
+      "key": "chatwoot.teachProposalFacts",
+      "group": "chatwoot",
+      "title": "Most facts in a teach proposal",
+      "help": "How many facts the model may propose from one teach session for the owner to review.",
+      "unit": "facts",
+      "default": 25,
+      "min": 1,
+      "max": 60,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_interview.PROPOSAL_FACTS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
@@ -3779,6 +3839,10 @@
     }
   ],
   "fixed": [
+    {
+      "code": "chatwoot_runtime.WORD_STEM",
+      "reason": "How many letters of a word are compared when a version's extra facts are matched to a customer's message (student and students meet): a detail of the matching, not a limit."
+    },
     {
       "code": "chatwoot_teach.MICRO",
       "reason": "Unit conversion (one US dollar is a million micro-dollars), not a choice."
