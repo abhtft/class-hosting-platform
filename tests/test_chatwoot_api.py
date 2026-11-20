@@ -770,6 +770,71 @@ run_worker(f, {**job, "channel": "telegram"})
 assert "writing on telegram" in f.llm_calls[0][0][0]["content"]
 print("  ok  the receiver passes the channel word to the worker, and the worker gives the model the channel rule, the inbox note and the no-second-greeting rule; an odd channel value is ignored")
 
+# ---- Studio's dry run: the worker answers like a real message but posts nothing, stores nothing, hands over to nobody ----
+def dry(f, **more):
+    base = {"kind": "test", "tenant_id": "acme", "agent_id": "shop", "text": "when do you open?", "version": 1}
+    return api.worker({**base, **more}, None, now=NOW + 5, deps=f.wdeps)
+
+
+f = Fakes()
+out = dry(f)["result"]
+assert out["route"] == "rag" and out["text"] == "We open at nine and close at six." and out["used"] == "version 1" and out["confident"] is True, out
+assert out["explain"] == [{"title": "Faq handbook", "page": 1, "section": "Opening hours", "score": 0.9, "used": True}], "which passages were found, how well, and which the model saw"
+assert out["spent_micro"] == 43 and out["tokens"] == 120 and isinstance(out["llm_ms"], int)
+assert not f.requests and not f.mem.items and not [k for k in f.store.items if k.startswith("msg#")], "nothing is posted to Chatwoot, no memory, no message item"
+assert f.store.usage(MONTH) == 43, "a test costs real money and is counted against the month like an answer"
+assert TEXT not in json.dumps(f.store.items) and "when do you open" not in "".join(LOGS), "the tester's words are not stored or logged"
+# a draft configuration instead of a published version
+draft = {**LIVE_CONFIG, "instructions": "Always end with Dhanyavaad."}
+out = dry(f, config=draft, version=None)["result"] if False else api.worker({"kind": "test", "tenant_id": "acme", "agent_id": "shop", "text": "hours?", "config": draft}, None, now=NOW + 6, deps=f.wdeps)["result"]
+assert out["used"] == "the editor" and "Always end with Dhanyavaad." in f.llm_calls[-1][0][0]["content"], "the editor's draft is what the model is told"
+# the history Studio sends works like the memory; the channel and the inbox note reach the prompt
+dry(f, text="and Saturday?", history=[{"c": "when do you open?", "b": "We open at nine."}], channel="whatsapp", inbox_id=3)
+system = f.llm_calls[-1][0][0]["content"]
+assert "already started" in system and "Never suggest that they WhatsApp" in system and [m["role"] for m in f.llm_calls[-1][0]][1:3] == ["user", "assistant"]
+assert f.searches[-1][2].startswith("when do you open?"), "a short follow-up is searched with the earlier question, like a real one"
+print("  ok  the dry run answers from a published version or the editor's draft with the sent history, channel and inbox note, shows the passages and their scores, counts its cost, and posts, stores and logs nothing")
+
+# a hand-over is described, not made: its sentence, its note and the reason
+for words, why in (("call me please", "person_asked"), ("this is a fraud", "complaint"), ("my number is 9876543210", "warm_lead")):
+    f = Fakes()
+    out = dry(f, text=words)["result"]
+    assert out["route"] == "handover" and out["reason"] == why and out["failure"] is False and out["text"] == ho.DEFAULT_TEXT and out["note"].startswith("Bot hand-over: ") and words in out["note"], (words, out)
+    assert not f.requests and not f.llm_calls and not f.searches and not f.mem.items, "nobody is handed over, nothing is searched or asked"
+f = Fakes()
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+out = dry(f, text="xyz", history=[{"c": "hi", "b": "Welcome", "f": 1}])["result"]
+assert out["route"] == "handover" and out["reason"] == "stuck", "the second fallback in a row would hand over"
+f = Fakes()
+f.found = {"hits": [HIT], "confident": False, "tokens": 5, "cost_micro": 2, "missing": []}
+out = dry(f, text="xyz")["result"]
+assert out["route"] == "fallback" and out["text"] == LIVE_CONFIG["fallback_text"] and out["explain"][0]["used"] is False and out["confident"] is False, "not sure: the fallback, with the scores that explain why"
+f = Fakes()
+f.llm_error = RuntimeError("down")
+out = dry(f)["result"]
+assert out["route"] == "handover" and out["reason"] == "llm_error" and out["failure"] is True and f.store.usage(MONTH) == 3, "a failure that would hand over a real customer says so"
+print("  ok  a hand-over (person, complaint, lead, stuck, failure) is described with its sentence, its note and its reason, and the not-sure case shows why")
+
+# who and what it refuses
+f = Fakes()
+assert dry(f, tenant_id="beta") == {"error": "not_found"} and not f.searches, "another business's tenant id is not this agent's"
+assert dry(f, agent_id="nobody") == {"error": "not_found"} and dry(f, agent_id="../x") == {"error": "bad_event"}
+assert dry(f, text="   ") == {"error": "bad_event"} and dry(f, text=None) == {"error": "bad_event"}
+assert dry(f, version=9) == {"error": "version_not_found"} and dry(f, version=0) == {"error": "version_not_found"} and dry(f, version="1") == {"error": "version_not_found"} and dry(f, version=None) == {"error": "version_not_found"}
+bad = api.worker({"kind": "test", "tenant_id": "acme", "agent_id": "shop", "text": "x", "config": {"collections": []}}, None, now=NOW + 5, deps=f.wdeps)
+assert bad["error"] == "bad_config" and "collections" in bad["message"] and not f.searches, "an unusable draft is explained in the operator's words"
+f.store.items["tenant#acme"]["enabled"] = False
+assert dry(f) == {"error": "not_found"}, "a switched-off business cannot test"
+f = Fakes()
+f.store.usage_add(MONTH, api.DEFAULT_CAP_USD * 1000000, NOW)
+assert dry(f) == {"error": "cap_reached"} and not f.searches and not f.llm_calls, "at the monthly cap a test costs nothing more"
+f = Fakes()
+f.store.items["agent#shop"]["enabled"] = False
+assert dry(f)["result"]["route"] == "rag", "an agent that is switched off can still be tested"
+f = Fakes()
+assert dry(f, text="x" * 5000)["result"]["route"] == "rag" and len(f.searches[-1][2]) <= core.MAX_QUESTION_CHARS, "the tester's text is cut like a customer's"
+print("  ok  the dry run refuses another business's agent, a missing or unusable version or draft, empty text, a switched-off business and a business at its cap; it cuts long text")
+
 # the receiver cuts the text and sends nothing when there is none
 f = Fakes()
 long_text = "word " * 1000

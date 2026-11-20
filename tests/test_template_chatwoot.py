@@ -110,17 +110,19 @@ for forbidden in ("secretsmanager", "s3:", "ssm:", "kms:", "iam:", "dynamodb:Put
     assert forbidden not in code, f"the sweeper must not have {forbidden}"
 assert "ChatwootSweeperFunction" not in block("ChatwootReceiverFunction") and "ChatwootSweeperFunction" not in block("ChatwootWorkerFunction"), "nothing depends on the sweeper"
 
-# ---- the admin function: the registry only, no secrets, no outbound calls, no other function ----
+# ---- the admin function: the registry, and the one worker for Studio's dry run; no secrets, no Chatwoot, nothing else ----
 admin = block("ChatwootAdminFunction")
 assert "Handler: chatwoot_admin.handler" in admin and "CodeUri: lambda/" in admin and "Runtime: python3.12" in admin
 assert re.search(r"Path: /admin/\{proxy\+\}\n\s+Method: ANY", admin) and "ApiId: !Ref ChatwootApi" in admin and admin.count("Type: HttpApi") == 1, "one route family, on the adapter's own API"
 assert "/hooks/chatwoot" not in admin and "BackendApi" not in admin and "GatewayFunction" not in admin
-assert "CHATWOOT_TABLE: !Ref ChatwootTable" in admin and "CHATWOOT_BASE_URL" not in admin and "CHATWOOT_AUTH_STYLE" not in admin and "CHATWOOT_WORKER_FUNCTION" not in admin
+assert "CHATWOOT_TABLE: !Ref ChatwootTable" in admin and "CHATWOOT_BASE_URL" not in admin and "CHATWOOT_AUTH_STYLE" not in admin and "CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction" in admin and "CHATWOOT_MEMORY_TABLE" not in admin
+assert re.search(r"Timeout: 29", admin), "it waits for the worker's dry run"
+assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootWorkerFunction\.Arn", admin) and admin.count("lambda:InvokeFunction") == 1, "it may start the one worker"
 assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*'\]", admin), "registry items only, one at a time"
 assert re.search(r"Action: dynamodb:DeleteItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*'\]", admin), "it may remove an agent item and nothing else"
 code = re.sub(r"#[^\n]*", "", admin)
-assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "dynamodb:DeleteItem"], "exactly these permissions"
-for forbidden in ("secretsmanager:", "lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem", "dynamodb:*", "msg#", "TokensTable", "SitesBucket", "s3:", "kms:",
+assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "dynamodb:DeleteItem", "lambda:InvokeFunction"], "exactly these permissions"
+for forbidden in ("secretsmanager:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem", "dynamodb:*", "msg#", "TokensTable", "SitesBucket", "s3:", "kms:", "ChatwootMemoryTable",
                   "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "AiSecretName", "Resource: '*'", "Action: '*'", "VpcConfig"):
     assert forbidden not in code, f"the admin function must not have {forbidden}"
 assert "ChatwootAdminFunction" not in block("ChatwootReceiverFunction") and "/admin" not in block("ChatwootReceiverFunction"), "the webhook function does not serve the admin routes"

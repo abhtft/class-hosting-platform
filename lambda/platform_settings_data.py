@@ -192,7 +192,7 @@ SETTINGS = {
     "lambdas.chatwootWorkerMemoryMB": {"type": "int", "default": 1024, "min": 128, "max": 3008, "env": None},
     "lambdas.chatwootWorkerTimeoutSeconds": {"type": "int", "default": 120, "min": 10, "max": 900, "env": None},
     "lambdas.chatwootAdminMemoryMB": {"type": "int", "default": 256, "min": 128, "max": 3008, "env": None},
-    "lambdas.chatwootAdminTimeoutSeconds": {"type": "int", "default": 10, "min": 3, "max": 29, "env": None},
+    "lambdas.chatwootAdminTimeoutSeconds": {"type": "int", "default": 29, "min": 3, "max": 29, "env": None},
     "lambdas.sweeperMemoryMB": {"type": "int", "default": 512, "min": 128, "max": 3008, "env": None},
     "lambdas.sweeperTimeoutSeconds": {"type": "int", "default": 300, "min": 30, "max": 900, "env": None},
     "lambdas.sweeperCron": {"type": "text", "default": "cron(0 3 * * ? *)", "min": None, "max": None, "env": None},

@@ -10,9 +10,12 @@
   PUT    /admin/agents/{name}/versions/{n}       publish version n (must be the next number): {"config": {...}}; a version never changes
   GET    /admin/agents/{name}/versions/{n}
   POST   /admin/agents/{name}/live               {"version": n} chooses the live version (0 = none)
+  POST   /admin/agents/{name}/test               Studio's dry run: {"text", "version" or "config", "history"?, "channel"?, "inbox_id"?}; the worker answers in the same call (nothing is posted
+                                                 to Chatwoot, nothing is stored) and the answer, its route and the passages it used come back
 
 Every error is JSON {"error": "<code>", "message": "..."}. An agent of another tenant is "not_found" on every route. A wrong, unknown, rotated or switched-off key is
-the same 401 for all of them. Only the registry items (tenant#, agent#) are touched; nothing here reads a secret, calls Chatwoot or starts another function. The
+the same 401 for all of them. Only the registry items (tenant#, agent#) are touched; nothing here reads a secret or calls Chatwoot; the one other thing it may do is ask the worker for a
+dry run (the test route). The
 teacher creates tenants and their keys with tools/chatwoot_admin.py (never over the web)."""
 import base64
 import json
@@ -21,6 +24,7 @@ import re
 import time
 
 import chatwoot_core as core
+import chatwoot_memory as memory
 import chatwoot_registry as reg
 import platform_settings
 from chatwoot_store import DynamoStore
@@ -31,6 +35,7 @@ LIST = re.compile(r"/admin/agents")
 AGENT = re.compile(rf"/admin/agents/({_NAME})")
 VERSION = re.compile(rf"/admin/agents/({_NAME})/versions/([0-9]{{1,6}})")
 LIVE = re.compile(rf"/admin/agents/({_NAME})/live")
+TEST = re.compile(rf"/admin/agents/({_NAME})/test")
 
 
 def log(what, **details):
@@ -184,7 +189,67 @@ def parse_body(event):
     return body
 
 
-def route(store, tenant, method, path, event, now):
+def invoke_worker(payload):
+    """Ask the worker for a dry run and wait for its answer (a synchronous call: Studio's test chat shows it at once)."""
+    import boto3
+    response = boto3.client("lambda").invoke(FunctionName=os.environ["CHATWOOT_WORKER_FUNCTION"], InvocationType="RequestResponse", Payload=json.dumps(payload).encode("utf8"))
+    if response.get("FunctionError"):
+        raise RuntimeError("the worker failed")
+    return json.loads(response["Payload"].read())
+
+
+def test_error(code):
+    """(HTTP status, plain message) for a worker's dry-run error code; anything unknown is a 502."""
+    known = {"bad_config": (400, "The configuration cannot be used."), "version_not_found": (404, "No such version."), "not_found": (404, "No such agent."),
+             "cap_reached": (429, "This business has used its spend limit for the month."), "bad_event": (400, "Send some text."), "registry_unavailable": (503, "Try again in a moment.")}
+    return known.get(code, (502, "The test could not be run. Try again."))
+
+
+def run_test(store, tenant, name, body, invoke):
+    """Validate a dry-run request, hand it to the worker with the tenant of the KEY (never of the body) and map the worker's answer."""
+    unknown = sorted(set(body) - {"text", "history", "version", "config", "channel", "inbox_id"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise reg.Invalid("text is required: what the customer writes.")
+    if ("version" in body) == ("config" in body):
+        raise reg.Invalid("Send either version (a published version) or config (a draft), not both and not neither.")
+    if "history" in body and not (isinstance(body["history"], list) and len(body["history"]) <= 50):
+        raise reg.Invalid("history is a list of earlier turns: {\"c\": what the customer wrote, \"b\": what the bot answered}.")
+    payload = {"kind": "test", "tenant_id": tenant["tenant_id"], "agent_id": name, "text": text.strip()[:core.MAX_QUESTION_CHARS], "history": memory.clean(body.get("history") or [])}
+    if "config" in body:
+        if not isinstance(body["config"], dict) or len(json.dumps(body["config"]).encode("utf8")) > reg.MAX_VERSION_BYTES:
+            raise reg.Invalid(f"config must be a JSON object of at most {reg.MAX_VERSION_BYTES // 1024} KB.")
+        payload["config"] = body["config"]
+    else:
+        number = body["version"]
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= reg.MAX_VERSIONS:
+            raise reg.Invalid("version must be a published version number.")
+        payload["version"] = number
+    channel = body.get("channel")
+    if channel is not None:
+        if not isinstance(channel, str) or not re.fullmatch(r"[a-z_]{1,40}", channel):
+            raise reg.Invalid("channel is a short lowercase word such as whatsapp or web_widget.")
+        payload["channel"] = channel
+    inbox = body.get("inbox_id")
+    if inbox is not None:
+        if not isinstance(inbox, int) or isinstance(inbox, bool) or inbox < 1:
+            raise reg.Invalid("inbox_id must be a whole number above zero.")
+        payload["inbox_id"] = inbox
+    answer = (invoke or invoke_worker)(payload)
+    if not isinstance(answer, dict):
+        return problem(502, "test_failed", "The test could not be run. Try again.")
+    if "result" in answer and isinstance(answer["result"], dict):
+        return 200, answer["result"]
+    status, message = test_error(answer.get("error"))
+    code = answer.get("error") if status != 502 else "test_failed"
+    return problem(status, str(code), answer.get("message") if code == "bad_config" and isinstance(answer.get("message"), str) else message)
+
+
+def route(store, tenant, method, path, event, now, invoke=None):
     if LIST.fullmatch(path):
         if method != "GET":
             return problem(405, "method_not_allowed", "Use GET.")
@@ -221,10 +286,15 @@ def route(store, tenant, method, path, event, now):
         if method != "POST":
             return problem(405, "method_not_allowed", "Use POST.")
         return set_live(store, tenant, found.group(1), parse_body(event), now)
+    found = TEST.fullmatch(path)
+    if found:
+        if method != "POST":
+            return problem(405, "method_not_allowed", "Use POST.")
+        return run_test(store, tenant, found.group(1), parse_body(event), invoke)
     return problem(404, "not_found", "No such route.")
 
 
-def handler(event, context=None, now=None, store=None):
+def handler(event, context=None, now=None, store=None, invoke=None):
     now = int(now if now is not None else time.time())
     store = store or default_store()
     headers = {name.lower(): value for name, value in (event.get("headers") or {}).items()}
@@ -236,7 +306,7 @@ def handler(event, context=None, now=None, store=None):
     if tenant is None:
         return reply(401, {"error": "unauthorized", "message": "Send the business's service key as: Authorization: Bearer cs_..."})
     try:
-        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now)
+        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now, invoke)
     except reg.Invalid as error:
         return reply(400, {"error": "bad_request", "message": str(error)})
     except OverflowError:

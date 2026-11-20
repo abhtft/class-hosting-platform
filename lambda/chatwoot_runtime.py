@@ -244,10 +244,11 @@ def real_runtime():
 
 # ---------- the answer ----------
 
-def respond(config, text, tenant_id, runtime, history=None, context=None):
+def respond(config, text, tenant_id, runtime, history=None, context=None, explain=False):
     """{"text": the reply, "route": "rag" | "agent" | "fallback", "metrics": {numbers and ids only}} or RuntimeFailure. `config` is clean_config()'s result; `history`
     is the remembered turns of the conversation ([] or None when there are none); `context` is {"channel": word, "inbox_id": number}. In a conversation that has already
-    started, the agent's followup_fallback_text (when it has one) replaces the fallback text, so a welcome is not repeated."""
+    started, the agent's followup_fallback_text (when it has one) replaces the fallback text, so a welcome is not repeated. With `explain` (Studio's dry run only) the metrics also say
+    which passages were found, how well they matched and which of them the model was shown: book titles, pages and scores, never the customer's words."""
     metrics = {"route": "fallback", "confident": False, "hits": 0, "shelves": list(config["collections"]), "tokens": 0, "cost_micro": 0, "retrieval_ms": 0, "llm_ms": 0, "sources": []}
     fallback = config.get("followup_fallback_text") if history and config.get("followup_fallback_text") else config["fallback_text"]
 
@@ -265,8 +266,14 @@ def respond(config, text, tenant_id, runtime, history=None, context=None):
     metrics.update(retrieval_ms=int((time.monotonic() - started) * 1000), tokens=found["tokens"], cost_micro=found["cost_micro"], confident=found["confident"], hits=len(found["hits"]))
     if len(found["missing"]) == len(config["collections"]):
         raise RuntimeFailure("no_shelf", metrics)
+    if explain:
+        metrics["explain"] = [{"title": str(hit["title"])[:80], "page": hit["page"], "section": str(hit.get("section") or "")[:80], "score": round(float(hit["vector"]), 2), "used": False} for hit in found["hits"]]
     if found["confident"]:
         messages, included = build_messages(config, text, found["hits"], history, context)
+        if explain:
+            shown = {(hit["doc"], hit["page"]) for hit in included}
+            for entry, hit in zip(metrics["explain"], found["hits"]):
+                entry["used"] = (hit["doc"], hit["page"]) in shown
         metrics["sources"] = [[hit["doc"], hit["page"]] for hit in included]
         started = time.monotonic()
         try:

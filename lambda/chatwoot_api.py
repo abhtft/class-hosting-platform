@@ -314,10 +314,28 @@ def remember(event, deps, text, metrics, now):
         log("memory_unavailable", error=type(error).__name__)
 
 
+def context_of(event):
+    """What the system knows about where the message came from: the channel word (only a short lowercase word is accepted) and the inbox number."""
+    channel = event.get("channel")
+    return {"channel": channel if isinstance(channel, str) and re.fullmatch(r"[a-z_]{1,40}", channel) else "", "inbox_id": event.get("inbox_id")}
+
+
+def answer_text(config, text, history, context, tenant_id, runtime, explain=False):
+    """(reply, metrics, hand-over reason or None) for one customer message: the hand-over rules first, then the books. The reply is the agent's hand-over sentence when a reason is
+    returned. Raises engine.RuntimeFailure when the answer could not be made. The one piece of logic behind both a real answer (compose) and Studio's dry run (test), so a test
+    shows what a customer would get."""
+    reason = handover.decide(text, history, config["handover_on"])
+    if reason:  # a person is asked for, a complaint, a warm lead: no model call, nothing to search
+        return config["handover_text"], {"route": "handover"}, reason
+    made = engine.respond(config, text, tenant_id, runtime, history, context, explain)
+    if made["route"] == "fallback" and "stuck" in config["handover_on"] and memory.stuck(history, 1):  # the second fallback in a row: the bot is not getting anywhere
+        return config["handover_text"], made["metrics"], "stuck"
+    return made["text"], made["metrics"], None
+
+
 def compose(event, agent, tenant, deps, now, history):
-    """The text to send: (reply, metrics, hand-over reason or None). Reads the agent's live version, checks the business's monthly spend, applies the hand-over rules to
-    the customer's message and otherwise lets the runtime answer from the books. When a reason is returned the text is the agent's hand-over sentence. Raises Refused
-    with a reason code when there is nothing to send."""
+    """The text to send: (reply, metrics, hand-over reason or None). Reads the agent's live version, checks the business's monthly spend, then answers (answer_text). Raises
+    Refused with a reason code when there is nothing to send."""
     live = agent.get("live_version") or 0
     if not live:
         raise Refused("no_live_version")
@@ -330,19 +348,58 @@ def compose(event, agent, tenant, deps, now, history):
     if deps.store.usage(key) >= monthly_cap_micro(tenant):
         raise Refused("cap_reached", config=config)
     text = event.get("text") if isinstance(event.get("text"), str) else ""
-    context = {"channel": event.get("channel") if isinstance(event.get("channel"), str) and re.fullmatch(r"[a-z_]{1,40}", event["channel"]) else "", "inbox_id": event["inbox_id"]}
-    reason = handover.decide(text, history, config["handover_on"])
-    if reason:  # a person is asked for, a complaint, a warm lead: no model call, nothing to search
-        return config["handover_text"], {"route": "handover"}, reason
     try:
-        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime, history, context)
+        reply_text, metrics, reason = answer_text(config, text, history, context_of(event), tenant["tenant_id"], deps.runtime)
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
         raise Refused(failure.reason, failure.metrics, config) from None
-    spend(deps, key, made["metrics"], now)
-    if made["route"] == "fallback" and "stuck" in config["handover_on"] and memory.stuck(history, 1):  # the second fallback in a row: the bot is not getting anywhere
-        return config["handover_text"], made["metrics"], "stuck"
-    return made["text"], made["metrics"], None
+    spend(deps, key, metrics, now)
+    return reply_text, metrics, reason
+
+
+def test(event, deps, now):
+    """A dry run for Studio's test chat (started by the admin function and nobody else): answer one message the way the worker would, from a draft configuration or from a published
+    version, with the history Studio sends, but post nothing to Chatwoot, write no message item and no memory, and hand over to nobody: a hand-over is only described. What it spends
+    is counted against the business's month like a real answer. The customer's words (here: the tester's) are not stored or logged. Returns {"result": {...}} or {"error": code}."""
+    agent_id, tenant_id, text = event.get("agent_id"), event.get("tenant_id"), event.get("text")
+    if not core.AGENT_ID.fullmatch(str(agent_id)) or not isinstance(text, str) or not text.strip():
+        return {"error": "bad_event"}
+    try:
+        agent, tenant = deps.registry.load(agent_id)
+    except Exception as error:
+        log("registry_unavailable", agent=agent_id, error=type(error).__name__)
+        return {"error": "registry_unavailable"}
+    if not isinstance(agent, dict) or not isinstance(tenant, dict) or tenant.get("enabled") is not True or agent.get("tenant_id") != tenant.get("tenant_id") or tenant.get("tenant_id") != tenant_id:
+        return {"error": "not_found"}
+    if isinstance(event.get("config"), dict):
+        source, used = event["config"], "the editor"
+    else:
+        number = event.get("version")
+        found = deps.store.get(registry.version_key(agent_id, number)) if isinstance(number, int) and not isinstance(number, bool) and number >= 1 else None
+        if not found:
+            return {"error": "version_not_found"}
+        source, used = found.get("config"), f"version {number}"
+    try:
+        config = engine.clean_config(source)
+    except engine.ConfigError as error:
+        return {"error": "bad_config", "message": str(error)}
+    key = usage_key(tenant_id, now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+    history = memory.clean(event.get("history"))
+    text = text.strip()[:core.MAX_QUESTION_CHARS]
+    try:
+        reply_text, metrics, reason = answer_text(config, text, history, context_of(event), tenant_id, deps.runtime, explain=True)
+    except engine.RuntimeFailure as failure:  # in real life this customer would be handed to a person: say so
+        spend(deps, key, failure.metrics, now)
+        return {"result": {"route": "handover", "reason": failure.reason, "failure": True, "text": config["handover_text"], "note": handover.note_text(failure.reason, history, text), "used": used,
+                           "spent_micro": int(failure.metrics.get("cost_micro") or 0), "explain": failure.metrics.get("explain", [])}}
+    spend(deps, key, metrics, now)
+    out = {"route": metrics.get("route"), "text": reply_text, "used": used, "confident": bool(metrics.get("confident")), "explain": metrics.get("explain", []), "tokens": int(metrics.get("tokens") or 0),
+           "spent_micro": int(metrics.get("cost_micro") or 0), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
+    if reason:
+        out.update(route="handover", reason=reason, failure=False, note=handover.note_text(reason, history, text))
+    return {"result": out}
 
 
 def hand_over(event, deps, base, credentials, reason, sentence, history, text, send_text):
@@ -472,6 +529,8 @@ def worker(event, context=None, now=None, deps=None):
     deps = deps or default_worker_deps()
     if event.get("kind") == "sweep":  # from the sweeper: a stuck message item, not a customer message
         return sweep(event, deps, now)
+    if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
+        return test(event, deps, now)
     agent_id, message_id = event.get("agent_id"), event.get("message_id")
     ids = [event.get(name) for name in ("conversation_id", "account_id", "inbox_id")]
     if not core.AGENT_ID.fullmatch(str(agent_id)) or any(not isinstance(i, int) or isinstance(i, bool) or i < 1 for i in [message_id, *ids]):

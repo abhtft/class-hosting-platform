@@ -350,7 +350,7 @@ Memory and time of the platform's own functions.
 | `lambdas.chatwootWorkerMemoryMB`<br>Chatwoot worker memory | 1,024 MB | 128 to 3,008 | deploy | careful | Memory of the function that answers an accepted message in the background. It loads a book shelf into memory to search it, so it needs more than a plain webhook function. **Cost:** Billed per second of running time. |
 | `lambdas.chatwootWorkerTimeoutSeconds`<br>Chatwoot worker time limit | 120 seconds | 10 to 900 | deploy | careful | Time limit of the worker for one message. |
 | `lambdas.chatwootAdminMemoryMB`<br>Chatwoot admin memory | 256 MB | 128 to 3,008 | deploy | careful | Memory of the function behind the Studio-facing admin API of the Chatwoot adapter. |
-| `lambdas.chatwootAdminTimeoutSeconds`<br>Chatwoot admin time limit | 10 seconds | 3 to 29 | deploy | low | Time limit of the admin function. It reads and writes a few table items and answers well inside this. |
+| `lambdas.chatwootAdminTimeoutSeconds`<br>Chatwoot admin time limit | 29 seconds | 3 to 29 | deploy | low | Time limit of the admin function. Most routes read and write a few table items and answer at once; Studio's test chat waits for the worker's answer, so it needs the long limit. |
 | `lambdas.sweeperMemoryMB`<br>Nightly clean-up memory | 512 MB | 128 to 3,008 | deploy | low | Memory of the nightly clean-up function. |
 | `lambdas.sweeperTimeoutSeconds`<br>Nightly clean-up time limit | 300 seconds | 30 to 900 | deploy | low | Time limit of the nightly clean-up function. |
 | `lambdas.sweeperCron`<br>Nightly clean-up time | cron(0 3 * * ? *) cron | any | deploy | low | When the nightly clean-up runs (AWS cron format, in UTC). |

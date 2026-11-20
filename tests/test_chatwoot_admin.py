@@ -12,6 +12,7 @@ root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(root, "lambda"))
 
 import chatwoot_admin as admin  # noqa: E402
+import chatwoot_core as core  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
 import chatwoot_store as cs  # noqa: E402
 
@@ -240,6 +241,50 @@ make_tenant(later, "acme")
 later.armed = True
 assert call(later, "PUT", "/admin/agents/shop", SETTINGS)[0] == 500
 print("  ok  a table that cannot be read or written answers 500, never a guess")
+
+# ---- Studio's dry run: validated here, the tenant is the key's, the worker answers ----
+seen = []
+
+
+def fake_worker(payload):
+    seen.append(payload)
+    return {"result": {"route": "rag", "text": "An answer.", "used": "version 1", "explain": []}}
+
+
+def test_call(body, key="acme", invoke=fake_worker, name="shop"):
+    event = {"rawPath": f"/admin/agents/{name}/test", "requestContext": {"http": {"method": "POST"}}, "headers": {"Authorization": "Bearer " + store.keys[key]}, "body": json.dumps(body), "isBase64Encoded": False}
+    out = admin.handler(event, None, now=NOW, store=store, invoke=invoke)
+    return out["statusCode"], json.loads(out["body"])
+
+
+assert test_call({"text": "hello", "version": 1}) == (200, {"route": "rag", "text": "An answer.", "used": "version 1", "explain": []})
+assert seen[-1] == {"kind": "test", "tenant_id": "acme", "agent_id": "shop", "text": "hello", "history": [], "version": 1}, "the tenant is the key's, never the body's"
+status, _ = test_call({"text": "hello", "config": {"collections": ["faq"]}, "history": [{"c": "a", "b": "b"}, {"c": 5}, "junk"], "channel": "whatsapp", "inbox_id": 3})
+assert status == 200 and seen[-1]["config"] == {"collections": ["faq"]} and seen[-1]["history"] == [{"c": "a", "b": "b"}] and seen[-1]["channel"] == "whatsapp" and seen[-1]["inbox_id"] == 3, "odd history turns are dropped"
+before = len(seen)
+for bad in ({"version": 1}, {"text": "", "version": 1}, {"text": "  ", "version": 1}, {"text": 5, "version": 1}, {"text": "x"}, {"text": "x", "version": 1, "config": {}}, {"text": "x", "version": 0}, {"text": "x", "version": "1"},
+            {"text": "x", "version": True}, {"text": "x", "version": 9999999}, {"text": "x", "config": "text"}, {"text": "x", "config": []}, {"text": "x", "config": {"k": "y" * 300000}},
+            {"text": "x", "version": 1, "history": "a"}, {"text": "x", "version": 1, "history": [0] * 51}, {"text": "x", "version": 1, "channel": "WhatsApp"}, {"text": "x", "version": 1, "channel": 5},
+            {"text": "x", "version": 1, "inbox_id": 0}, {"text": "x", "version": 1, "inbox_id": "3"}, {"text": "x", "version": 1, "tenant_id": "beta"}, {"text": "x", "version": 1, "extra": 1}):
+    status, body = test_call(bad)
+    assert status in (400, 413) and body["error"] in ("bad_request", "too_large"), (bad, status, body)
+assert len(seen) == before, "a bad request never reaches the worker"
+assert test_call({"text": "x", "version": 1}, name="nobody") == (404, {"error": "not_found", "message": "No such agent."}) and test_call({"text": "x", "version": 1}, key="beta")[0] == 404, "another business's agent is not found"
+assert test_call({"text": "x" * 5000, "version": 1})[0] == 200 and len(seen[-1]["text"]) == core.MAX_QUESTION_CHARS, "long text is cut"
+event = {"rawPath": "/admin/agents/shop/test", "requestContext": {"http": {"method": "GET"}}, "headers": {"Authorization": "Bearer " + store.keys["acme"]}, "body": "", "isBase64Encoded": False}
+assert admin.handler(event, None, now=NOW, store=store, invoke=fake_worker)["statusCode"] == 405
+for answer, expect in (({"error": "bad_config", "message": "collections must list 1 to 5 shelf names."}, (400, "bad_config")), ({"error": "version_not_found"}, (404, "version_not_found")), ({"error": "cap_reached"}, (429, "cap_reached")),
+                       ({"error": "not_found"}, (404, "not_found")), ({"error": "registry_unavailable"}, (503, "registry_unavailable")), ({"error": "something new"}, (502, "test_failed")), ({"nonsense": 1}, (502, "test_failed")), ("text", (502, "test_failed")), (None, (502, "test_failed"))):
+    status, body = test_call({"text": "x", "version": 1}, invoke=lambda payload, answer=answer: answer)
+    assert (status, body["error"]) == expect, (answer, status, body)
+assert test_call({"text": "x", "version": 1}, invoke=lambda payload: {"error": "bad_config", "message": "collections must list 1 to 5 shelf names."})[1]["message"] == "collections must list 1 to 5 shelf names."
+def broken(payload):
+    raise RuntimeError("the worker failed with 4111 and Asha")
+
+
+status, body = test_call({"text": "my card is 4111", "version": 1}, invoke=broken)
+assert status == 500 and body["error"] == "try_again" and "4111" not in json.dumps(body) and "4111" not in "".join(LOGS), "a failing worker is a plain 500; the tester's words are in no response or log"
+print("  ok  the test route validates its body, takes the tenant from the key, cuts the text, never reaches the worker with a bad request, shows another business's agent as missing, and maps the worker's errors")
 
 # ---- nothing secret is returned or logged ----
 everything = json.dumps([call(store, "GET", "/admin/agents"), call(store, "GET", "/admin/agents/shop"), refusals]) + "\n".join(LOGS)

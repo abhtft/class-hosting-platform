@@ -1317,10 +1317,11 @@ Resources:
       Runtime: python3.12
       Architectures: [arm64]
       MemorySize: 256
-      Timeout: 10
+      Timeout: 29 # Studio's test chat waits for the worker's answer (the API's own limit is 30 seconds)
       Environment:
         Variables:
           CHATWOOT_TABLE: !Ref ChatwootTable
+          CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction
       Policies:
         - Statement:
             - Effect: Allow # the registry only (tenant#..., agent#...): single items, never a scan or a query, never a message item
@@ -1335,6 +1336,9 @@ Resources:
               Condition:
                 ForAllValues:StringLike:
                   dynamodb:LeadingKeys: ['agent#*']
+            - Effect: Allow # Studio's test chat: ask the one worker for a dry run and wait for its answer
+              Action: lambda:InvokeFunction
+              Resource: !GetAtt ChatwootWorkerFunction.Arn
       Events:
         Admin:
           Type: HttpApi
