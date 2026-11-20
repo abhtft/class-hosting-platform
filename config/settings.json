@@ -2239,6 +2239,21 @@
       ]
     },
     {
+      "key": "chatwoot.llmRetryPauseSeconds",
+      "group": "chatwoot",
+      "title": "Pause before asking the model again",
+      "help": "When the model answers 'too many requests' or 'busy' (HTTP 429 or 503) the worker waits this long and asks once more before giving up and handing the customer over. 0 switches the second try off.",
+      "unit": "seconds",
+      "default": 3,
+      "min": 0,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.LLM_RETRY_PAUSE_SECONDS"
+      ]
+    },
+    {
       "key": "chatwoot.maxCollections",
       "group": "chatwoot",
       "title": "Most shelves of one agent",

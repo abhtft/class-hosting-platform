@@ -138,6 +138,7 @@ SETTINGS = {
     "chatwoot.maxPassageChars": {"type": "int", "default": 6000, "min": 500, "max": 20000, "env": None},
     "chatwoot.llmMaxTokens": {"type": "int", "default": 400, "min": 50, "max": 2048, "env": None},
     "chatwoot.llmTimeoutSeconds": {"type": "int", "default": 24, "min": 5, "max": 28, "env": None},
+    "chatwoot.llmRetryPauseSeconds": {"type": "int", "default": 3, "min": 0, "max": 10, "env": None},
     "chatwoot.maxCollections": {"type": "int", "default": 5, "min": 1, "max": 10, "env": None},
     "chatwoot.maxInstructionChars": {"type": "int", "default": 4000, "min": 100, "max": 20000, "env": None},
     "chatwoot.answerCharsDefault": {"type": "int", "default": 600, "min": 50, "max": 2000, "env": None},

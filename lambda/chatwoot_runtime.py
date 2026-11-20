@@ -26,6 +26,7 @@ SEARCH_K = platform_settings.value("chatwoot.searchK")
 MAX_PASSAGE_CHARS = platform_settings.value("chatwoot.maxPassageChars")
 LLM_MAX_TOKENS = platform_settings.value("chatwoot.llmMaxTokens")
 LLM_TIMEOUT_SECONDS = platform_settings.value("chatwoot.llmTimeoutSeconds")
+LLM_RETRY_PAUSE_SECONDS = platform_settings.value("chatwoot.llmRetryPauseSeconds")
 MAX_COLLECTIONS = platform_settings.value("chatwoot.maxCollections")
 MAX_INSTRUCTION_CHARS = platform_settings.value("chatwoot.maxInstructionChars")
 ANSWER_CHARS_DEFAULT = platform_settings.value("chatwoot.answerCharsDefault")
@@ -215,7 +216,14 @@ def not_sure(text):
 def llm_gemini(messages, max_tokens, timeout=None):
     """One Gemini call with the platform's key: {"text", "model", "tokens", "cost_micro"}. Raises gemini.GeminiError."""
     model = gemini.DEFAULT_MODEL
-    data = gemini.chat({"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2}, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout)
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2}
+    try:
+        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout)
+    except gemini.GeminiError as error:
+        if not LLM_RETRY_PAUSE_SECONDS or error.status not in (429, 503):  # too many requests or busy: one more try after a short pause
+            raise
+        time.sleep(LLM_RETRY_PAUSE_SECONDS)
+        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout)
     choices = data.get("choices") if isinstance(data, dict) else None
     content = ((choices or [{}])[0].get("message") or {}).get("content") if choices else None
     usage = data.get("usage") if isinstance(data, dict) and isinstance(data.get("usage"), dict) else {}

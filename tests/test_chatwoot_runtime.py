@@ -272,6 +272,22 @@ try:
     assert body["max_tokens"] == 400 and body["model"] == gemini.DEFAULT_MODEL and body["messages"] == [{"role": "user", "content": "hi"}] and body["temperature"] == 0.2
     gemini.transport = lambda url, headers, body: (200, {"choices": [], "usage": None})
     assert rt.llm_gemini([], 10)["text"] == "" and rt.llm_gemini([], 10)["cost_micro"] == 0, "an odd answer is empty text, not a crash"
+    calls = []
+    sleeps = []
+    real_sleep = rt.time.sleep
+    rt.time.sleep = sleeps.append
+    answers = iter([(429, {"error": {"message": "slow down"}}), (200, {"choices": [{"message": {"content": "second try"}}], "usage": {}})])
+    gemini.transport = lambda url, headers, body: (calls.append(1), next(answers))[1]
+    assert rt.llm_gemini([], 10)["text"] == "second try" and len(calls) == 2 and sleeps == [rt.LLM_RETRY_PAUSE_SECONDS], "too many requests: one more try after a pause"
+    rt.time.sleep = real_sleep
+    gemini.transport = lambda url, headers, body: (400, {"error": {"message": "bad"}})
+    calls.clear()
+    try:
+        rt.llm_gemini([], 10)
+        raise AssertionError("a bad request must raise at once")
+    except gemini.GeminiError as error:
+        assert error.status == 400
+    rt.time.sleep = lambda s: None
     gemini.transport = lambda url, headers, body: (429, {"error": {"message": "slow down"}})
     try:
         rt.llm_gemini([], 10)
