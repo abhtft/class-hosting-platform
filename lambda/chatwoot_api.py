@@ -35,6 +35,7 @@ import urllib.request
 
 import chatwoot_core as core
 import chatwoot_handover as handover
+import chatwoot_media as media
 import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
@@ -55,6 +56,7 @@ DISTILL_MAX_TOKENS = INTERVIEW_MAX_TOKENS * len(interview_topics.TOPICS)  # the 
 SUITE_PARALLEL = platform_settings.value("chatwoot.suiteParallel")  # test cases run at the same time
 SUITE_RUN_DAYS = platform_settings.value("chatwoot.suiteRunDays")  # how long the record of a suite run is kept
 SUITE_BUDGET_SECONDS = platform_settings.value("chatwoot.suiteBudgetSeconds")  # no new case is started after this long: the worker has 120 seconds
+MEDIA_TIMEOUT_SECONDS = platform_settings.value("chatwoot.mediaSendTimeoutSeconds")  # one file uploaded into the chat
 AUTH_STYLE = platform_settings.value("chatwoot.authStyle")  # bearer, or api_access_token for a Chatwoot older than 4.19
 SECRET_PREFIX = "chatwoot/"  # the secret of agent <id> is named chatwoot/<id>; the template lets the functions read exactly this prefix
 ROUTE = re.compile(r"/hooks/chatwoot/([^/]+)")
@@ -174,8 +176,8 @@ def post_json(url, headers, body, timeout):
 
 
 class Deps:
-    def __init__(self, store, secrets, invoke=None, http=None, registry=None, runtime=None, memory=None):
-        self.store, self.secrets, self.invoke, self.http, self.registry, self.runtime, self.memory = store, secrets, invoke, http, registry, runtime, memory
+    def __init__(self, store, secrets, invoke=None, http=None, registry=None, runtime=None, memory=None, files=None):
+        self.store, self.secrets, self.invoke, self.http, self.registry, self.runtime, self.memory, self.files = store, secrets, invoke, http, registry, runtime, memory, files
 
 
 _receiver_deps = None
@@ -201,7 +203,8 @@ def default_worker_deps():
         table = os.environ.get("CHATWOOT_MEMORY_TABLE")  # the conversation memory's own table; without it the worker simply has no memory
         _worker_deps = Deps(store, Secrets(read_secret, credentials_of), http=post_json, registry=registry.Registry(store, ttl=0),
                              runtime=engine.real_runtime(),  # ttl 0: asks the table every time; the runtime searches the shelves and asks the model
-                             memory=memory.DynamoMemory(boto3.resource("dynamodb").Table(table)) if table else None)
+                             memory=memory.DynamoMemory(boto3.resource("dynamodb").Table(table)) if table else None,
+                             files=media.S3Files() if os.environ.get("BUCKET") else None)  # the media files of the agents (read only)
     return _worker_deps
 
 
@@ -262,7 +265,7 @@ def handler(event, context=None, now=None, deps=None):
         log("duplicate", agent=agent_id, message=fields["message_id"])
         return reply(200, ok=True, duplicate=True)
     try:
-        deps.invoke({"agent_id": agent_id, "delivery_id": delivery, "text": core.message_text(payload), "channel": core.channel_of(payload), **fields})  # the text goes to the worker in this event only
+        deps.invoke({"agent_id": agent_id, "delivery_id": delivery, "text": core.message_text(payload), "channel": core.channel_of(payload), "attachments": core.attachment_kinds(payload), **fields})  # the text goes to the worker in this event only
     except Exception as error:  # remove the item so Chatwoot's retry is accepted instead of being taken for a repeat
         deps.store.forget(key)
         log("hand_over_failed", agent=agent_id, error=type(error).__name__)
@@ -327,14 +330,16 @@ def remember(event, deps, text, metrics, now):
 def context_of(event):
     """What the system knows about where the message came from: the channel word (only a short lowercase word is accepted) and the inbox number."""
     channel = event.get("channel")
-    return {"channel": channel if isinstance(channel, str) and re.fullmatch(r"[a-z_]{1,40}", channel) else "", "inbox_id": event.get("inbox_id"), "facts": teach.clean_facts(event.get("facts"))}
+    kinds = [k for k in event.get("attachments") or [] if isinstance(k, str) and re.fullmatch(r"[a-z_]{1,20}", k)] if isinstance(event.get("attachments"), list) else []
+    return {"channel": channel if isinstance(channel, str) and re.fullmatch(r"[a-z_]{1,40}", channel) else "", "inbox_id": event.get("inbox_id"), "facts": teach.clean_facts(event.get("facts")),
+            "attachments": kinds[:5]}
 
 
 def answer_text(config, text, history, context, tenant_id, runtime, explain=False):
     """(reply, metrics, hand-over reason or None) for one customer message: the hand-over rules first, then the books. The reply is the agent's hand-over sentence when a reason is
     returned. Raises engine.RuntimeFailure when the answer could not be made. The one piece of logic behind both a real answer (compose) and Studio's dry run (test), so a test
     shows what a customer would get."""
-    reason = handover.decide(text, history, config["handover_on"])
+    reason = handover.decide(text, history, config["handover_on"], (context or {}).get("attachments"))
     if reason:  # a person is asked for, a complaint, a warm lead: no model call, nothing to search
         return config["handover_text"], {"route": "handover"}, reason
     made = engine.respond(config, text, tenant_id, runtime, history, context, explain)
@@ -364,6 +369,9 @@ def compose(event, agent, tenant, deps, now, history):
         spend(deps, key, failure.metrics, now)
         raise Refused(failure.reason, failure.metrics, config) from None
     spend(deps, key, metrics, now)
+    if metrics.get("media"):  # the items the model chose, for the worker to send after the text (a dry run only describes them)
+        by_id = {i["id"]: i for i in config.get("media") or []}
+        metrics["media_items"] = [by_id[i] for i in metrics["media"] if i in by_id]  # in the order the model chose
     return reply_text, metrics, reason
 
 
@@ -379,6 +387,7 @@ def dry_turn(config, text, history, context, tenant_id, deps, key, now):
     spend(deps, key, metrics, now)
     out = {"route": metrics.get("route"), "text": reply_text, "confident": bool(metrics.get("confident")), "explain": metrics.get("explain", []), "tokens": int(metrics.get("tokens") or 0),
            "spent_micro": int(metrics.get("cost_micro") or 0), "via": metrics.get("via"), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
+    out["media"] = media.describe([i for i in config.get("media") or [] if i["id"] in (metrics.get("media") or [])])
     if reason:
         out.update(route="handover", reason=reason, failure=False, note=handover.note_text(reason, history, text))
     return out
@@ -714,6 +723,52 @@ def prepare(event, deps):
     return {"base": base, "agent": agent, "tenant": tenant, "credentials": credentials}
 
 
+def send_media(event, deps, ready, items):
+    """Post the chosen media after the text answer: [[id, outcome]] with outcome attached (a real attachment), link (the address or a short-lived link instead), failed, or unknown (the
+    call timed out, so it may have arrived: nothing is sent twice). Never raises and never changes the answer that was already sent."""
+    base, token = ready["base"], ready["credentials"]["api_token"]
+    ids = (event["account_id"], event["conversation_id"])
+    prefix = f"{media.PREFIX}{ready['tenant']['tenant_id']}/{event['agent_id']}/"
+
+    def text_message(text):
+        try:
+            status, raw = deps.http(*core.reply_request(base, AUTH_STYLE, token, *ids, text), HTTP_TIMEOUT_SECONDS)
+        except NetworkFailure:
+            return False
+        return core.reply_result(status, raw)[0] == "replied"
+
+    def send_file(item):
+        if deps.files is None or not item["key"].startswith(prefix):  # only this agent's own files
+            return "failed"
+        data = deps.files.get(item["key"], media.max_bytes(item["kind"]))
+        if data is None or not media.looks_like(item["key"], data):
+            return "failed"
+        try:
+            status, raw = deps.http(*core.attachment_request(base, AUTH_STYLE, token, *ids, media.file_name(item), media.mime_of(item["key"]), data, item["name"]), MEDIA_TIMEOUT_SECONDS)
+            if core.reply_result(status, raw)[0] == "replied":
+                return "attached"
+        except TimeoutFailure:
+            return "unknown"
+        except NetworkFailure:
+            pass
+        return "link" if text_message(media.link_text(item, deps.files.link(item["key"], media.LINK_SECONDS))) else "failed"
+
+    sent = []
+    for item in items:
+        try:
+            if item["kind"] in ("link", "location"):
+                outcome = "link" if text_message(media.link_text(item)) else "failed"
+            else:
+                outcome = send_file(item)
+        except Exception as error:  # a file that cannot be read, a store that is down: the customer has the text answer already
+            log("media_error", agent=event["agent_id"], media=item["id"], error=type(error).__name__)
+            outcome = "failed"
+        if outcome in ("failed", "unknown"):
+            log("media_not_sent", agent=event["agent_id"], media=item["id"], outcome=outcome)
+        sent.append([item["id"], outcome])
+    return sent
+
+
 def answer(event, deps, now=None):
     """What the worker does with an accepted message: answer from the books and post the reply, or hand the conversation to a person. Returns {"status": "replied",
     "reply_id": n or None, "metrics": {...}} or {"status": "failed", "reason": code, "metrics": {...}}. Every refusal before the answer is made happens before anything is
@@ -730,6 +785,7 @@ def answer(event, deps, now=None):
             return failed(refusal.reason, refusal.metrics)
         sentence = (refusal.config or {}).get("handover_text")  # an answer that could not be made: the customer must not be left in silence
         return hand_over_outcome(event, deps, ready, refusal.reason, sentence, history, refusal.metrics, now)
+    items = metrics.pop("media_items", None) or []
     if reason:
         return hand_over_outcome(event, deps, ready, reason, text, history, metrics, now)
     url, headers, body = core.reply_request(ready["base"], AUTH_STYLE, ready["credentials"]["api_token"], event["account_id"], event["conversation_id"], text)
@@ -743,6 +799,8 @@ def answer(event, deps, now=None):
     if kind != "replied":
         return failed(detail, metrics)
     remember(event, deps, text, metrics, now)
+    if items:
+        metrics = {**metrics, "media": send_media(event, deps, ready, items)}
     return {"status": "replied", "reply_id": detail, "metrics": metrics}
 
 

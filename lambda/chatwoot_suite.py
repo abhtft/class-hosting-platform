@@ -7,7 +7,7 @@ A case:
   {"id": "price-sm", "title": "Social media price", "severity": "must" | "should", "channel": "whatsapp", "inbox_id": 16,
    "turns": ["social media management ka kitna lagega?"],                 (1 to chatwoot.suiteMaxTurns customer messages; the last answer is checked)
    "checks": {"route": "rag" | "fallback" | "handover" | "agent", "handover_reason": "person_asked", "contains_all": ["2,000"], "contains_any": ["3,000", "Rs 3000"],
-              "must_not_contain": ["PWNED"], "script": "devanagari" | "latin", "source_contains": ["prices"], "max_chars": 700}}
+              "must_not_contain": ["PWNED"], "script": "devanagari" | "latin", "source_contains": ["prices"], "max_chars": 700, "media_ids": ["office_video"], "no_media": true}}
 
 Every case also gets the DEFAULT checks: no markdown, no leaked rule words, and not longer than the agent's own limit. Text is compared case-insensitively, and a number written with
 different spaces or hyphens ("91892 25257" and "9189225257") is the same number. Nothing here uses a second model: an LLM judge would itself drift.
@@ -24,7 +24,7 @@ SEVERITIES = ("must", "should")
 ROUTES = ("rag", "fallback", "handover", "agent")
 SCRIPTS = ("devanagari", "latin")
 LIST_CHECKS = ("contains_all", "contains_any", "must_not_contain", "source_contains")
-CHECK_NAMES = ("route", "handover_reason", "script", "max_chars") + LIST_CHECKS
+CHECK_NAMES = ("route", "handover_reason", "script", "max_chars", "media_ids", "no_media") + LIST_CHECKS
 _ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 _CHANNEL = re.compile(r"[a-z_]{1,40}")
 _MARKDOWN = re.compile(r"\*\*|__|^\s{0,3}#{1,6}\s|```|^\s*[-*]\s+\S.*\n\s*[-*]\s+\S", re.MULTILINE)
@@ -97,6 +97,15 @@ def clean_case(case, position):
     for name in LIST_CHECKS:
         if name in checks:
             clean[name] = _text_list(checks[name], name, case_id)
+    if "media_ids" in checks:
+        ids = checks["media_ids"]
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 5 or not all(isinstance(i, str) and re.fullmatch(r"[a-z0-9_]{1,24}", i) for i in ids):
+            raise Invalid(f"Case {case_id}: media_ids must list 1 to 5 media ids (lowercase letters, digits and _).")
+        clean["media_ids"] = list(ids)
+    if "no_media" in checks:
+        if checks["no_media"] is not True:
+            raise Invalid(f"Case {case_id}: no_media can only be true (no media must be sent).")
+        clean["no_media"] = True
     out["checks"] = clean
     return out
 
@@ -166,6 +175,12 @@ def evaluate(case, result, config):
                 fail("source_contains", needle, ", ".join(used) or "no book used")
     if "max_chars" in checks and len(text) > checks["max_chars"]:
         fail("max_chars", checks["max_chars"], len(text))
+    sent = [str(m.get("id")) for m in result.get("media") or [] if isinstance(m, dict)]
+    for wanted in checks.get("media_ids", []):
+        if wanted not in sent:
+            fail("media_ids", wanted, ", ".join(sent) or "no media sent")
+    if checks.get("no_media") and sent:
+        fail("no_media", "no media", ", ".join(sent))
     # the default checks of every case
     if _MARKDOWN.search(text):
         fail("no_markdown", "plain chat text", "markdown found")

@@ -30,6 +30,7 @@ import secrets
 import time
 
 import chatwoot_core as core
+import chatwoot_media as media
 import chatwoot_memory as memory
 import chatwoot_registry as reg
 import chatwoot_suite as suite
@@ -45,6 +46,7 @@ AGENT = re.compile(rf"/admin/agents/({_NAME})")
 VERSION = re.compile(rf"/admin/agents/({_NAME})/versions/([0-9]{{1,6}})")
 LIVE = re.compile(rf"/admin/agents/({_NAME})/live")
 TEST = re.compile(rf"/admin/agents/({_NAME})/test")
+MEDIA_UPLOAD = re.compile(rf"/admin/agents/({_NAME})/media/upload-url")
 SUITE = re.compile(rf"/admin/agents/({_NAME})/suite")
 TEACH = re.compile(rf"/admin/agents/({_NAME})/teach")
 TEACH_ONE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})")
@@ -148,11 +150,35 @@ def put_agent(store, tenant, name, body, now):
     return 200, view(updated)
 
 
-def put_version(store, tenant, name, number, body, now):
+def check_media(config, tenant, name, files):
+    """The version's media list must be well formed, belong to this agent, and (when the file store is at hand) the files must really be uploaded."""
+    try:
+        items = media.clean_items(config.get("media"), tenant["tenant_id"], name)
+        if files is None and any(i["kind"] in media.FILE_KINDS for i in items) and os.environ.get("BUCKET"):
+            files = media.S3Files()
+        for item in items:
+            if files is not None and item["kind"] in media.FILE_KINDS and not files.size(item["key"]):
+                raise media.Invalid(f"Media {item['id']}: the file was not uploaded. Upload it again.")
+    except media.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+
+
+def media_upload(store, tenant, name, body, files):
+    agent = owned(store, tenant, name)
+    if agent is None:
+        return problem(404, "not_found", "No such agent.")
+    try:
+        return 200, media.upload_form(files, tenant["tenant_id"], name, body)
+    except media.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+
+
+def put_version(store, tenant, name, number, body, now, files=None):
     agent = owned(store, tenant, name)
     if agent is None:
         return problem(404, "not_found", "No such agent.")
     config = reg.clean_config(body)
+    check_media(config, tenant, name, files)
     versions = agent.get("versions") or 0
     if number > reg.MAX_VERSIONS:
         return problem(409, "version_limit", f"An agent may have at most {reg.MAX_VERSIONS} versions.")
@@ -629,7 +655,7 @@ def save_teach_test(store, tenant, name, sid, number, now):
     return 201, {"case": case, "note": note, "suite_rev": saved["rev"]}
 
 
-def route(store, tenant, method, path, event, now, invoke=None):
+def route(store, tenant, method, path, event, now, invoke=None, files=None):
     if LIST.fullmatch(path):
         if method != "GET":
             return problem(405, "method_not_allowed", "Use GET.")
@@ -659,7 +685,7 @@ def route(store, tenant, method, path, event, now, invoke=None):
                 return problem(404, "not_found", "No such version.")
             return 200, {"version": number, "config": version["config"], "published_at": version.get("published_at"), "live": agent.get("live_version") == number}
         if method == "PUT" and number >= 1:
-            return put_version(store, tenant, name, number, parse_body(event), now)
+            return put_version(store, tenant, name, number, parse_body(event), now, files)
         return problem(405 if number >= 1 else 404, "method_not_allowed" if number >= 1 else "not_found", "Use GET or PUT, with a version number of 1 or more.")
     found = LIVE.fullmatch(path)
     if found:
@@ -706,6 +732,11 @@ def route(store, tenant, method, path, event, now, invoke=None):
         if method == "GET":
             return get_suite(store, tenant, found.group(1))
         return put_suite(store, tenant, found.group(1), parse_body(event), now) if method == "PUT" else problem(405, "method_not_allowed", "Use GET or PUT.")
+    found = MEDIA_UPLOAD.fullmatch(path)
+    if found:
+        if method != "POST":
+            return problem(405, "method_not_allowed", "Use POST.")
+        return media_upload(store, tenant, found.group(1), parse_body(event), files or media.S3Files())
     found = TEST.fullmatch(path)
     if found:
         if method != "POST":
@@ -714,7 +745,7 @@ def route(store, tenant, method, path, event, now, invoke=None):
     return problem(404, "not_found", "No such route.")
 
 
-def handler(event, context=None, now=None, store=None, invoke=None):
+def handler(event, context=None, now=None, store=None, invoke=None, files=None):
     now = int(now if now is not None else time.time())
     store = store or default_store()
     headers = {name.lower(): value for name, value in (event.get("headers") or {}).items()}
@@ -726,7 +757,7 @@ def handler(event, context=None, now=None, store=None, invoke=None):
     if tenant is None:
         return reply(401, {"error": "unauthorized", "message": "Send the business's service key as: Authorization: Bearer cs_..."})
     try:
-        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now, invoke)
+        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now, invoke, files)
     except reg.Invalid as error:
         return reply(400, {"error": "bad_request", "message": str(error)})
     except OverflowError:

@@ -83,11 +83,11 @@ assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn
 assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", worker), "the bot token and account id: secrets named chatwoot/..."
 assert worker.count("Action: secretsmanager:") == 2, "exactly two secret statements: the bot token and the platform's Google key"
 code = re.sub(r"#[^\n]*", "", worker)
-assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["bedrock:InvokeModel", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these single-action permissions"
+assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["bedrock:InvokeModel", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these single-action permissions"
 bedrock_resources = re.findall(r"bedrock:[^\s']*", code)
 assert sorted(bedrock_resources) == sorted(['bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-5-5', 'bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-5', 'bedrock:*::foundation-model/anthropic.claude-haiku-5-5', 'bedrock:*::foundation-model/anthropic.claude-sonnet-5-5', 'bedrock:InvokeModel']), "Bedrock: asking the two offered Claude models, nothing else of Bedrock"
 assert re.findall(r"Action: \[([\w:, ]+)\]", code) == ["dynamodb:GetItem, dynamodb:PutItem"], "and one pair, on the memory table only"
-assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}/knowledge/tenant/*"], "objects under knowledge/tenant/ only (not the class library, not a student's shelf, not a site)"
+assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}/knowledge/tenant/*", "${SitesBucket.Arn}/chatwoot-media/*"], "objects under knowledge/tenant/ (read the shelves) and chatwoot-media/ (read the owners' media) only: not the class library, not a student's shelf, not a site"
 for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:*", "s3:PutObject", "s3:DeleteObject", "s3:*", "TokensTable", "kms:", "iam:", "ssm:", "cloudfront",
                   "StudentDataTable", "TracesTable", "Resource: '*'", "Action: '*'", "knowledge/student", "knowledge/class", "sites/", "portal/"):
     assert forbidden not in code, f"the worker must not have {forbidden}"
@@ -125,8 +125,9 @@ assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootW
 assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*', 'suite#\*', 'suitestate#\*', 'suiterun#\*', 'teach#\*', 'teachidx#\*'\]", admin), "the registry, the suite's and the teach sessions' items, one at a time"
 assert re.search(r"Action: dynamodb:DeleteItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'suiterun#\*'\]", admin), "it may remove an agent item and a run it could not start, nothing else"
 code = re.sub(r"#[^\n]*", "", admin)
-assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "dynamodb:DeleteItem", "lambda:InvokeFunction"], "exactly these permissions"
-for forbidden in ("secretsmanager:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem", "dynamodb:*", "msg#", "TokensTable", "SitesBucket", "s3:", "kms:", "ChatwootMemoryTable",
+assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "[s3:PutObject, s3:GetObject]", "dynamodb:DeleteItem", "lambda:InvokeFunction"], "exactly these permissions"
+assert re.search(r"Action: \[s3:PutObject, s3:GetObject\]\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/chatwoot-media/\*'", admin) and re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}/chatwoot-media/*"], "the admin function writes and checks the owners' media files under chatwoot-media/ only (it signs the upload forms)"
+for forbidden in ("secretsmanager:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem", "dynamodb:*", "msg#", "TokensTable", "s3:DeleteObject", "s3:ListBucket", "s3:*", "kms:", "ChatwootMemoryTable",
                   "iam:", "ssm:", "cloudfront", "StudentDataTable", "TracesTable", "AiSecretName", "Resource: '*'", "Action: '*'", "VpcConfig"):
     assert forbidden not in code, f"the admin function must not have {forbidden}"
 assert "ChatwootAdminFunction" not in block("ChatwootReceiverFunction") and "/admin" not in block("ChatwootReceiverFunction"), "the webhook function does not serve the admin routes"

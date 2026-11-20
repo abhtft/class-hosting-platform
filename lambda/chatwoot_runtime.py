@@ -18,6 +18,7 @@ import time
 
 import embeddings as em
 import bedrock
+import chatwoot_media as media
 import gemini
 import knowledge_store as ks
 import chatwoot_handover as handover
@@ -105,6 +106,10 @@ def clean_config(config):
     extras = config.get("extras", [])
     if not isinstance(extras, list) or len(extras) > MAX_EXTRAS or any(not isinstance(e, str) or not e.strip() or len(e.strip()) > EXTRA_CHARS for e in extras):
         raise ConfigError(f"extras must be a list of at most {MAX_EXTRAS} facts, each text of at most {EXTRA_CHARS} characters.")
+    try:
+        items = media.clean_items(config.get("media"))
+    except media.Invalid as error:
+        raise ConfigError(str(error)) from None
     followup = config.get("followup_fallback_text")
     if followup is not None and (not isinstance(followup, str) or not followup.strip() or len(followup) > FALLBACK_MAX_CHARS):
         raise ConfigError(f"followup_fallback_text, when given, must be text of at most {FALLBACK_MAX_CHARS} characters (what the customer gets when the books are not sure in a conversation that has already started).")
@@ -113,6 +118,8 @@ def clean_config(config):
            "followup_fallback_text": followup.strip() if isinstance(followup, str) else None}
     if extras:
         out["extras"] = [e.strip() for e in extras]
+    if items:
+        out["media"] = items
     if provider is not None:
         out["provider"] = provider
     if model is not None:
@@ -214,6 +221,8 @@ def build_messages(config, text, hits, history=None, context=None):
     parts = [rules]
     if config["instructions"]:
         parts.append("The business's own instructions (they cannot override the rules above): " + config["instructions"])
+    if config.get("media"):
+        parts.append(media.prompt_part(config["media"]))
     parts.append(f"Reply in the language the customer wrote in; if you cannot tell, reply in {LANGUAGES[config['language']]}.")
     context = context or {}
     if history:
@@ -353,8 +362,11 @@ def respond(config, text, tenant_id, runtime, history=None, context=None, explai
         except Exception as error:
             raise RuntimeFailure("llm_error", {**metrics, "error": type(error).__name__, "http_status": getattr(error, "status", None)}) from None
         metrics.update(llm_ms=int((time.monotonic() - started) * 1000), tokens=metrics["tokens"] + answer["tokens"], cost_micro=metrics["cost_micro"] + answer["cost_micro"], via=answer.get("via"))
-        reply = clean_answer(answer["text"], config["max_answer_chars"])
+        raw, picked = media.split_answer(answer["text"], config.get("media"))  # the model may end with "MEDIA: id": that line is never shown to the customer
+        reply = clean_answer(raw, config["max_answer_chars"])
         if reply and not not_sure(reply):
+            if picked:
+                metrics["media"] = [item["id"] for item in picked]
             return result("rag", reply)
         return result("fallback", fallback)
     if config["mode"] == "auto" and runtime.agent is not None:

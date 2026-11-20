@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import json
 import re
+import uuid
 from urllib.parse import urlsplit
 
 import platform_settings
@@ -119,6 +120,18 @@ def message_text(payload):
     return content.strip()[:MAX_QUESTION_CHARS] if isinstance(content, str) else ""
 
 
+def attachment_kinds(payload):
+    """The kinds of file the customer's message carries ("image", "audio", "video", "file", "location"...), at most five short words and nothing else about them: the bot does
+    not read a file, it only needs to know there is one."""
+    items = payload.get("attachments") if isinstance(payload, dict) else None
+    kinds = []
+    for item in items if isinstance(items, list) else []:
+        kind = item.get("file_type") if isinstance(item, dict) else None
+        if isinstance(kind, str) and re.fullmatch(r"[a-z_]{1,20}", kind) and kind not in kinds:
+            kinds.append(kind)
+    return kinds[:5]
+
+
 # ---------- the reply (step T2) ----------
 
 def reply_text(message_id):
@@ -160,6 +173,18 @@ def reply_request(base_url, style, token, account_id, conversation_id, text, pri
     else:
         raise ValueError("unknown auth style")
     return url, headers, json.dumps({"content": text, "message_type": "outgoing", "private": bool(private)}).encode("utf8")
+
+
+def attachment_request(base_url, style, token, account_id, conversation_id, filename, mime, data, caption="", boundary=None):
+    """(url, headers, body) of Create New Message with ONE file attached (a multipart form: the same call, the same token and checks as a reply). `filename` and `mime` are
+    ours (chatwoot_media), never the customer's."""
+    url, headers, _ = reply_request(base_url, style, token, account_id, conversation_id, "")
+    boundary = boundary or "----classplatform" + uuid.uuid4().hex
+    fields = (("content", caption), ("message_type", "outgoing"), ("private", "false"))
+    body = b"".join(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode("utf8") for name, value in fields)
+    body += (f'--{boundary}\r\nContent-Disposition: form-data; name="attachments[]"; filename="{filename}"\r\nContent-Type: {mime}\r\n\r\n').encode("utf8") + bytes(data) + f"\r\n--{boundary}--\r\n".encode("utf8")
+    headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
+    return url, headers, body
 
 
 def status_request(base_url, style, token, account_id, conversation_id, status):

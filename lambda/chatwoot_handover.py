@@ -9,6 +9,7 @@ The reasons (the first that applies, in this order):
   complaint     a complaint or an angry or money-trouble word ("fraud", "dhokha", "refund chahiye", ...); a plain question about the refund policy is NOT one
   warm_lead     the customer shares a mobile number, or says they want to go ahead or visit ("book karna", "aana hai", ...): speed matters, the team is told at once
   stuck         the books were not sure on two messages in a row (decided by the worker from the conversation memory)
+  customer_media  the customer sent a photo, voice note, file or place with no words: the bot does not read these, so a person looks at them
 Failures of the answer (the model, the search, the spend cap) and stuck message items found by the sweeper hand over too (chatwoot_api.py / chatwoot_sweeper.py).
 A hand-over never repeats: when the last remembered turn was a hand-over the rules do not fire again.
 The word lists are short on purpose and are a first version: they are read from the customer's own words in the event and nothing here stores them.
@@ -19,7 +20,7 @@ import platform_settings
 
 NOTE_MAX_CHARS = platform_settings.value("chatwoot.noteMaxChars")
 
-TRIGGERS = ("person_asked", "complaint", "warm_lead", "stuck")
+TRIGGERS = ("person_asked", "complaint", "warm_lead", "stuck", "customer_media")
 FAILURE_REASONS = ("llm_error", "retrieval_error", "no_shelf", "cap_reached", "bad_config", "agent_error")  # an answer that could not be made: the customer must not be left in silence
 DEFAULT_TEXT = "Dhanyavaad! Aapki jankari hamari team ko mil gayi hai. Team jaldi aapse sampark karegi (Mon-Sat, 9 AM se 6 PM). Tab tak aap yahin likh sakte hain."
 
@@ -46,6 +47,7 @@ LABELS = {
     "complaint": "the customer wrote a complaint or an angry message",
     "warm_lead": "the customer shared a mobile number or wants to go ahead: a warm lead",
     "stuck": "the bot could not answer two messages in a row",
+    "customer_media": "the customer sent a photo, voice note, file or location without any words (the bot does not read these): please open the conversation",
     "stuck_item": "the bot's reply to the last message may not have been delivered (the worker did not finish): please read this conversation",
 }
 
@@ -54,13 +56,14 @@ def _has(text, pattern, words):
     return bool(pattern.search(text)) or any(word in text for word in words)
 
 
-def decide(text, history, on):
-    """The reason to hand over for this message, or None. `on` is the agent's list of enabled reasons; `history` the remembered turns (a hand-over is not repeated)."""
+def decide(text, history, on, attachments=()):
+    """The reason to hand over for this message, or None. `on` is the agent's list of enabled reasons; `history` the remembered turns (a hand-over is not repeated); `attachments`
+    the kinds of file the message carries (words only: the file itself is never read)."""
     if history and history[-1].get("h") == 1:
         return None
     lowered = str(text or "").lower()
     if not lowered.strip():
-        return None
+        return "customer_media" if attachments and "customer_media" in on else None
     if "person_asked" in on and _has(lowered, _PERSON, _PERSON_DEVANAGARI):
         return "person_asked"
     if "complaint" in on and _has(lowered, _COMPLAINT, _COMPLAINT_DEVANAGARI):

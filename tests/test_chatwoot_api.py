@@ -122,7 +122,7 @@ def call(fakes, ev, now=NOW):
 f = Fakes()
 status, body = call(f, event(SAMPLE))
 assert (status, body) == (200, {"ok": True, "accepted": True}), (status, body)
-assert len(f.invoked) == 1 and f.invoked[0] == {"agent_id": "shop", "delivery_id": "d-1", "text": TEXT, "channel": "", "message_id": 501, "conversation_id": 12, "account_id": 1, "inbox_id": 3}, "the text reaches the worker in the event only"
+assert len(f.invoked) == 1 and f.invoked[0] == {"agent_id": "shop", "delivery_id": "d-1", "text": TEXT, "channel": "", "attachments": [], "message_id": 501, "conversation_id": 12, "account_id": 1, "inbox_id": 3}, "the text reaches the worker in the event only"
 item = f.store.items["msg#shop#501"]
 assert item["status"] == "received" and item["received_at"] == NOW and item["ttl"] == NOW + api.DEDUPE_TTL_DAYS * 86400 and item["delivery_id"] == "d-1"
 stored = json.dumps(f.store.items)  # the table; the event to the worker carries the text on purpose and is not stored anywhere
@@ -1107,7 +1107,7 @@ for leak in (SECRET, TOKEN, "forged", "sha256=", "4111", "Asha", "Verma", EMAIL,
     assert leak not in logged, f"{leak!r} must never be logged"
 print("  ok  the log lines hold names, reasons and ids only: no secret, no signature, no message text, no name")
 
-assert api.context_of({"channel": "web_widget", "facts": [" a ", "", 5]}) == {"channel": "web_widget", "inbox_id": None, "facts": ["a"]} and api.context_of({})["facts"] == [], "the facts of a teach session reach the answer, trimmed"
+assert api.context_of({"channel": "web_widget", "facts": [" a ", "", 5]}) == {"channel": "web_widget", "inbox_id": None, "facts": ["a"], "attachments": []} and api.context_of({})["facts"] == [], "the facts of a teach session reach the answer, trimmed"
 # ---- the interviewer of a teach session (T-B): a question about a topic, the list of what was learned, the limits ----
 def interview_event(**more):
     return {"kind": "interview", "tenant_id": "acme", "agent_id": "shop", "version": 1, "topic": "prices", "facts": ["Asked: a? The client answered: b"], "recent": ["Client answered: b"], "weak": ["Price question"], **more}

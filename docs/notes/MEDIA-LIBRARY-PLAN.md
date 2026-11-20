@@ -1,6 +1,6 @@
 # Media library: the agent can SEND photos, videos, files and links (plan v1, not built)
 
-Status: plan only. Nothing is changed in code. Decisions D1 to D5 below wait for the owner.
+Status: decisions D1 to D5 all answered A by the owner (2026-11-21). M1 (platform side) is built and tested locally, not deployed. One change from the design below: the items are stored inside the version's configuration (`config.media`), not as separate table items, so a version is pinned to its files without extra records; the files are in S3 under `chatwoot-media/`. A rule not built: an item is not limited to once per conversation (the model decides each time).
 
 ## 1. What we want (in the owner's words)
 

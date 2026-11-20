@@ -47,7 +47,7 @@ assert note == "Bot hand-over: the customer shared a mobile number or wants to g
 assert ho.note_text("llm_error", [], "") == "Bot hand-over: the bot could not answer (llm_error)."
 assert "may not have been delivered" in ho.note_text("stuck_item", [], "") and "stuck" not in ho.label("person_asked")
 assert len(ho.note_text("stuck", [{"c": "x" * 400, "b": "y" * 400}] * 6, "z" * 400)) == ho.NOTE_MAX_CHARS == 1500
-assert set(ho.TRIGGERS) == {"person_asked", "complaint", "warm_lead", "stuck"} and "cap_reached" in ho.FAILURE_REASONS and "no_live_version" not in ho.FAILURE_REASONS, "no live version is silence on purpose"
+assert set(ho.TRIGGERS) == {"person_asked", "complaint", "warm_lead", "stuck", "customer_media"} and "cap_reached" in ho.FAILURE_REASONS and "no_live_version" not in ho.FAILURE_REASONS, "no live version is silence on purpose"
 assert 0 < len(ho.DEFAULT_TEXT) <= 500
 print("  ok  the private note says why and shows the last messages, is cut to the setting, and an agent with no live version stays silent on purpose")
 

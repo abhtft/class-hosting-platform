@@ -1278,6 +1278,9 @@ Resources:
               Condition:
                 StringLike:
                   s3:prefix: ['knowledge/tenant/*']
+            - Effect: Allow # the media of the agents (photos, videos, files the owner uploaded), read only: to attach one to a reply, or to give a short-lived link
+              Action: s3:GetObject
+              Resource: !Sub '${SitesBucket.Arn}/chatwoot-media/*'
             - Effect: Allow # the platform's Google key (this one secret): to embed a customer's question and to ask the model
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
@@ -1361,6 +1364,9 @@ Resources:
             - Effect: Allow # Studio's test chat: ask the one worker for a dry run and wait for its answer
               Action: lambda:InvokeFunction
               Resource: !GetAtt ChatwootWorkerFunction.Arn
+            - Effect: Allow # media upload forms and the check that a file arrived: only chatwoot-media/ (the form is signed with this role, so it can write nowhere else, and only up to the announced size)
+              Action: [s3:PutObject, s3:GetObject]
+              Resource: !Sub '${SitesBucket.Arn}/chatwoot-media/*'
       Events:
         Admin:
           Type: HttpApi

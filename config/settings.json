@@ -2453,6 +2453,154 @@
       ]
     },
     {
+      "key": "chatwoot.mediaMaxItems",
+      "group": "chatwoot",
+      "title": "Most media items of one agent version",
+      "help": "How many photos, videos, files and links one agent version may list in its media library.",
+      "default": 30,
+      "min": 1,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.MAX_ITEMS"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaMaxPerReply",
+      "group": "chatwoot",
+      "title": "Most media sent with one reply",
+      "help": "The agent sends at most this many media items with one answer; more asked for by the model are dropped.",
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.MAX_PER_REPLY"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaNameChars",
+      "group": "chatwoot",
+      "title": "Longest media name",
+      "help": "The name of a media item (what the customer sees as the caption or file name).",
+      "unit": "characters",
+      "default": 80,
+      "min": 10,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.NAME_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaDescriptionChars",
+      "group": "chatwoot",
+      "title": "Longest media description",
+      "help": "The description of a media item: what it is and when to send it. The agent chooses media only from these words.",
+      "unit": "characters",
+      "default": 300,
+      "min": 20,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.DESCRIPTION_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaImageMaxKB",
+      "group": "chatwoot",
+      "title": "Largest photo",
+      "help": "The biggest photo (jpg, png, webp) the library accepts. WhatsApp itself takes 5 MB.",
+      "unit": "KB",
+      "default": 5120,
+      "min": 64,
+      "max": 16384,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.IMAGE_MAX_BYTES"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaVideoMaxKB",
+      "group": "chatwoot",
+      "title": "Largest video",
+      "help": "The biggest video (mp4) the library accepts. WhatsApp itself takes 16 MB.",
+      "unit": "KB",
+      "default": 16384,
+      "min": 256,
+      "max": 65536,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.VIDEO_MAX_BYTES"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaDocumentMaxKB",
+      "group": "chatwoot",
+      "title": "Largest document",
+      "help": "The biggest document (pdf, docx, xlsx) the library accepts.",
+      "unit": "KB",
+      "default": 20480,
+      "min": 64,
+      "max": 102400,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.DOCUMENT_MAX_BYTES"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaUploadSeconds",
+      "group": "chatwoot",
+      "title": "Time to upload a media file",
+      "help": "How long the upload address that Studio gets for one file stays valid.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 60,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.UPLOAD_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaLinkSeconds",
+      "group": "chatwoot",
+      "title": "Life of a fallback file link",
+      "help": "When a file cannot be attached to the chat, the customer gets a link instead; it stops working after this long.",
+      "unit": "seconds",
+      "default": 3600,
+      "min": 300,
+      "max": 86400,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_media.LINK_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.mediaSendTimeoutSeconds",
+      "group": "chatwoot",
+      "title": "Time to send one media file",
+      "help": "How long the worker waits for Chatwoot when it uploads one file into the chat (a photo or a video takes longer than a text).",
+      "unit": "seconds",
+      "default": 30,
+      "min": 5,
+      "max": 60,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.MEDIA_TIMEOUT_SECONDS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
