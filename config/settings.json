@@ -2258,6 +2258,111 @@
       ]
     },
     {
+      "key": "chatwoot.teachDefaultHours",
+      "group": "chatwoot",
+      "title": "Hours a teach session lasts",
+      "help": "How long the link of a teach session works when the owner does not choose (the client talks to the agent, marks answers right or wrong and corrects them). The longest an owner may choose is the maximum.",
+      "unit": "hours",
+      "default": 2,
+      "min": 1,
+      "max": 72,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.DEFAULT_HOURS"
+      ]
+    },
+    {
+      "key": "chatwoot.teachMaxTurns",
+      "group": "chatwoot",
+      "title": "Most turns in a teach session",
+      "help": "How many questions, facts and verdicts one teach session holds before it is full. A session is one stored item, so this also keeps it small.",
+      "unit": "turns",
+      "default": 150,
+      "min": 10,
+      "max": 300,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.MAX_TURNS"
+      ]
+    },
+    {
+      "key": "chatwoot.teachTextChars",
+      "group": "chatwoot",
+      "title": "Longest text in a teach session",
+      "help": "The longest question, fact or correction the client may write in a teach session.",
+      "unit": "characters",
+      "default": 600,
+      "min": 50,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.TEXT_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.teachCapUsd",
+      "group": "chatwoot",
+      "title": "Spend cap of a teach session",
+      "help": "How much the answers of one teach session may cost when the owner does not choose. The session stops taking questions when it is reached. The business's monthly cap also counts.",
+      "unit": "US dollars",
+      "default": 1.0,
+      "min": 0.1,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.DEFAULT_CAP_USD"
+      ]
+    },
+    {
+      "key": "chatwoot.teachRetentionDays",
+      "group": "chatwoot",
+      "title": "Days a teach session is kept",
+      "help": "How long what the client said in a teach session is kept after the link expires, then it is deleted by itself.",
+      "unit": "days",
+      "default": 90,
+      "min": 7,
+      "max": 365,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.RETENTION_DAYS"
+      ]
+    },
+    {
+      "key": "chatwoot.teachFacts",
+      "group": "chatwoot",
+      "title": "Facts a teach session applies at once",
+      "help": "How many of the client's corrections and facts the agent treats as true inside the session while it goes on (the newest ones). They change no version.",
+      "unit": "facts",
+      "default": 20,
+      "min": 1,
+      "max": 50,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.MAX_FACTS"
+      ]
+    },
+    {
+      "key": "chatwoot.teachSessionsKept",
+      "group": "chatwoot",
+      "title": "Teach sessions listed per agent",
+      "help": "How many of an agent's latest teach sessions the owner's list shows.",
+      "unit": "sessions",
+      "default": 50,
+      "min": 10,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.MAX_SESSIONS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
@@ -3644,6 +3749,14 @@
     }
   ],
   "fixed": [
+    {
+      "code": "chatwoot_teach.MICRO",
+      "reason": "Unit conversion (one US dollar is a million micro-dollars), not a choice."
+    },
+    {
+      "code": "chatwoot_teach.NAME_MAX",
+      "reason": "The longest name a client may give in a teach session; a name is a label, not a limit anyone needs to tune."
+    },
     {
       "code": "bedrock.MODELS",
       "reason": "The models offered on Bedrock with their inference profile and AWS list price (USD per million tokens); a price change is a code change, or the AI_BEDROCK_PRICES override."

@@ -122,7 +122,7 @@ assert "/hooks/chatwoot" not in admin and "BackendApi" not in admin and "Gateway
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in admin and "CHATWOOT_BASE_URL" not in admin and "CHATWOOT_AUTH_STYLE" not in admin and "CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction" in admin and "CHATWOOT_MEMORY_TABLE" not in admin
 assert re.search(r"Timeout: 29", admin), "it waits for the worker's dry run"
 assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootWorkerFunction\.Arn", admin) and admin.count("lambda:InvokeFunction") == 1, "it may start the one worker"
-assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*', 'suite#\*', 'suitestate#\*', 'suiterun#\*'\]", admin), "the registry and the suite's items, one at a time"
+assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*', 'suite#\*', 'suitestate#\*', 'suiterun#\*', 'teach#\*', 'teachidx#\*'\]", admin), "the registry, the suite's and the teach sessions' items, one at a time"
 assert re.search(r"Action: dynamodb:DeleteItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'suiterun#\*'\]", admin), "it may remove an agent item and a run it could not start, nothing else"
 code = re.sub(r"#[^\n]*", "", admin)
 assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "dynamodb:DeleteItem", "lambda:InvokeFunction"], "exactly these permissions"

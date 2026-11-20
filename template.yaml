@@ -1351,7 +1351,7 @@ Resources:
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*']
+                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'teach#*', 'teachidx#*']
             - Effect: Allow # take back an agent that could not be added to its business (an agent item only)
               Action: dynamodb:DeleteItem
               Resource: !GetAtt ChatwootTable.Arn

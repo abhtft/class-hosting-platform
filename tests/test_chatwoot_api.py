@@ -1107,4 +1107,5 @@ for leak in (SECRET, TOKEN, "forged", "sha256=", "4111", "Asha", "Verma", EMAIL,
     assert leak not in logged, f"{leak!r} must never be logged"
 print("  ok  the log lines hold names, reasons and ids only: no secret, no signature, no message text, no name")
 
+assert api.context_of({"channel": "web_widget", "facts": [" a ", "", 5]}) == {"channel": "web_widget", "inbox_id": None, "facts": ["a"]} and api.context_of({})["facts"] == [], "the facts of a teach session reach the answer, trimmed"
 print("test_chatwoot_api.py: receiver, worker reply, secrets and store")

@@ -41,6 +41,14 @@ def agent_key(name):
     return f"agent#{name}"
 
 
+def teach_key(agent, sid):
+    return f"teach#{agent}#{sid}"
+
+
+def teach_index_key(agent):
+    return f"teachidx#{agent}"
+
+
 def suite_key(agent):
     """The test suite of an agent (its cases and their revision)."""
     return f"suite#{agent}"

@@ -33,6 +33,8 @@ import chatwoot_core as core
 import chatwoot_memory as memory
 import chatwoot_registry as reg
 import chatwoot_suite as suite
+import chatwoot_teach as teach
+import chatwoot_runtime as engine
 import platform_settings
 from chatwoot_store import DynamoStore
 
@@ -44,6 +46,10 @@ VERSION = re.compile(rf"/admin/agents/({_NAME})/versions/([0-9]{{1,6}})")
 LIVE = re.compile(rf"/admin/agents/({_NAME})/live")
 TEST = re.compile(rf"/admin/agents/({_NAME})/test")
 SUITE = re.compile(rf"/admin/agents/({_NAME})/suite")
+TEACH = re.compile(rf"/admin/agents/({_NAME})/teach")
+TEACH_ONE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})")
+TEACH_ACT = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(turn|start|finish|revoke)")
+TEACH_TEST = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/turns/([0-9]{{1,4}})/test")
 SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
 SUITE_RUN = re.compile(rf"/admin/agents/({_NAME})/suite/runs/([0-9a-f]{{12}})")
@@ -358,6 +364,131 @@ def get_suite_run(store, tenant, name, run_id):
     return 200, {k: v for k, v in item.items() if k not in ("pk", "ttl")}
 
 
+# ---------- teach sessions (chatwoot_teach.py) ----------
+
+def load_session(store, tenant, name, sid):
+    """The session if it is this agent's and this business's, else None (another business's session looks like none)."""
+    if owned(store, tenant, name) is None:
+        return None
+    session = store.get(reg.teach_key(name, sid))
+    return session if isinstance(session, dict) and session.get("tenant_id") == tenant["tenant_id"] and session.get("agent_id") == name else None
+
+
+def add_to_teach_index(store, name, sid):
+    """Put the session first in the agent's list of sessions (a few tries on a lost race)."""
+    key = reg.teach_index_key(name)
+    for _ in range(3):
+        current = store.get(key)
+        item = {"sids": ([sid] + [s for s in (current or {}).get("sids", []) if s != sid])[:teach.MAX_SESSIONS], "rev": (current or {}).get("rev", 0) + 1}
+        if (store.claim(key, item) if current is None else store.replace_if(key, item, "rev", current["rev"])):
+            return
+
+
+def create_teach(store, tenant, name, body, now):
+    """Open a teach session on a published version (the live one unless `version` is given) or on a draft `config`. Returns the session as the owner sees it."""
+    agent = owned(store, tenant, name)
+    if agent is None:
+        return problem(404, "not_found", "No such agent.")
+    if "version" in body and "config" in body:
+        raise reg.Invalid("Send either version or config, not both.")
+    if "config" in body:
+        if not isinstance(body["config"], dict) or len(json.dumps(body["config"]).encode("utf8")) > reg.MAX_VERSION_BYTES:
+            raise reg.Invalid(f"config must be a JSON object of at most {reg.MAX_VERSION_BYTES // 1024} KB.")
+        try:
+            base = {"config": engine.clean_config(body["config"])}
+        except engine.ConfigError as error:
+            raise reg.Invalid(str(error)) from None
+    else:
+        number = body.get("version", agent.get("live_version"))
+        if not number:
+            return problem(400, "no_live_version", "This agent has no live version: name a version or send a draft config.")
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= (agent.get("versions") or 0):
+            raise reg.Invalid("version must be a published version number.")
+        base = {"version": number}
+    session = teach.create(tenant["tenant_id"], name, teach.new_sid(), body, base, now)
+    if not store.claim(reg.teach_key(name, session["sid"]), session):
+        return problem(409, "try_again", "Try again.")
+    add_to_teach_index(store, name, session["sid"])
+    log("teach_created", tenant=tenant["tenant_id"], agent=name)
+    return 201, teach.view(session, now, owner=True)
+
+
+def list_teach(store, tenant, name, now):
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    sessions = [store.get(reg.teach_key(name, sid)) for sid in (store.get(reg.teach_index_key(name)) or {}).get("sids", [])]
+    return 200, {"sessions": [teach.row(s, now) for s in sessions if isinstance(s, dict) and s.get("tenant_id") == tenant["tenant_id"]]}
+
+
+def get_teach(store, tenant, name, sid, owner, now):
+    session = load_session(store, tenant, name, sid)
+    return (200, teach.view(session, now, owner)) if session else problem(404, "not_found", "No such session.")
+
+
+def teach_act(store, tenant, name, sid, action, body, now, invoke):
+    """start (the client's name and the moment they read the consent line), turn (ask, fact or feedback), finish, revoke."""
+    session = load_session(store, tenant, name, sid)
+    if session is None:
+        return problem(404, "not_found", "No such session.")
+    if action == "revoke":
+        changed = {**session, "status": "revoked", "rev": session["rev"] + 1}
+    elif action == "finish":
+        if session["status"] != "open":
+            return 200, teach.view(session, now, owner=False)
+        changed = {**session, "status": "finished", "rev": session["rev"] + 1}
+    else:
+        reason = teach.closed_reason(session, now)
+        if reason:
+            return problem(410 if reason in ("expired", "revoked", "finished") else 429, reason, TEACH_CLOSED.get(reason, "This session is closed."), closed=reason)
+        if action == "start":
+            unknown = sorted(set(body) - {"client_name"})
+            if unknown:
+                raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+            name_given = body.get("client_name", session["client_name"])
+            if not isinstance(name_given, str) or len(name_given.strip()) > teach.NAME_MAX:
+                raise reg.Invalid(f"client_name must be text of at most {teach.NAME_MAX} characters.")
+            changed = {**session, "client_name": name_given.strip(), "consent_at": session["consent_at"] or now, "rev": session["rev"] + 1}
+        else:
+            if not session["consent_at"]:
+                return problem(409, "not_started", "Start the session first.")
+            event = teach.clean_turn(body)
+            answer = None
+            if event["kind"] == "ask":
+                payload = {"kind": "test", "tenant_id": tenant["tenant_id"], "agent_id": name, "text": event["text"][:core.MAX_QUESTION_CHARS], "history": memory.clean(teach.history(session)),
+                           "facts": teach.facts(session), "channel": "web_widget", **session["base"]}
+                made = (invoke or invoke_worker)(payload)
+                if not isinstance(made, dict) or not isinstance(made.get("result"), dict):
+                    status, message = test_error((made or {}).get("error") if isinstance(made, dict) else None)
+                    return problem(status, "test_failed" if status == 502 else str(made.get("error")), message)
+                answer = made["result"]
+            changed = teach.add_turn(session, event, now, answer)
+    if not store.replace_if(reg.teach_key(name, sid), changed, "rev", session["rev"]):
+        return problem(409, "changed", "The session changed at the same moment. Try again.")
+    out = {"status": changed["status"], "closed": teach.closed_reason(changed, now), "seconds_left": max(changed["expires_at"] - now, 0)}
+    if action == "turn":
+        last = changed["turns"][-1]
+        out.update(n=last["n"], answer=last.get("a"))
+    return 200, out
+
+
+TEACH_CLOSED = {"expired": "This session has ended.", "revoked": "This link is no longer active.", "finished": "This session is finished.", "turn_limit": "This session is full.",
+                "cap_reached": "This session reached its limit."}
+
+
+def save_teach_test(store, tenant, name, sid, number, now):
+    """Make a suite case from the client's correction of answer `number` (the numbers in it are the check), added to the agent's suite."""
+    session = load_session(store, tenant, name, sid)
+    if session is None:
+        return problem(404, "not_found", "No such session.")
+    case, note = teach.test_case(session, number)
+    _, current = get_suite(store, tenant, name)
+    cases = [c for c in current["cases"] if c["id"] != case["id"]] + [case]
+    status, saved = put_suite(store, tenant, name, {"cases": cases, "expected_rev": current["rev"]} if current["rev"] else {"cases": cases}, now)
+    if status not in (200, 201):
+        return status, saved
+    return 201, {"case": case, "note": note, "suite_rev": saved["rev"]}
+
+
 def route(store, tenant, method, path, event, now, invoke=None):
     if LIST.fullmatch(path):
         if method != "GET":
@@ -395,6 +526,24 @@ def route(store, tenant, method, path, event, now, invoke=None):
         if method != "POST":
             return problem(405, "method_not_allowed", "Use POST.")
         return set_live(store, tenant, found.group(1), parse_body(event), now)
+    found = TEACH_TEST.fullmatch(path)
+    if found:
+        return save_teach_test(store, tenant, found.group(1), found.group(2), int(found.group(3)), now) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    found = TEACH_ACT.fullmatch(path)
+    if found:
+        if method != "POST":
+            return problem(405, "method_not_allowed", "Use POST.")
+        return teach_act(store, tenant, found.group(1), found.group(2), found.group(3), parse_body(event), now, invoke)
+    found = TEACH_ONE.fullmatch(path)
+    if found:
+        if method != "GET":
+            return problem(405, "method_not_allowed", "Use GET.")
+        return get_teach(store, tenant, found.group(1), found.group(2), (event.get("queryStringParameters") or {}).get("view") != "client", now)
+    found = TEACH.fullmatch(path)
+    if found:
+        if method == "POST":
+            return create_teach(store, tenant, found.group(1), parse_body(event), now)
+        return list_teach(store, tenant, found.group(1), now) if method == "GET" else problem(405, "method_not_allowed", "Use GET or POST.")
     found = SUITE_RUN.fullmatch(path)
     if found:
         return get_suite_run(store, tenant, found.group(1), found.group(2)) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")

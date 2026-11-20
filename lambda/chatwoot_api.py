@@ -39,6 +39,7 @@ import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
 import chatwoot_suite as suite
+import chatwoot_teach as teach
 import platform_settings
 from chatwoot_store import CONDITION_FAILED, DynamoStore, MemoryStore  # noqa: F401  (the table lives in chatwoot_store.py; these names stay importable from here)
 
@@ -323,7 +324,7 @@ def remember(event, deps, text, metrics, now):
 def context_of(event):
     """What the system knows about where the message came from: the channel word (only a short lowercase word is accepted) and the inbox number."""
     channel = event.get("channel")
-    return {"channel": channel if isinstance(channel, str) and re.fullmatch(r"[a-z_]{1,40}", channel) else "", "inbox_id": event.get("inbox_id")}
+    return {"channel": channel if isinstance(channel, str) and re.fullmatch(r"[a-z_]{1,40}", channel) else "", "inbox_id": event.get("inbox_id"), "facts": teach.clean_facts(event.get("facts"))}
 
 
 def answer_text(config, text, history, context, tenant_id, runtime, explain=False):

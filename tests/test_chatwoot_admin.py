@@ -343,6 +343,86 @@ for method, path in (("POST", "/admin/agents/shop/suite"), ("GET", "/admin/agent
     assert suite_call(method, path)[0] == 405, (method, path)
 print("  ok  the suite routes save a checked suite with a revision, start one run at a time asynchronously with the tenant of the key, read a run and the state, keep businesses apart and leave nothing behind when a run cannot be started")
 
+# ---- teach sessions: a link for a client, ask / fact / feedback, the facts apply at once, limits, privacy, tests from corrections ----
+asked = []
+
+
+def worker_says(text, spent=7):
+    def invoke(payload):
+        asked.append(payload)
+        return {"result": {"route": "rag", "text": text, "spent_micro": spent, "explain": [{"title": "price-list", "page": 1, "score": 0.9, "used": True}, {"title": "other", "page": 1, "score": 0.5, "used": False}]}}
+    return invoke
+
+
+def teach_call(method, path, body=None, key="acme", invoke=None, query=None, at=NOW):
+    event = {"rawPath": path, "requestContext": {"http": {"method": method}}, "headers": {"Authorization": "Bearer " + store.keys[key]}, "body": json.dumps(body) if body is not None else "",
+             "isBase64Encoded": False, "queryStringParameters": query}
+    out = admin.handler(event, None, now=at, store=store, invoke=invoke or worker_says("Rs 2,000 a month."))
+    return out["statusCode"], json.loads(out["body"])
+
+
+status, made = teach_call("POST", "/admin/agents/shop/teach", {"version": 1, "hours": 1, "cap_usd": 0.5, "client_name": "  Asha "})
+sid = made["sid"]
+assert status == 201 and re.fullmatch(r"[0-9a-f]{12}", sid) and made["expires_at"] == NOW + 3600 and made["cap_usd"] == 0.5 and made["base"] == {"version": 1} and made["client_name"] == "Asha"
+item = store.items[f"teach#shop#{sid}"]
+assert item["tenant_id"] == "acme" and item["ttl"] > made["expires_at"] and item["turns"] == [] and store.items["teachidx#shop"]["sids"] == [sid]
+base = f"/admin/agents/shop/teach/{sid}"
+assert teach_call("POST", base + "/turn", {"kind": "ask", "text": "price?"})[1]["error"] == "not_started", "the client starts first (reads the consent line)"
+status, begun = teach_call("POST", base + "/start", {"client_name": "Asha K"})
+assert status == 200 and store.items[f"teach#shop#{sid}"]["consent_at"] == NOW and store.items[f"teach#shop#{sid}"]["client_name"] == "Asha K"
+
+status, first = teach_call("POST", base + "/turn", {"kind": "ask", "text": "What does social media cost?"}, invoke=worker_says("Rs 2,000 a month."))
+assert status == 200 and first["n"] == 1 and first["answer"] == "Rs 2,000 a month." and first["closed"] is None
+assert asked[-1]["kind"] == "test" and asked[-1]["tenant_id"] == "acme" and asked[-1]["version"] == 1 and asked[-1]["facts"] == [] and asked[-1]["history"] == [] and asked[-1]["channel"] == "web_widget"
+status, fixed = teach_call("POST", base + "/turn", {"kind": "feedback", "of": 1, "verdict": "wrong", "correction": "It is Rs 2,500 a month, not 2,000."})
+assert status == 200 and fixed["n"] == 2
+status, again = teach_call("POST", base + "/turn", {"kind": "ask", "text": "And again, the price?"}, invoke=worker_says("Rs 2,500 a month."))
+assert asked[-1]["facts"] == ['When a customer asks "What does social media cost?", the right answer is: It is Rs 2,500 a month, not 2,000.'], "the correction applies at once, inside the session"
+assert asked[-1]["history"] == [{"c": "What does social media cost?", "b": "Rs 2,000 a month."}]
+assert teach_call("POST", base + "/turn", {"kind": "fact", "text": "We close on Sundays."})[0] == 200 and "We close on Sundays." in store.items[f"teach#shop#{sid}"]["facts"][-1]["text"]
+for bad, why in (({"kind": "ask"}, "text"), ({"kind": "ask", "text": "x" * 700}, "text"), ({"kind": "other"}, "kind"), ({"kind": "feedback", "of": 1, "verdict": "meh"}, "verdict"), ({"kind": "feedback", "of": 99, "verdict": "right"}, "no such answer"),
+                 ({"kind": "feedback", "of": 2, "verdict": "right"}, "no such answer"), ({"kind": "ask", "text": "x", "extra": 1}, "Unknown field")):
+    status, body = teach_call("POST", base + "/turn", bad)
+    assert status == 400 and why.lower() in body["message"].lower(), (bad, status, body)
+
+owner = teach_call("GET", base)[1]
+client = teach_call("GET", base, query={"view": "client"})[1]
+assert owner["turns"][0]["src"] == ["price-list"] and owner["turns"][0]["spent"] == 7 and owner["spent_usd"] == 0.000014 and len(owner["facts"]) == 2 and owner["status"] == "open"
+assert all(set(t) <= {"n", "t", "kind", "q", "a", "of", "verdict", "correction", "text"} for t in client["turns"]) and "facts" not in client and "cap_usd" not in client and "base" not in client, "the client sees the talk, not the books, the cost or the limits"
+rows = teach_call("GET", "/admin/agents/shop/teach")[1]["sessions"]
+assert len(rows) == 1 and rows[0]["sid"] == sid and rows[0]["questions"] == 2 and rows[0]["corrections"] == 1 and rows[0]["client_name"] == "Asha K"
+
+# a correction becomes a suite case; the numbers the client wrote are the check
+status, saved = teach_call("POST", base + "/turns/1/test")
+assert status == 201 and saved["case"]["id"] == f"teach-{sid}-1" and saved["case"]["checks"] == {"contains_all": ["2,500", "2,000"]} and saved["case"]["severity"] == "should", saved
+assert any(c["id"] == f"teach-{sid}-1" for c in teach_call("GET", "/admin/agents/shop/suite")[1]["cases"]) and teach_call("POST", base + "/turns/1/test")[0] == 201, "saving twice replaces"
+assert teach_call("POST", base + "/turns/3/test")[0] == 400 and teach_call("POST", base + "/turns/77/test")[0] == 400, "only an answer the client corrected"
+
+# limits: cap, expiry, finish, revoke, another business, other agents
+status, capped = teach_call("POST", "/admin/agents/shop/teach", {"version": 1, "cap_usd": 0.1})
+sid2 = capped["sid"]
+teach_call("POST", f"/admin/agents/shop/teach/{sid2}/start", {})
+status, body = teach_call("POST", f"/admin/agents/shop/teach/{sid2}/turn", {"kind": "ask", "text": "q"}, invoke=worker_says("a", spent=100_000))
+assert status == 200 and body["closed"] == "cap_reached"
+status, body = teach_call("POST", f"/admin/agents/shop/teach/{sid2}/turn", {"kind": "ask", "text": "q"})
+assert status == 429 and body["error"] == "cap_reached" and body["closed"] == "cap_reached", "a session that spent its cap takes no more questions"
+status, body = teach_call("POST", base + "/turn", {"kind": "ask", "text": "q"}, at=NOW + 3601)
+assert status == 410 and body["error"] == "expired" and teach_call("GET", base, at=NOW + 3601)[1]["closed"] == "expired"
+assert teach_call("POST", base + "/finish")[1]["status"] == "finished" and teach_call("POST", base + "/turn", {"kind": "ask", "text": "q"})[1]["error"] == "finished"
+status, third = teach_call("POST", "/admin/agents/shop/teach", {"version": 1})
+assert teach_call("POST", f"/admin/agents/shop/teach/{third['sid']}/revoke")[1]["status"] == "revoked" and teach_call("POST", f"/admin/agents/shop/teach/{third['sid']}/start", {})[0] == 410
+assert teach_call("GET", base, key="beta")[0] == 404 and teach_call("POST", base + "/turn", {"kind": "ask", "text": "q"}, key="beta")[0] == 404, "another business cannot reach the session"
+assert teach_call("GET", "/admin/agents/nobody/teach")[0] == 404 and teach_call("GET", "/admin/agents/shop/teach/ffffffffffff")[0] == 404
+for body, why in (({"hours": 0}, "hours"), ({"hours": 500}, "hours"), ({"cap_usd": 99}, "cap_usd"), ({"client_name": "x" * 99}, "client_name"), ({"version": 99}, "version"), ({"version": 1, "config": {}}, "not both"), ({"extra": 1}, "Unknown field"),
+                  ({"config": {"collections": []}}, "collections")):
+    status, answer = teach_call("POST", "/admin/agents/shop/teach", body if ("version" in body or "config" in body) else {"version": 1, **body})
+    assert status == 400 and why.lower() in answer["message"].lower(), (body, status, answer)
+status, draft = teach_call("POST", "/admin/agents/shop/teach", {"config": {"collections": ["faq"], "fallback_text": "Sorry.", "provider": "bedrock"}})
+assert status == 201 and draft["base"] == {"config": "a draft"} and store.items[f"teach#shop#{draft['sid']}"]["base"]["config"]["provider"] == "bedrock", "a draft is tested as it is, the owner's view only says it is a draft"
+for method, path in (("GET", base + "/turn"), ("POST", base), ("DELETE", "/admin/agents/shop/teach"), ("GET", base + "/finish")):
+    assert teach_call(method, path)[0] == 405, (method, path)
+print("  ok  a teach session: a link on a version or a draft, the client starts, asks, marks answers and corrects them (applied at once, inside the session), the client sees only the talk, the owner sees books and cost, a correction becomes a suite case, caps, expiry, finish, revoke and other businesses are handled")
+
 # ---- nothing secret is returned or logged ----
 everything = json.dumps([call(store, "GET", "/admin/agents"), call(store, "GET", "/admin/agents/shop"), refusals]) + "\n".join(LOGS)
 for key in ALL_KEYS:
@@ -351,7 +431,7 @@ for key in ALL_KEYS:
 for item in store.items.values():
     assert not any(key.split(".", 1)[1] in json.dumps(item) for key in ALL_KEYS), "only hashes are in the table"
 assert "key_hash" not in everything and not re.search(r"cs_[a-z0-9-]+\.[A-Za-z0-9_-]{32,}", everything), "no key, hash or key-shaped text in a response or a log"
-assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable", "suite_saved", "suite_started", "suite_not_started") for line in LOGS)
+assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable", "suite_saved", "teach_created", "suite_started", "suite_not_started") for line in LOGS)
 print("  ok  no service key, its hash or a bearer header is in any response or log line, and the table holds only hashes")
 
 print("test_chatwoot_admin.py: service-key access, agents, versions, tenant isolation, concurrency and secrecy")

@@ -308,6 +308,11 @@ def respond(config, text, tenant_id, runtime, history=None, context=None, explai
     metrics.update(retrieval_ms=int((time.monotonic() - started) * 1000), tokens=found["tokens"], cost_micro=found["cost_micro"], confident=found["confident"], hits=len(found["hits"]))
     if len(found["missing"]) == len(config["collections"]):
         raise RuntimeFailure("no_shelf", metrics)
+    facts = (context or {}).get("facts") or []
+    if facts:  # a teach session: what the client confirmed counts as a passage of its own, so a corrected answer works at once (and the model is always asked)
+        found = {**found, "confident": True, "hits": [{"doc": "session", "title": "Confirmed by the client", "page": number, "text": fact, "vector": 1.0, "section": ""}
+                                                       for number, fact in enumerate(facts, 1)] + found["hits"]}
+        metrics["confident"], metrics["hits"] = True, len(found["hits"])
     if explain:
         metrics["explain"] = [{"title": str(hit["title"])[:80], "page": hit["page"], "section": str(hit.get("section") or "")[:80], "score": round(float(hit["vector"]), 2), "used": False} for hit in found["hits"]]
     if found["confident"]:
