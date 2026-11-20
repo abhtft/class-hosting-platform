@@ -19,6 +19,7 @@ import time
 import embeddings as em
 import gemini
 import knowledge_store as ks
+import chatwoot_handover as handover
 import platform_settings
 
 SEARCH_K = platform_settings.value("chatwoot.searchK")
@@ -76,7 +77,14 @@ def clean_config(config):
     mode = config.get("mode", "rag")
     if mode not in MODES:
         raise ConfigError("mode must be rag or auto.")
-    return {"instructions": instructions.strip(), "language": language, "collections": list(collections), "fallback_text": fallback.strip(), "max_answer_chars": limit, "mode": mode}
+    handover_text = config.get("handover_text", handover.DEFAULT_TEXT)
+    if not isinstance(handover_text, str) or not handover_text.strip() or len(handover_text) > FALLBACK_MAX_CHARS:
+        raise ConfigError(f"handover_text must be text of at most {FALLBACK_MAX_CHARS} characters (what the customer is told when a person takes over).")
+    handover_on = config.get("handover_on", list(handover.TRIGGERS))
+    if not isinstance(handover_on, list) or len(set(map(str, handover_on))) != len(handover_on) or any(item not in handover.TRIGGERS for item in handover_on):
+        raise ConfigError("handover_on must list different reasons from: " + ", ".join(handover.TRIGGERS) + " (an empty list switches the content reasons off).")
+    return {"instructions": instructions.strip(), "language": language, "collections": list(collections), "fallback_text": fallback.strip(), "max_answer_chars": limit, "mode": mode,
+            "handover_text": handover_text.strip(), "handover_on": list(handover_on)}
 
 
 # ---------- the shelves ----------

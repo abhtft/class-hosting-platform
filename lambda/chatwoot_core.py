@@ -137,7 +137,7 @@ def token_ok(token):
 USER_AGENT = "ClassPlatformChatwootAdapter/1.0"
 
 
-def reply_request(base_url, style, token, account_id, conversation_id, text):
+def reply_request(base_url, style, token, account_id, conversation_id, text, private=False):
     """(url, headers, body) of Chatwoot's Create New Message call: a public (private false) outgoing message in the conversation, sent with the agent bot's
     own token. The ids go into the path as whole numbers only."""
     url = f"{base_url}/api/v1/accounts/{int(account_id)}/conversations/{int(conversation_id)}/messages"
@@ -149,7 +149,19 @@ def reply_request(base_url, style, token, account_id, conversation_id, text):
         headers["api_access_token"] = token
     else:
         raise ValueError("unknown auth style")
-    return url, headers, json.dumps({"content": text, "message_type": "outgoing", "private": False}).encode("utf8")
+    return url, headers, json.dumps({"content": text, "message_type": "outgoing", "private": bool(private)}).encode("utf8")
+
+
+def status_request(base_url, style, token, account_id, conversation_id, status):
+    """(url, headers, body) of Chatwoot's toggle_status call: the conversation's status ("open" puts it in the team's list). The same address, header and checks as a reply."""
+    url, headers, _ = reply_request(base_url, style, token, account_id, conversation_id, "")
+    return url[: -len("/messages")] + "/toggle_status", headers, json.dumps({"status": status}).encode("utf8")
+
+
+def status_result(status, body):
+    """('ok', None) when Chatwoot changed the status, else ('failed', reason) with the same short codes as a reply."""
+    kind, detail = reply_result(status, body)
+    return ("ok", None) if kind == "replied" else (kind, detail)
 
 
 def reply_result(status, body):

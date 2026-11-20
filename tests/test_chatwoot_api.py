@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(root, "lambda"))
 
 import chatwoot_api as api  # noqa: E402
 import chatwoot_core as core  # noqa: E402
+import chatwoot_handover as ho  # noqa: E402
 import chatwoot_memory as mem  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
 import chatwoot_runtime as rt  # noqa: E402
@@ -414,6 +415,23 @@ assert not worker_registry.cache, "a worker registry with ttl 0 remembers nothin
 print("  ok  the worker asks the registry again just before replying: a message accepted earlier is not answered after its agent was switched off or changed")
 
 # ---- the answer: the live version, the books, the model and the month's spend ----
+HANDOVER_TEXT = ho.DEFAULT_TEXT
+
+def handed(f, job, reason, sentence=None, now=NOW + 1, expect_flags=(1, 1, 1)):
+    """The worker hands the conversation to a person: the customer's one sentence, a private note, the status open (in this order), recorded as flags on the item."""
+    assert run_worker(f, job, now) == {"replied": True}
+    sent, note, opened = f.requests[-3:]
+    assert json.loads(sent[2]) == {"content": sentence or LIVE_CONFIG.get("handover_text") or HANDOVER_TEXT, "message_type": "outgoing", "private": False}, "the customer gets the one fixed sentence"
+    body = json.loads(note[2])
+    assert body["private"] is True and body["content"].startswith("Bot hand-over: ") and len(body["content"]) <= 1500, "a private note for the team"
+    assert opened[0].endswith("/api/v1/accounts/1/conversations/12/toggle_status") and json.loads(opened[2]) == {"status": "open"}, "the conversation becomes open"
+    item = f.store.items["msg#shop#501"]
+    assert item["status"] == "replied" and item["route"] == "handover" and item["handover"] == reason, item
+    assert (item.get("handover_text"), item["handover_note"], item["handover_open"]) == expect_flags
+    assert TEXT not in json.dumps({k: v for k, v in f.store.items.items() if k.startswith("msg#")}), "the customer's words are in the private note in Chatwoot, never in the item"
+    return item
+
+
 MONTH = "usage#acme#" + time.strftime("%Y%m", time.gmtime(NOW + 1))
 f, job = accepted()
 assert run_worker(f, job) == {"replied": True}
@@ -446,15 +464,15 @@ print("  ok  when the books are not sure, the model does not know, or there is n
 cap = api.DEFAULT_CAP_USD * 1000000
 f, job = accepted()
 f.store.usage_add(MONTH, cap, NOW)
-fails(f, job, "cap_reached")
-assert not f.searches and not f.llm_calls and not f.requests, "a business at its cap costs nothing more and gets no reply"
+handed(f, job, "cap_reached")
+assert not f.searches and not f.llm_calls and len(f.requests) == 3 and f.store.usage(MONTH) == cap, "a business at its cap costs nothing more: its customer is handed to a person, not answered"
 f, job = accepted()
 f.store.usage_add(MONTH, cap - 1, NOW)
 assert run_worker(f, job) == {"replied": True} and f.store.usage(MONTH) == cap - 1 + 43, "just under the cap is answered (one answer may go over it)"
 f, job = accepted()
 f.store.items["tenant#acme"]["monthly_cap_micro"] = 100
 f.store.usage_add(MONTH, 100, NOW)
-fails(f, job, "cap_reached")
+handed(f, job, "cap_reached")
 f, job = accepted()
 f.store.items["tenant#acme"]["monthly_cap_micro"] = 100000000
 f.store.usage_add(MONTH, cap, NOW)
@@ -462,7 +480,7 @@ assert run_worker(f, job) == {"replied": True}, "a business's own cap replaces t
 f, job = accepted()
 f.store.items["tenant#acme"]["monthly_cap_micro"] = "lots"
 f.store.usage_add(MONTH, cap, NOW)
-fails(f, job, "cap_reached")
+handed(f, job, "cap_reached")
 f, job = accepted()
 f.store.usage_add(MONTH, cap, NOW)
 assert run_worker(f, job, now=NOW + 40 * 86400) == {"replied": True}, "a new month starts a new count"
@@ -475,30 +493,29 @@ fails(f, job, "no_live_version")
 assert not f.searches and not f.requests
 f, job = accepted()
 f.store.forget("agent#shop#v1")
-fails(f, job, "bad_config")
+handed(f, job, "bad_config")
 for change in ({"collections": []}, {"fallback_text": ""}, {"language": "fr"}, {"mode": "robot"}):
     f, job = accepted()
     f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, **change}
-    fails(f, job, "bad_config")
-    assert not f.searches and not f.requests, change
+    handed(f, job, "bad_config")
+    assert not f.searches and not f.llm_calls, change
 f, job = accepted()
 f.store.items["agent#shop#v1"]["config"] = "not an object"
-fails(f, job, "bad_config")
-print("  ok  an agent with no live version, a missing version or an unusable configuration gets no reply and spends nothing")
+handed(f, job, "bad_config")
+print("  ok  an agent with no live version stays silent and spends nothing; a missing or unusable configuration cannot answer, so its customer is handed to a person (the default sentence)")
 
 # failures while answering
 f, job = accepted()
 f.search_error = RuntimeError("an error that mentions 4111 and Asha")
-fails(f, job, "retrieval_error")
-item = f.store.items["msg#shop#501"]
-assert item["route"] == "fallback" and item["error"] == "RuntimeError" and "4111" not in json.dumps(f.store.items) and not f.requests and f.store.usage(MONTH) == 0
+item = handed(f, job, "retrieval_error", sentence=LIVE_CONFIG.get("handover_text") or ho.DEFAULT_TEXT)
+assert item["error"] == "RuntimeError" and "4111" not in json.dumps(f.store.items) and len(f.requests) == 3 and f.store.usage(MONTH) == 0
 f, job = accepted()
 f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": ["faq"]}
-fails(f, job, "no_shelf")
+handed(f, job, "no_shelf")
 f, job = accepted()
 f.llm_error = RuntimeError("the model is down")
-fails(f, job, "llm_error")
-assert f.store.usage(MONTH) == 3 and not f.requests, "the search was paid for even though the model failed, and nothing is sent"
+handed(f, job, "llm_error")
+assert f.store.usage(MONTH) == 3 and len(f.requests) == 3, "the search was paid for even though the model failed; the customer is handed to a person, never left in silence"
 f, job = accepted()
 f.answers = [(500, b"oops")]
 fails(f, job, "http_5xx")
@@ -530,7 +547,7 @@ f, job = accepted()
 f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "mode": "auto"}
 f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
 f.llm_error = RuntimeError("down")
-fails(f, job, "llm_error")
+handed(f, job, "llm_error")
 f, job = accepted()
 f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
 assert run_worker(f, job) == {"replied": True} and f.store.items["msg#shop#501"]["route"] == "fallback" and not f.llm_calls, "mode rag never starts the agent"
@@ -611,6 +628,127 @@ f, job = accepted()
 assert run_worker(f, job) == {"replied": True} and not f.mem.items, "memoryHours 0: nothing is read and nothing is stored"
 mem.HOURS_SECONDS = saved_seconds
 print("  ok  the worker remembers each answered turn for 24 hours in its own table (never in message items, logs or metrics), shows earlier turns to the model, searches short follow-ups with the last question, and keeps working when memory is off, expired or down")
+
+# ---- hand-over to a person: the rules, the three steps, once per conversation, and what is recorded ----
+def say(f, job, text, number=501, now=NOW + 60):
+    """A message of the same conversation (its item as the receiver would have made it), run by the worker."""
+    f.store.items[f"msg#shop#{number}"] = {"pk": f"msg#shop#{number}", "status": "received", "message_id": number}
+    return api.worker({**job, "message_id": number, "text": text}, None, now=now, deps=f.wdeps)
+
+
+for words, why in (("can I talk to a person please", "person_asked"), ("mujhe insaan se baat karni hai", "person_asked"), ("मुझे किसी इंसान से बात करनी है", "person_asked"), ("please call me tomorrow", "person_asked"),
+                   ("this is a fraud, I want my money back", "complaint"), ("aapne dhokha diya", "complaint"), ("आपने धोखा दिया", "complaint"), ("my number is 9876543210", "warm_lead"),
+                   ("call on +91 98765 43210", "warm_lead"), ("I want to book the classroom", "warm_lead"), ("mujhe kal aana hai", "warm_lead"), ("मुझे कल आना है", "warm_lead")):
+    f, job = accepted()
+    run = say(f, job, words, number=501)
+    item = f.store.items["msg#shop#501"]
+    assert run == {"replied": True} and item["handover"] == why, (words, item.get("handover"), why)
+    assert not f.searches and not f.llm_calls and len(f.requests) == 3, f"{words!r}: no search, no model call, three Chatwoot calls"
+    assert words in json.loads(f.requests[1][2])["content"], "the team's private note holds what the customer wrote"
+assert f.mem.items["mem#shop#12"]["turns"][-1] == {"c": "मुझे कल आना है", "b": HANDOVER_TEXT, "h": 1}, "the hand-over turn is remembered and marked"
+print("  ok  a person asked for, a complaint, a mobile number or a wish to go ahead hands the conversation over without a search or a model call: sentence, private note, open")
+
+for words in ("what is the refund policy", "do you have a book on marketing", "what is the price of content creation", "order number 123456789012", "my age is 25 and I am from Darbhanga", "interested in social media management"):
+    f, job = accepted()
+    assert say(f, job, words) == {"replied": True} and f.store.items["msg#shop#501"].get("route") == "rag" and "handover" not in f.store.items["msg#shop#501"], words
+print("  ok  ordinary questions (a refund policy, a price, an interest in a service, an order number) are answered, not handed over")
+
+# an agent can switch reasons off; an empty list switches the content reasons off, a failure still hands over
+f, job = accepted()
+f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "handover_on": ["complaint"]}
+say(f, job, "call me")
+assert f.store.items["msg#shop#501"]["route"] == "rag", "person_asked is off for this agent"
+f, job = accepted()
+f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "handover_on": []}
+say(f, job, "this is a fraud")
+assert f.store.items["msg#shop#501"]["route"] == "rag"
+f.llm_error = RuntimeError("down")
+say(f, job, "what time do you open", number=502)
+assert f.store.items["msg#shop#502"]["handover"] == "llm_error", "a failure of the answer always hands over"
+f, job = accepted()
+f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "handover_text": "A person will write to you."}
+say(f, job, "call me")
+assert json.loads(f.requests[0][2])["content"] == "A person will write to you.", "the agent's own sentence"
+for bad in ({"handover_on": ["everything"]}, {"handover_on": "all"}, {"handover_on": ["stuck", "stuck"]}, {"handover_text": ""}, {"handover_text": "x" * 600}, {"handover_text": 5}):
+    f, job = accepted()
+    f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, **bad}
+    handed(f, job, "bad_config")
+print("  ok  an agent can choose its reasons and its sentence; a bad choice is an unusable configuration; a failure of the answer hands over whatever the reasons")
+
+# stuck: the books are not sure twice in a row
+f, job = accepted()
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+say(f, job, "hello", number=501)
+assert f.store.items["msg#shop#501"]["route"] == "fallback" and len(f.requests) == 1, "the first fallback is the agent's fallback text"
+say(f, job, "anything else", number=502)
+item = f.store.items["msg#shop#502"]
+assert item["route"] == "handover" and item["handover"] == "stuck" and len(f.requests) == 4, "the second fallback in a row hands over instead"
+f.found = {"hits": [HIT], "confident": True, "tokens": 20, "cost_micro": 3, "missing": []}
+say(f, job, "what time do you open", number=503)
+assert f.store.items["msg#shop#503"]["route"] == "rag", "after a hand-over the rules do not fire again at once"
+f, job = accepted()
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+say(f, job, "hello", number=501)
+f.found = {"hits": [HIT], "confident": True, "tokens": 20, "cost_micro": 3, "missing": []}
+say(f, job, "what time do you open", number=502)
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+say(f, job, "and now?", number=503)
+assert f.store.items["msg#shop#503"]["route"] == "fallback", "fallback, answer, fallback is not stuck"
+f, job = accepted()
+f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "handover_on": ["person_asked"]}
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+say(f, job, "hello", number=501)
+say(f, job, "anything else", number=502)
+assert f.store.items["msg#shop#502"]["route"] == "fallback", "stuck can be switched off"
+print("  ok  two fallbacks in a row hand the conversation over (the second one), an answer in between resets it, and a hand-over is not repeated at once")
+
+# one step failing does not stop the others, and the item says which
+f, job = accepted()
+f.answers = [(200, b'{"id": 1}'), (403, b"{}"), (200, b"{}")]
+say(f, job, "call me")
+item = f.store.items["msg#shop#501"]
+assert item["status"] == "replied" and (item["handover_text"], item["handover_note"], item["handover_open"]) == (1, 0, 1) and len(f.requests) == 3
+assert [e for e in LOGS if "handover_incomplete" in e] and "403" not in json.dumps(item), "incomplete is logged with codes only"
+f, job = accepted()
+f.answers = [(200, b'{"id": 1}'), (200, b'{"id": 2}'), (403, b"{}")]
+say(f, job, "call me")
+item = f.store.items["msg#shop#501"]
+assert (item["handover_text"], item["handover_note"], item["handover_open"]) == (1, 1, 0), "the private note reached the team even though the status could not be changed"
+f, job = accepted()
+f.answers = [(429, b"{}"), (200, b'{"id": 2}'), (200, b"{}")]
+try:
+    say(f, job, "call me")
+    raise AssertionError("the customer's sentence failed: the message is failed, visibly")
+except api.ReplyFailed as error:
+    assert str(error) == "http_429"
+item = f.store.items["msg#shop#501"]
+assert item["status"] == "failed" and (item["handover_text"], item["handover_note"], item["handover_open"]) == (0, 1, 1), "but the team still got the note and the conversation is open"
+assert "mem#shop#12" not in f.mem.items, "a hand-over sentence the customer never received is not remembered"
+f, job = accepted()
+f.answers = [api.TimeoutFailure("t"), api.NetworkFailure("n"), (200, b"{}")]
+try:
+    say(f, job, "call me")
+except api.ReplyFailed as error:
+    assert str(error) == "timeout"
+item = f.store.items["msg#shop#501"]
+assert (item["handover_text"], item["handover_note"], item["handover_open"]) == (0, 0, 1)
+print("  ok  the three hand-over steps are independent: a refused note or status is recorded and logged by code, a failed sentence fails the message, the others still go")
+
+# the sweeper's event: a stuck message item is handed over with a note and open, and no sentence to the customer
+f, job = accepted()
+f.store.items["msg#shop#501"].update({"status": "failed", "reason": "stuck", "agent_id": "shop"})
+sweep_job = {"kind": "sweep", "agent_id": "shop", "message_id": 501, "conversation_id": 12, "account_id": 1, "inbox_id": 3}
+assert api.worker(sweep_job, None, now=NOW + 400, deps=f.wdeps) == {"swept": True}
+note, opened = f.requests
+assert json.loads(note[2])["private"] is True and "may not have been delivered" in json.loads(note[2])["content"] and opened[0].endswith("/toggle_status")
+item = f.store.items["msg#shop#501"]
+assert item["status"] == "failed" and item["reason"] == "stuck" and item["handover"] == "stuck_item" and item["handover_note"] == 1 and item["handover_open"] == 1 and "handover_text" not in item
+f, job = accepted()
+f.store.items["agent#shop"]["enabled"] = False
+assert api.worker(sweep_job, None, now=NOW + 400, deps=f.wdeps) == {"skipped": "not_mapped"} and not f.requests and f.store.items["msg#shop#501"]["handover"] == "not_made"
+for bad in ({**sweep_job, "conversation_id": "x"}, {**sweep_job, "agent_id": "../x"}, {"kind": "sweep"}):
+    assert api.worker(bad, None, now=NOW + 400, deps=f.wdeps) == {"skipped": "bad_event"}
+print("  ok  a stuck item is handed over with a private note and open and no sentence to the customer; a switched-off agent or a bad event does nothing")
 
 # the receiver cuts the text and sends nothing when there is none
 f = Fakes()

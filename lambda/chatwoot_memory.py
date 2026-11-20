@@ -2,7 +2,7 @@
 
 A turn is what the customer wrote and what the bot answered. The worker reads the turns before it answers and writes the new turn after the reply has been posted:
 
-    turns = load(store, agent_id, conversation_id, now)             -> [{"c": customer text, "b": bot text, "f": 1 when the bot's reply was its fallback}, ...] (oldest first)
+    turns = load(store, agent_id, conversation_id, now)             -> [{"c": customer text, "b": bot text, "f": 1 when the bot's reply was its fallback, "h": 1 when it was a hand-over}, ...] (oldest first)
     remember(store, agent_id, conversation_id, customer, bot, fallback, now)
 
 Rules:
@@ -39,7 +39,7 @@ def clean(turns):
     out = []
     for turn in turns if isinstance(turns, list) else []:
         if isinstance(turn, dict) and isinstance(turn.get("c"), str) and isinstance(turn.get("b"), str):
-            out.append({"c": cut(turn["c"]), "b": cut(turn["b"]), **({"f": 1} if turn.get("f") == 1 else {})})
+            out.append({"c": cut(turn["c"]), "b": cut(turn["b"]), **({"f": 1} if turn.get("f") == 1 else {}), **({"h": 1} if turn.get("h") == 1 else {})})
     return out[-TURNS:]
 
 
@@ -53,12 +53,12 @@ def load(store, agent_id, conversation_id, now):
     return clean(item.get("turns"))
 
 
-def remember(store, agent_id, conversation_id, customer, bot, fallback, now):
+def remember(store, agent_id, conversation_id, customer, bot, fallback, now, handover=False):
     """Add one turn and keep the last TURNS. Re-reads just before writing, so a turn written by a message answered at the same moment is not thrown away."""
     if not enabled():
         return
     turns = load(store, agent_id, conversation_id, now)
-    turns.append({"c": cut(customer), "b": cut(bot), **({"f": 1} if fallback else {})})
+    turns.append({"c": cut(customer), "b": cut(bot), **({"f": 1} if fallback else {}), **({"h": 1} if handover else {})})
     store.put(key(agent_id, conversation_id), {"turns": turns[-TURNS:], "ttl": now + HOURS_SECONDS})
 
 

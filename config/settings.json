@@ -2470,6 +2470,36 @@
       ]
     },
     {
+      "key": "chatwoot.noteMaxChars",
+      "group": "chatwoot",
+      "title": "Longest hand-over note",
+      "help": "The private note the bot leaves for the team when it hands a conversation to a person (why, and the last messages) is cut to this many characters.",
+      "unit": "characters",
+      "default": 1500,
+      "min": 200,
+      "max": 4000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_handover.NOTE_MAX_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.sweepStuckSeconds",
+      "group": "chatwoot",
+      "title": "When a message counts as stuck",
+      "help": "A message the worker started but never finished for this long is swept: marked failed and its conversation handed to a person (a private note and open, no sentence to the customer). Keep it above the worker's time limit.",
+      "unit": "seconds",
+      "default": 300,
+      "min": 150,
+      "max": 3600,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_sweeper.STUCK_SECONDS"
+      ]
+    },
+    {
       "key": "projects.maxFiles",
       "group": "projects",
       "title": "Most files in a project",

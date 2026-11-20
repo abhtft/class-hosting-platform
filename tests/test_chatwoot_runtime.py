@@ -10,6 +10,7 @@ import zlib
 
 os.environ.update(AWS_REGION="us-east-1", AWS_DEFAULT_REGION="us-east-1", AWS_ACCESS_KEY_ID="x", AWS_SECRET_ACCESS_KEY="x", AI_SECRET_NAME="secret", BUCKET="b")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lambda"))
+import chatwoot_handover as ho  # noqa: E402
 import chatwoot_runtime as rt  # noqa: E402
 import embeddings as em  # noqa: E402
 import gemini  # noqa: E402
@@ -60,9 +61,9 @@ GOOD = {"instructions": "Speak like a friendly shopkeeper.", "language": "hingli
 
 # ---- the configuration ----
 cfg = rt.clean_config(GOOD)
-assert cfg == {**GOOD, "instructions": "Speak like a friendly shopkeeper."}
+assert cfg == {**GOOD, "instructions": "Speak like a friendly shopkeeper.", "handover_text": ho.DEFAULT_TEXT, "handover_on": list(ho.TRIGGERS)}
 minimal = rt.clean_config({"collections": ["faq"], "fallback_text": " Please wait. "})
-assert minimal == {"instructions": "", "language": "en", "collections": ["faq"], "fallback_text": "Please wait.", "max_answer_chars": rt.ANSWER_CHARS_DEFAULT, "mode": "rag"}
+assert minimal == {"instructions": "", "language": "en", "collections": ["faq"], "fallback_text": "Please wait.", "max_answer_chars": rt.ANSWER_CHARS_DEFAULT, "mode": "rag", "handover_text": ho.DEFAULT_TEXT, "handover_on": list(ho.TRIGGERS)}
 
 
 def bad(change, why):

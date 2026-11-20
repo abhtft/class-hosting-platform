@@ -32,6 +32,7 @@ import urllib.error
 import urllib.request
 
 import chatwoot_core as core
+import chatwoot_handover as handover
 import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
@@ -264,9 +265,9 @@ def handler(event, context=None, now=None, deps=None):
 class Refused(Exception):
     """The message gets no reply. `reason` is a short code, `metrics` are numbers and names only (what had been spent when it stopped)."""
 
-    def __init__(self, reason, metrics=None):
+    def __init__(self, reason, metrics=None, config=None):
         super().__init__(reason)
-        self.reason, self.metrics = reason, metrics or {}
+        self.reason, self.metrics, self.config = reason, metrics or {}, config
 
 
 def failed(reason, metrics=None):
@@ -308,14 +309,15 @@ def remember(event, deps, text, metrics, now):
     if deps.memory is None:
         return
     try:
-        memory.remember(deps.memory, event["agent_id"], event["conversation_id"], event.get("text") or "", text, metrics.get("route") == "fallback", now)
+        memory.remember(deps.memory, event["agent_id"], event["conversation_id"], event.get("text") or "", text, metrics.get("route") == "fallback", now, handover="handover" in metrics)
     except Exception as error:
         log("memory_unavailable", error=type(error).__name__)
 
 
-def compose(event, agent, tenant, deps, now):
-    """The text to send: (reply, metrics). Reads the agent's live version, checks the business's monthly spend, then lets the runtime answer from the books.
-    Raises Refused with a reason code when there is nothing to send."""
+def compose(event, agent, tenant, deps, now, history):
+    """The text to send: (reply, metrics, hand-over reason or None). Reads the agent's live version, checks the business's monthly spend, applies the hand-over rules to
+    the customer's message and otherwise lets the runtime answer from the books. When a reason is returned the text is the agent's hand-over sentence. Raises Refused
+    with a reason code when there is nothing to send."""
     live = agent.get("live_version") or 0
     if not live:
         raise Refused("no_live_version")
@@ -326,21 +328,64 @@ def compose(event, agent, tenant, deps, now):
         raise Refused("bad_config") from None
     key = usage_key(tenant["tenant_id"], now)
     if deps.store.usage(key) >= monthly_cap_micro(tenant):
-        raise Refused("cap_reached")
+        raise Refused("cap_reached", config=config)
     text = event.get("text") if isinstance(event.get("text"), str) else ""
+    reason = handover.decide(text, history, config["handover_on"])
+    if reason:  # a person is asked for, a complaint, a warm lead: no model call, nothing to search
+        return config["handover_text"], {"route": "handover"}, reason
     try:
-        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime, recall(event, deps, now))
+        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime, history)
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
-        raise Refused(failure.reason, failure.metrics) from None
+        raise Refused(failure.reason, failure.metrics, config) from None
     spend(deps, key, made["metrics"], now)
-    return made["text"], made["metrics"]
+    if made["route"] == "fallback" and "stuck" in config["handover_on"] and memory.stuck(history, 1):  # the second fallback in a row: the bot is not getting anywhere
+        return config["handover_text"], made["metrics"], "stuck"
+    return made["text"], made["metrics"], None
 
 
-def answer(event, deps, now=None):
-    """What the worker does with an accepted message: answer from the books and post the reply. Returns {"status": "replied", "reply_id": n or None,
-    "metrics": {...}} or {"status": "failed", "reason": code, "metrics": {...}}. Every refusal before the answer is made happens before anything is spent or sent."""
-    now = int(now if now is not None else time.time())
+def hand_over(event, deps, base, credentials, reason, sentence, history, text, send_text):
+    """Hand the conversation to a person with Chatwoot's own means, three steps that each run even if another failed: the customer's one sentence (when `send_text`),
+    a private note for the team, and the status `open`. Returns ((kind, detail) of the customer's sentence, the flags for the message item)."""
+    token, ids = credentials["api_token"], (event["account_id"], event["conversation_id"])
+
+    def call(request, read):
+        url, headers, body = request
+        try:
+            status, raw = deps.http(url, headers, body, HTTP_TIMEOUT_SECONDS)
+        except TimeoutFailure:
+            return "failed", "timeout"
+        except NetworkFailure:
+            return "failed", "network"
+        return read(status, raw)
+    flags, sent = {"handover": reason}, ("replied", None)
+    if send_text:
+        sent = call(core.reply_request(base, AUTH_STYLE, token, *ids, sentence or handover.DEFAULT_TEXT), core.reply_result)
+        flags["handover_text"] = int(sent[0] == "replied")
+    note = call(core.reply_request(base, AUTH_STYLE, token, *ids, handover.note_text(reason, history, text), private=True), core.reply_result)
+    flags["handover_note"] = int(note[0] == "replied")
+    opened = call(core.status_request(base, AUTH_STYLE, token, *ids, "open"), core.status_result)
+    flags["handover_open"] = int(opened[0] == "ok")
+    log("handover", agent=event["agent_id"], message=event.get("message_id"), reason=reason, text=flags.get("handover_text"), note=flags["handover_note"], opened=flags["handover_open"])
+    if not (flags["handover_note"] and flags["handover_open"] and sent[0] == "replied"):  # something did not go through: visible in the log and on the item, by code only
+        log("handover_incomplete", agent=event["agent_id"], message=event.get("message_id"), reason=reason, text=sent[1] if sent[0] == "failed" else None,
+            note=note[1] if note[0] == "failed" else None, opened=opened[1] if opened[0] == "failed" else None)
+    return sent, flags
+
+
+def hand_over_outcome(event, deps, ready, reason, sentence, history, metrics, now):
+    """The worker's outcome for a message that goes to a person: replied when the customer's sentence was posted, failed (with its code) when it was not."""
+    (kind, detail), flags = hand_over(event, deps, ready["base"], ready["credentials"], reason, sentence, history, event.get("text") or "", True)
+    metrics = {**metrics, **flags, "route": "handover"}
+    if kind != "replied":
+        return failed(detail, metrics)
+    remember(event, deps, sentence or handover.DEFAULT_TEXT, metrics, now)
+    return {"status": "replied", "reply_id": detail, "metrics": metrics}
+
+
+def prepare(event, deps):
+    """What a reply or a hand-over needs: {"base", "agent", "tenant", "credentials"}, or a failed() outcome when the message must not be served (every refusal here happens
+    before anything is spent or sent)."""
     try:
         agent, tenant = deps.registry.load(event["agent_id"])  # fresh: no cache
         unmapped = registry.check_mapping(agent, tenant, event["account_id"], event["inbox_id"])
@@ -367,11 +412,28 @@ def answer(event, deps, now=None):
         return failed("bad_secret")
     if credentials["account_id"] != event["account_id"]:  # the bot token may write in any conversation of its account: only this agent's own account is allowed
         return failed("account_mismatch")
+    return {"base": base, "agent": agent, "tenant": tenant, "credentials": credentials}
+
+
+def answer(event, deps, now=None):
+    """What the worker does with an accepted message: answer from the books and post the reply, or hand the conversation to a person. Returns {"status": "replied",
+    "reply_id": n or None, "metrics": {...}} or {"status": "failed", "reason": code, "metrics": {...}}. Every refusal before the answer is made happens before anything is
+    spent or sent."""
+    now = int(now if now is not None else time.time())
+    ready = prepare(event, deps)
+    if ready.get("status") == "failed":
+        return ready
+    history = recall(event, deps, now)
     try:
-        text, metrics = compose(event, agent, tenant, deps, now)
+        text, metrics, reason = compose(event, ready["agent"], ready["tenant"], deps, now, history)
     except Refused as refusal:
-        return failed(refusal.reason, refusal.metrics)
-    url, headers, body = core.reply_request(base, AUTH_STYLE, credentials["api_token"], event["account_id"], event["conversation_id"], text)
+        if refusal.reason not in handover.FAILURE_REASONS:  # no live version: the agent is meant to be silent; the rest of the refusals are not the customer's concern
+            return failed(refusal.reason, refusal.metrics)
+        sentence = (refusal.config or {}).get("handover_text")  # an answer that could not be made: the customer must not be left in silence
+        return hand_over_outcome(event, deps, ready, refusal.reason, sentence, history, refusal.metrics, now)
+    if reason:
+        return hand_over_outcome(event, deps, ready, reason, text, history, metrics, now)
+    url, headers, body = core.reply_request(ready["base"], AUTH_STYLE, ready["credentials"]["api_token"], event["account_id"], event["conversation_id"], text)
     try:
         status, raw = deps.http(url, headers, body, HTTP_TIMEOUT_SECONDS)
     except TimeoutFailure:
@@ -385,9 +447,30 @@ def answer(event, deps, now=None):
     return {"status": "replied", "reply_id": detail, "metrics": metrics}
 
 
+def sweep(event, deps, now):
+    """A message item the worker never finished (found by chatwoot_sweeper.py): hand its conversation to a person with a private note and `open`, and no sentence to the
+    customer (it is not known whether the reply was delivered)."""
+    ids = [event.get(name) for name in ("message_id", "conversation_id", "account_id", "inbox_id")]
+    agent_id = event.get("agent_id")
+    if not core.AGENT_ID.fullmatch(str(agent_id)) or any(not isinstance(i, int) or isinstance(i, bool) or i < 1 for i in ids):
+        log("bad_event")
+        return {"skipped": "bad_event"}
+    key = f"msg#{agent_id}#{event['message_id']}"
+    ready = prepare(event, deps)
+    if ready.get("status") == "failed":  # the hand-over cannot be made (switched off, no token...): the item says so
+        deps.store.finish(key, "failed", now, {"reason": "stuck", "handover": "not_made", "handover_why": ready["reason"]})
+        log("sweep_not_handed_over", agent=agent_id, message=event["message_id"], reason=ready["reason"])
+        return {"skipped": ready["reason"]}
+    _, flags = hand_over(event, deps, ready["base"], ready["credentials"], "stuck_item", "", recall(event, deps, now), "", False)
+    deps.store.finish(key, "failed", now, {"reason": "stuck", **flags})
+    return {"swept": True}
+
+
 def worker(event, context=None, now=None, deps=None):
     now = int(now if now is not None else time.time())
     deps = deps or default_worker_deps()
+    if event.get("kind") == "sweep":  # from the sweeper: a stuck message item, not a customer message
+        return sweep(event, deps, now)
     agent_id, message_id = event.get("agent_id"), event.get("message_id")
     ids = [event.get(name) for name in ("conversation_id", "account_id", "inbox_id")]
     if not core.AGENT_ID.fullmatch(str(agent_id)) or any(not isinstance(i, int) or isinstance(i, bool) or i < 1 for i in [message_id, *ids]):

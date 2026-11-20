@@ -18,7 +18,7 @@ def block(name):
 params = template[template.index("\nParameters:"):template.index("\nConditions:")]
 assert re.search(r"  ChatwootEnabled:\n    Type: String\n    Default: 'false'\n    AllowedValues: \['false', 'true'\]", params), "the adapter is off unless asked for"
 assert "UseChatwoot: !Equals [!Ref ChatwootEnabled, 'true']" in template, "its own switch, not tied to backends"
-for name in ("ChatwootTable", "ChatwootMemoryTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction", "ChatwootAdminFunction"):
+for name in ("ChatwootTable", "ChatwootMemoryTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction", "ChatwootSweeperFunction", "ChatwootAdminFunction"):
     assert "Condition: UseChatwoot" in block(name), f"{name} exists only when the adapter is on"
 assert "ChatwootWebhookUrl:\n    Condition: UseChatwoot" in template, "its output exists only when it is on"
 globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
@@ -94,6 +94,21 @@ auth_style_parameter = re.search(r"  ChatwootAuthStyle:\n((?:    [^\n]*\n|      
 assert "Default: bearer" in auth_style_parameter and "AllowedValues: [bearer, api_access_token]" in auth_style_parameter
 assert "CHATWOOT_BASE_URL" not in block("ChatwootReceiverFunction"), "the receiver never calls out"
 assert "secretsmanager" not in block("ChatwootAdminFunction") and "s3:" not in block("ChatwootReceiverFunction") and "knowledge" not in block("ChatwootReceiverFunction"), "only the worker reads shelves and the model's key"
+
+# ---- the sweeper: message items only, the one worker, on a schedule; no secrets, no Chatwoot, no memory table, nothing else ----
+sweeper = block("ChatwootSweeperFunction")
+assert "Handler: chatwoot_sweeper.handler" in sweeper and "CodeUri: lambda/" in sweeper and "Runtime: python3.12" in sweeper and "MemorySize: 256" in sweeper
+assert re.search(r"Type: Schedule\n\s+Properties:\n\s+Schedule: rate\(10 minutes\)", sweeper) and sweeper.count("Type: Schedule") == 1 and "HttpApi" not in sweeper, "a schedule, nothing on the internet"
+assert "CHATWOOT_TABLE: !Ref ChatwootTable" in sweeper and "CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction" in sweeper and "CHATWOOT_MEMORY_TABLE" not in sweeper
+assert re.search(r"Action: dynamodb:Scan\n\s+Resource: !GetAtt ChatwootTable\.Arn", sweeper), "it scans the adapter's own table to find stuck message items"
+assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['msg#\*'\]", sweeper), "and marks message items only"
+assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootWorkerFunction\.Arn", sweeper) and sweeper.count("lambda:InvokeFunction") == 1, "it may start the one worker"
+code = re.sub(r"#[^\n]*", "", sweeper)
+assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:Scan", "dynamodb:UpdateItem", "lambda:InvokeFunction"], "exactly these permissions"
+for forbidden in ("secretsmanager", "s3:", "ssm:", "kms:", "iam:", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:Query", "dynamodb:*", "TokensTable", "StudentDataTable", "TracesTable", "ChatwootMemoryTable", "CHATWOOT_BASE_URL",
+                  "SitesBucket", "Resource: '*'", "Action: '*'"):
+    assert forbidden not in code, f"the sweeper must not have {forbidden}"
+assert "ChatwootSweeperFunction" not in block("ChatwootReceiverFunction") and "ChatwootSweeperFunction" not in block("ChatwootWorkerFunction"), "nothing depends on the sweeper"
 
 # ---- the admin function: the registry only, no secrets, no outbound calls, no other function ----
 admin = block("ChatwootAdminFunction")

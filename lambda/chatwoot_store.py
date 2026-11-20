@@ -88,6 +88,25 @@ class DynamoStore:
                                         ExpressionAttributeValues={":n": int(micro), ":ttl": now + 62 * 86400}, ReturnValues="UPDATED_NEW")
         return int(result["Attributes"]["micro"])
 
+    def stuck_messages(self, cutoff):
+        """The message items still `processing` that started before the cutoff (ids only). A scan of the adapter's own small table, projected to the ids; only the sweeper
+        calls it."""
+        from boto3.dynamodb.conditions import Attr
+        items, args = [], {"FilterExpression": Attr("pk").begins_with("msg#") & Attr("status").eq("processing") & Attr("started_at").lt(cutoff),
+                           "ProjectionExpression": "pk, agent_id, message_id, conversation_id, account_id, inbox_id"}
+        while True:
+            page = self.table.scan(**args)
+            items.extend(plain(item) for item in page.get("Items", []))
+            if "LastEvaluatedKey" not in page:
+                return items
+            args["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
+    def mark_stuck(self, key, now):
+        """Move a message from processing to failed (reason stuck): True for the one sweep that did it, False when it was no longer processing."""
+        return self._conditional(kind=self.table.update_item, Key={"pk": key}, UpdateExpression="SET #s = :failed, #t = :now, #r = :stuck", ConditionExpression="#s = :processing",
+                                 ExpressionAttributeNames={"#s": "status", "#t": "finished_at", "#r": "reason"},
+                                 ExpressionAttributeValues={":failed": "failed", ":processing": "processing", ":now": now, ":stuck": "stuck"})
+
     def list_prefix(self, prefix):
         """Every item whose key starts with the prefix. A full scan: only the teacher's local command (tools/chatwoot_admin.py) uses it, never a function."""
         from boto3.dynamodb.conditions import Attr
@@ -149,6 +168,18 @@ class MemoryStore:
         item["micro"] += int(micro)
         item["ttl"] = now + 62 * 86400
         return item["micro"]
+
+    def stuck_messages(self, cutoff):
+        names = ("pk", "agent_id", "message_id", "conversation_id", "account_id", "inbox_id")
+        return [{name: item.get(name) for name in names} for key, item in sorted(self.items.items())
+                if key.startswith("msg#") and item.get("status") == "processing" and isinstance(item.get("started_at"), int) and item["started_at"] < cutoff]
+
+    def mark_stuck(self, key, now):
+        item = self.items.get(key)
+        if not item or item.get("status") != "processing":
+            return False
+        item.update({"status": "failed", "finished_at": now, "reason": "stuck"})
+        return True
 
     def list_prefix(self, prefix):
         return [json.loads(json.dumps(item)) for key, item in sorted(self.items.items()) if key.startswith(prefix)]

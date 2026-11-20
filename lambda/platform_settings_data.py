@@ -153,6 +153,8 @@ SETTINGS = {
     "chatwoot.memoryHours": {"type": "int", "default": 24, "min": 0, "max": 72, "env": None},
     "chatwoot.memoryTurns": {"type": "int", "default": 6, "min": 1, "max": 20, "env": None},
     "chatwoot.memoryMessageChars": {"type": "int", "default": 400, "min": 50, "max": 1000, "env": None},
+    "chatwoot.noteMaxChars": {"type": "int", "default": 1500, "min": 200, "max": 4000, "env": None},
+    "chatwoot.sweepStuckSeconds": {"type": "int", "default": 300, "min": 150, "max": 3600, "env": None},
     "projects.maxFiles": {"type": "int", "default": 500, "min": 10, "max": 5000, "env": None},
     "projects.maxFileMB": {"type": "int", "default": 5, "min": 1, "max": 100, "env": None},
     "projects.maxLiveMB": {"type": "int", "default": 50, "min": 1, "max": 1000, "env": None},
