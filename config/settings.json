@@ -2239,6 +2239,25 @@
       ]
     },
     {
+      "key": "chatwoot.provider",
+      "group": "chatwoot",
+      "title": "Model provider of an agent version that names none",
+      "help": "Which model answers a customer when the agent's published version does not name a provider: gemini (Google, several keys in turns) or bedrock (Amazon Bedrock, no key). A version can name its own provider and model in Studio, which is the way to compare answer quality. The other provider is the spare when the first is refused.",
+      "default": "gemini",
+      "choices": [
+        "gemini",
+        "bedrock"
+      ],
+      "scope": "deploy",
+      "risk": "careful",
+      "cost": "The two providers charge differently per answer.",
+      "env": "CHATWOOT_PROVIDER",
+      "template": "Parameter:ChatwootProvider",
+      "code": [
+        "chatwoot_runtime.DEFAULT_PROVIDER"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
@@ -3625,6 +3644,14 @@
     }
   ],
   "fixed": [
+    {
+      "code": "bedrock.MODELS",
+      "reason": "The models offered on Bedrock with their inference profile and AWS list price (USD per million tokens); a price change is a code change, or the AI_BEDROCK_PRICES override."
+    },
+    {
+      "code": "bedrock.ERROR_STATUS",
+      "reason": "Which AWS error name means which HTTP-like status (too many requests, busy, not allowed): a fact about AWS, not a choice."
+    },
     {
       "code": "gemini.FAILOVER_STATUSES",
       "reason": "HTTP status codes that mean this key was refused (not accepted, forbidden, too many requests, unreachable, busy), not a choice."

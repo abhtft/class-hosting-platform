@@ -17,6 +17,7 @@ import re
 import time
 
 import embeddings as em
+import bedrock
 import gemini
 import knowledge_store as ks
 import chatwoot_handover as handover
@@ -27,6 +28,8 @@ MAX_PASSAGE_CHARS = platform_settings.value("chatwoot.maxPassageChars")
 LLM_MAX_TOKENS = platform_settings.value("chatwoot.llmMaxTokens")
 LLM_TIMEOUT_SECONDS = platform_settings.value("chatwoot.llmTimeoutSeconds")
 LLM_RETRY_PAUSE_SECONDS = platform_settings.value("chatwoot.llmRetryPauseSeconds")
+DEFAULT_PROVIDER = platform_settings.value("chatwoot.provider")  # the model provider of a version that does not name one
+PROVIDERS = ("gemini", "bedrock")
 MAX_COLLECTIONS = platform_settings.value("chatwoot.maxCollections")
 MAX_INSTRUCTION_CHARS = platform_settings.value("chatwoot.maxInstructionChars")
 ANSWER_CHARS_DEFAULT = platform_settings.value("chatwoot.answerCharsDefault")
@@ -90,12 +93,22 @@ def clean_config(config):
     if not isinstance(notes, dict) or len(notes) > MAX_INBOX_NOTES or any(not (isinstance(k, str) and k.isdigit() and 0 < len(k) <= 12) for k in notes) \
             or any(not isinstance(v, str) or not v.strip() or len(v) > INBOX_NOTE_CHARS for v in notes.values()):
         raise ConfigError(f"inbox_notes must map an inbox number to a note of at most {INBOX_NOTE_CHARS} characters, for at most {MAX_INBOX_NOTES} inboxes.")
+    provider, model = config.get("provider"), config.get("model")
+    if provider is not None and provider not in PROVIDERS:
+        raise ConfigError("provider must be " + " or ".join(PROVIDERS) + " (left out: the platform's own choice).")
+    if model is not None and model not in (gemini.models() if (provider or DEFAULT_PROVIDER) == "gemini" else bedrock.models()):
+        raise ConfigError("model must be one offered by the provider: " + ", ".join(gemini.models() if (provider or DEFAULT_PROVIDER) == "gemini" else bedrock.models()) + ".")
     followup = config.get("followup_fallback_text")
     if followup is not None and (not isinstance(followup, str) or not followup.strip() or len(followup) > FALLBACK_MAX_CHARS):
         raise ConfigError(f"followup_fallback_text, when given, must be text of at most {FALLBACK_MAX_CHARS} characters (what the customer gets when the books are not sure in a conversation that has already started).")
-    return {"instructions": instructions.strip(), "language": language, "collections": list(collections), "fallback_text": fallback.strip(), "max_answer_chars": limit, "mode": mode,
-            "handover_text": handover_text.strip(), "handover_on": list(handover_on), "inbox_notes": {k: v.strip() for k, v in notes.items()},
-            "followup_fallback_text": followup.strip() if isinstance(followup, str) else None}
+    out = {"instructions": instructions.strip(), "language": language, "collections": list(collections), "fallback_text": fallback.strip(), "max_answer_chars": limit, "mode": mode,
+           "handover_text": handover_text.strip(), "handover_on": list(handover_on), "inbox_notes": {k: v.strip() for k, v in notes.items()},
+           "followup_fallback_text": followup.strip() if isinstance(followup, str) else None}
+    if provider is not None:
+        out["provider"] = provider
+    if model is not None:
+        out["model"] = model
+    return out
 
 
 # ---------- the shelves ----------
@@ -213,22 +226,42 @@ def not_sure(text):
 
 # ---------- the LLM ----------
 
-def llm_gemini(messages, max_tokens, timeout=None):
-    """One Gemini call with the platform's key: {"text", "model", "tokens", "cost_micro"}. Raises gemini.GeminiError."""
-    model = gemini.DEFAULT_MODEL
-    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2}
+def llm_gemini(messages, max_tokens, timeout=None, provider=None, model=None):
+    """One model call: {"text", "model", "tokens", "cost_micro", "via"}. The version's provider (gemini or bedrock; else the platform's choice) is asked first; when it is refused
+    (too many requests, busy, not allowed) the other one is asked; Gemini's own keys take turns first and OpenRouter comes last. A refusal of every way raises gemini.GeminiError.
+    The cost is the price of the provider that answered. (The name is kept from the days of one provider.)"""
+    first = provider if provider in PROVIDERS else DEFAULT_PROVIDER
+    order = [first] + [p for p in PROVIDERS if p != first]
+    limit = LLM_TIMEOUT_SECONDS if timeout is None else timeout
     via = []  # the names of the keys tried (never values)
+
+    def attempt():
+        last = None
+        for position, name in enumerate(order):
+            module = bedrock if name == "bedrock" else gemini
+            chosen = model if (name == first and model) else module.DEFAULT_MODEL
+            body = {"model": chosen, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2}
+            try:
+                if name == "gemini":
+                    return gemini.chat(body, timeout=limit, trace=via, last_resort=position == len(order) - 1), module, chosen
+                return module.chat(body, timeout=limit, trace=via), module, chosen
+            except gemini.GeminiError as error:
+                last = error
+                if error.status not in gemini.FAILOVER_STATUSES:
+                    raise
+        raise last
+
     try:
-        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout, trace=via)
+        data, module, chosen = attempt()
     except gemini.GeminiError as error:
-        if not LLM_RETRY_PAUSE_SECONDS or error.status not in (429, 503):  # too many requests or busy: one more try after a short pause
+        if not LLM_RETRY_PAUSE_SECONDS or error.status not in (429, 503):  # too many requests or busy everywhere: one more round after a short pause
             raise
         time.sleep(LLM_RETRY_PAUSE_SECONDS)
-        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout, trace=via)
+        data, module, chosen = attempt()
     choices = data.get("choices") if isinstance(data, dict) else None
     content = ((choices or [{}])[0].get("message") or {}).get("content") if choices else None
     usage = data.get("usage") if isinstance(data, dict) and isinstance(data.get("usage"), dict) else {}
-    return {"text": content if isinstance(content, str) else "", "model": model, "tokens": int(usage.get("total_tokens") or 0), "cost_micro": gemini.cost_micro(model, usage), "via": via[-1] if via else None}
+    return {"text": content if isinstance(content, str) else "", "model": chosen, "tokens": int(usage.get("total_tokens") or 0), "cost_micro": module.cost_micro(chosen, usage), "via": via[-1] if via else None}
 
 
 class Runtime:
@@ -286,7 +319,7 @@ def respond(config, text, tenant_id, runtime, history=None, context=None, explai
         metrics["sources"] = [[hit["doc"], hit["page"]] for hit in included]
         started = time.monotonic()
         try:
-            answer = runtime.llm(messages, LLM_MAX_TOKENS)
+            answer = runtime.llm(messages, LLM_MAX_TOKENS, **({k: config[k] for k in ("provider", "model") if config.get(k)}))  # only when the version names them
         except Exception as error:
             raise RuntimeFailure("llm_error", {**metrics, "error": type(error).__name__, "http_status": getattr(error, "status", None)}) from None
         metrics.update(llm_ms=int((time.monotonic() - started) * 1000), tokens=metrics["tokens"] + answer["tokens"], cost_micro=metrics["cost_micro"] + answer["cost_micro"], via=answer.get("via"))

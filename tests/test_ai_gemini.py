@@ -16,6 +16,7 @@ here = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [os.path.join(here, "..", "lambda"), here]
 import ai  # noqa: E402
 import ai_proxy  # noqa: E402
+import bedrock  # noqa: E402
 import backends  # noqa: E402
 import gemini  # noqa: E402
 import openrouter  # noqa: E402
@@ -132,7 +133,7 @@ status, body = ai_set(tid, enabled=True, provider="gemini")
 assert status == 200, body
 view = body["token"]["ai"]
 assert view["provider"] == "gemini" and view["model"] == "gemini-3.5-flash-lite" and view["base_url"] == PROXY + "/v1", view
-assert view["providers"] == ["openrouter", "gemini"] and view["gemini_models"] == ["gemini-3.5-flash-lite"] and view["key_active"], view
+assert view["providers"] == ["openrouter", "gemini", "bedrock"] and view["gemini_models"] == ["gemini-3.5-flash-lite"] and view["key_active"], view
 assert not [c for c in router.calls if c[:2] == ("POST", "/keys")], "no OpenRouter key is made for a Gemini student"
 gkey = stored(tid)["gkey"]
 assert gkey.startswith(f"ga_{slug}."), gkey
@@ -326,6 +327,43 @@ print("  ok  a bad request goes no further; with every way refused the last refu
 gemini._secret.update(saved_secret)
 gemini.transport = saved_transport
 gemini._turn.update(saved_turn)
+
+# ---------- 8d. Bedrock is a third choice: same proxy and key, its own models, its own price, no Google or OpenRouter call ----------
+bedrock_asked = []
+
+
+class FakeBedrock:
+    def converse(self, **request):
+        bedrock_asked.append(request)
+        return {"output": {"message": {"content": [{"text": "Hello from Bedrock"}]}}, "usage": {"inputTokens": 1000, "outputTokens": 100}, "stopReason": "end_turn"}
+
+
+bedrock.client_factory = FakeBedrock
+tidb, sessionb, slugb = new_student("Bea")
+assert ai_set(tidb, enabled=True, provider="bedrock", model="gemini-3.5-flash-lite")[0] == 400, "a Gemini model is not a Bedrock model"
+status, body = ai_set(tidb, enabled=True, provider="bedrock")
+view = body["token"]["ai"]
+assert status == 200 and view["provider"] == "bedrock" and view["model"] == "claude-haiku-5-5" and view["bedrock_models"] == ["claude-haiku-5-5", "claude-sonnet-5-5"] and view["base_url"] == PROXY + "/v1", view
+bkey = stored(tidb)["gkey"]
+assert bkey.startswith("ga_") and not [c for c in router.calls if c[:2] == ("POST", "/keys") and slugb in json.dumps(c)], "a private proxy key, no OpenRouter key"
+before = len(google_calls)
+status, body = proxy(*CHAT, bkey, {"model": "whatever", "messages": [{"role": "system", "content": "rules"}, {"role": "user", "content": "hi"}], "max_tokens": 50})
+assert status == 200 and body["choices"][0]["message"]["content"] == "Hello from Bedrock" and len(google_calls) == before, "answered by Bedrock, nothing reached Google"
+assert bedrock_asked[-1]["modelId"] == "us.anthropic.claude-haiku-5-5" and bedrock_asked[-1]["inferenceConfig"]["maxTokens"] == 50 and bedrock_asked[-1]["system"] == [{"text": "rules"}], "the teacher's model is forced"
+assert ai.gemini_used_micro(portal.db().get(f"tok#{tidb}"), now) == bedrock.cost_micro("claude-haiku-5-5", {"prompt_tokens": 1000, "completion_tokens": 100}) == 165, "1000 in at 0.11 + 100 out at 0.55 micro-dollars"
+assert ai_set(tidb, model="claude-sonnet-5-5")[0] == 200 and proxy("GET", "/v1/models", bkey)[1]["data"][0] == {"id": "claude-sonnet-5-5", "object": "model", "owned_by": "amazon"}
+assert ai_set(tidb, provider="gemini")[1]["token"]["ai"]["model"] == "gemini-3.5-flash-lite", "switching provider goes back to that provider's default model"
+class Refused:
+    def converse(self, **request):
+        error = Exception("no")
+        error.response = {"Error": {"Code": "AccessDeniedException", "Message": "arn:aws:iam::1:role/x"}}
+        raise error
+bedrock.client_factory = Refused
+assert ai_set(tidb, provider="bedrock")[0] == 200
+status, body = proxy(*CHAT, bkey, {"messages": [{"role": "user", "content": "x"}]})
+assert status == 403 and "arn:aws" not in json.dumps(body), (status, body)
+bedrock.client_factory = None
+print("  ok  provider=bedrock: private key and the proxy, its own models and prices, no Google or OpenRouter call, no AWS detail in a refusal")
 
 # ---------- 9. nothing secret in any response ----------
 blob = "\n".join(EXPOSED)

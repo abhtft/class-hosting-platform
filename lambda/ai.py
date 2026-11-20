@@ -17,6 +17,7 @@ import time
 from botocore.exceptions import ClientError
 
 import backends
+import bedrock
 import gemini
 import openrouter
 import portal
@@ -25,7 +26,8 @@ import platform_settings
 
 AI_ENV_NAMES = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "AI_MODEL")
 PERIODS = ("day", "month", "total")
-PROVIDERS = ("openrouter", "gemini")
+PROVIDERS = ("openrouter", "gemini", "bedrock")
+PROXIED = ("gemini", "bedrock")  # served by the platform's own proxy with a private key (ga_...), counted by our own counter
 MICRO = 1_000_000
 MIN_LIMIT_USD = platform_settings.minimum("ai.defaultLimitUsd")
 MAX_LIMIT_USD = platform_settings.maximum("ai.defaultLimitUsd")
@@ -55,6 +57,11 @@ def gemini_available():
     return available() and os.environ.get("AI_GEMINI_ENABLED", "") == "true" and bool(proxy_url())
 
 
+def bedrock_available():
+    """Bedrock needs no key, only the platform's proxy (ai_proxy.py) in front of it and the model access in the AWS account."""
+    return gemini_available()
+
+
 def provider(item):
     """Gemini is the default for a student who never had AI (when the server offers it); students already on OpenRouter stay there."""
     s = settings(item)
@@ -67,6 +74,8 @@ def model_of(item):
     chosen = settings(item).get("model")
     if provider(item) == "gemini":
         return chosen if chosen in gemini.models() else gemini.DEFAULT_MODEL
+    if provider(item) == "bedrock":
+        return chosen if chosen in bedrock.models() else bedrock.DEFAULT_MODEL
     return chosen or default_model()
 
 
@@ -118,14 +127,14 @@ def _save(item, **fields):
 
 def is_on(item):
     s = settings(item)
-    return bool(s.get("enabled") and s.get("gkey" if provider(item) == "gemini" else "key"))
+    return bool(s.get("enabled") and s.get("gkey" if provider(item) in PROXIED else "key"))
 
 
 def env_for(item):
     """The variables the student's function gets, or {} when the connector is off."""
     if not (available() and is_on(item)):
         return {}
-    if provider(item) == "gemini":
+    if provider(item) in PROXIED:
         if not gemini_available():
             return {}
         return {"OPENAI_API_KEY": settings(item)["gkey"], "OPENAI_BASE_URL": proxy_url() + "/v1", "AI_MODEL": model_of(item)}
@@ -149,12 +158,12 @@ def view(item, now):
     limit_micro = s.get("limit_micro", round(default_limit_usd() * MICRO))
     used_micro = int(s.get("used_micro", 0))
     model = model_of(item)
-    gem = provider(item) == "gemini"
+    gem = provider(item) in PROXIED
     if gem:
         used_micro = gemini_used_micro(item, now)  # our own counter: always current
     out = {
         "available": True, "enabled": bool(s.get("enabled")), "model": model, "base_url": (proxy_url() + "/v1") if gem else base_url(),
-        "default_model": default_model(), "provider": provider(item), "providers": ["openrouter"] + (["gemini"] if gemini_available() else []), "gemini_models": gemini.models(),
+        "default_model": default_model(), "provider": provider(item), "providers": ["openrouter"] + (["gemini", "bedrock"] if gemini_available() else []), "gemini_models": gemini.models(), "bedrock_models": bedrock.models(),
         "limit_usd": limit_micro / MICRO, "period": s.get("period", "month"),
         "used_usd": used_micro / MICRO, "remaining_usd": max(limit_micro - used_micro, 0) / MICRO,
         "checked_at": s.get("checked_at"), "env_names": list(AI_ENV_NAMES) if s.get("enabled") else [], "timeout_seconds": student_timeout(),
@@ -183,18 +192,19 @@ def _parse(body, item):
         changes["period"] = body["period"]
     if "provider" in body:
         if body["provider"] not in PROVIDERS:
-            raise PortalError(400, "provider must be openrouter or gemini.")
-        if body["provider"] == "gemini" and not gemini_available():
-            raise PortalError(503, "Gemini is not set up on this server.")
+            raise PortalError(400, "provider must be openrouter, gemini or bedrock.")
+        if body["provider"] in PROXIED and not gemini_available():
+            raise PortalError(503, "Gemini and Bedrock are not set up on this server.")
         changes["provider"] = body["provider"]
         if changes["provider"] != provider(item) and "model" not in body:
             changes["model"] = ""  # a model id of one provider means nothing to the other: back to that provider's default
     if "model" in body:
         model = str(body["model"] or "").strip()
         chosen = changes.get("provider", provider(item))
-        if chosen == "gemini":
-            if model and model not in gemini.models():
-                raise PortalError(400, f"model must be one of: {', '.join(gemini.models())}.")
+        if chosen in PROXIED:
+            offered = gemini.models() if chosen == "gemini" else bedrock.models()
+            if model and model not in offered:
+                raise PortalError(400, f"model must be one of: {', '.join(offered)}.")
         elif model and not MODEL_RE.match(model):
             raise PortalError(400, "model must be an OpenRouter model id such as anthropic/claude-haiku-5.5.")
         changes["model"] = model  # empty means: use the provider's default
@@ -243,7 +253,7 @@ def set_ai(item, body, now):
     saved = {**changes, "limit_micro": limit_micro, "period": period}
     if want_on:
         saved["provider"] = chosen  # remember the choice, so a later change of the server default never moves a student
-    if want_on and chosen == "gemini" and not current.get("gkey"):
+    if want_on and chosen in PROXIED and not current.get("gkey"):
         saved["gkey"] = f"ga_{item['slug']}.{secrets.token_urlsafe(24)}"  # made once, kept while the student exists
     if key_hash:
         saved["key_disabled"] = desired_disabled
@@ -277,7 +287,7 @@ def apply_to_function(item):
 def refresh_usage(item, now, force=False, quiet=False):
     """Read the student's usage from OpenRouter (cached for REFRESH_SECONDS). Never raises on a provider failure when quiet."""
     s = settings(item)
-    if available() and provider(item) == "gemini":  # our own counter: no provider call, always current
+    if available() and provider(item) in PROXIED:  # our own counter: no provider call, always current
         used = gemini_used_micro(item, now)
         return item if used == int(s.get("used_micro", -1)) else _save(item, used_micro=used, checked_at=now)
     if not (available() and s.get("hash")):

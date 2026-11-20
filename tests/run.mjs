@@ -77,7 +77,7 @@ await step('class AI connector: capped keys, function environment, lifecycle, fa
 });
 
 await step('class AI with Gemini: provider switch, private-key proxy, forced model, caps, thinking-token cost, lifecycle; template guards', () => {
-  for (const test of ['test_ai_gemini.py', 'test_template_gemini.py']) {
+  for (const test of ['test_ai_gemini.py', 'test_bedrock.py', 'test_template_gemini.py']) {
     const r = spawnSync(python, [join(here, test)], { encoding: 'utf8' });
     assert.equal(r.status, 0, `${test}: ${r.stderr || r.stdout}`);
   }

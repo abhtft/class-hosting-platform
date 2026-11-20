@@ -237,13 +237,13 @@ function aiSection(token, ctx) {
     h('p', { class: 'muted small', style: 'margin:0' },
       'Your teacher switched on AI for your backend, with a spending cap and no key of your own. These variables are set for your function automatically: ',
       ...a.env_names.flatMap((n, i) => [i ? ', ' : '', h('code', {}, n)]),
-      `. The model is ${a.model}${a.provider === 'gemini' ? ' (Google Gemini)' : ''}. They work with any OpenAI-compatible library.`),
+      `. The model is ${a.model}${a.provider === 'gemini' ? ' (Google Gemini)' : a.provider === 'bedrock' ? ' (Amazon Bedrock)' : ''}. They work with any OpenAI-compatible library.`),
     aiMeterBox,
     h('details', {}, h('summary', {}, `Example (${runtime === 'node' ? 'Node' : 'Python'})`), h('pre', { class: 'logs' }, example)),
     h('ul', { class: 'small muted', style: 'margin:0;padding-left:20px;display:grid;gap:2px' },
       h('li', {}, 'Never send the key to the browser or print it in logs. Your page calls your own ', h('code', {}, '/api/…'), ' route, and that route calls the AI.'),
       h('li', {}, `Answers take a few seconds. While AI is on your function may run up to ${a.timeout_seconds} s. Keep max_tokens small.`),
-      a.provider === 'gemini'
+      a.provider === 'gemini' || a.provider === 'bedrock'
         ? h('li', {}, 'When the allowance is used up, the call returns an error (HTTP 429, “insufficient_quota”). Answers are not streamed: leave stream out.')
         : h('li', {}, 'When the allowance is used up, the call returns an error (HTTP 403, “Key limit exceeded”). Handle it with a friendly message.'),
       h('li', {}, 'Your prompts are sent to the AI provider. Do not send personal or private data.')));

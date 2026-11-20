@@ -10,6 +10,7 @@ import zlib
 
 os.environ.update(AWS_REGION="us-east-1", AWS_DEFAULT_REGION="us-east-1", AWS_ACCESS_KEY_ID="x", AWS_SECRET_ACCESS_KEY="x", AI_SECRET_NAME="secret", BUCKET="b")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lambda"))
+import bedrock  # noqa: E402
 import chatwoot_handover as ho  # noqa: E402
 import chatwoot_runtime as rt  # noqa: E402
 import embeddings as em  # noqa: E402
@@ -272,6 +273,13 @@ try:
     assert body["max_tokens"] == 400 and body["model"] == gemini.DEFAULT_MODEL and body["messages"] == [{"role": "user", "content": "hi"}] and body["temperature"] == 0.2
     gemini.transport = lambda url, headers, body: (200, {"choices": [], "usage": None})
     assert rt.llm_gemini([], 10)["text"] == "" and rt.llm_gemini([], 10)["cost_micro"] == 0, "an odd answer is empty text, not a crash"
+
+    class Throttled:
+        def converse(self, **request):
+            error = Exception("throttled")
+            error.response = {"Error": {"Code": "ThrottlingException", "Message": "arn:aws:... secret detail"}}
+            raise error
+    bedrock.client_factory = Throttled  # the spare is busy too
     calls = []
     sleeps = []
     real_sleep = rt.time.sleep
@@ -293,9 +301,63 @@ try:
         rt.llm_gemini([], 10)
         raise AssertionError("a refusal must raise")
     except gemini.GeminiError as error:
-        assert error.status == 429
+        assert error.status == 429 and "arn:aws" not in str(error) and "secret detail" not in str(error)
 finally:
     gemini.transport = None
+    bedrock.client_factory = None
+# ---- the provider: a version may name gemini or bedrock; the other one is the spare; the price is the answering provider's ----
+asked = []
+
+
+class FakeBedrock:
+    def converse(self, **request):
+        asked.append(request)
+        return {"output": {"message": {"content": [{"text": "from bedrock"}]}}, "usage": {"inputTokens": 1000, "outputTokens": 200}, "stopReason": "end_turn"}
+
+
+bedrock.client_factory = FakeBedrock
+gemini.transport = lambda url, headers, body: (200, {"choices": [{"message": {"content": "from gemini"}}], "usage": {"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200}})
+rt.time.sleep = lambda s: None
+try:
+    msgs = [{"role": "system", "content": "rules"}, {"role": "user", "content": "hi"}]
+    one = rt.llm_gemini(msgs, 400)
+    assert one["text"] == "from gemini" and not asked, "no provider named: the platform's choice (gemini)"
+    two = rt.llm_gemini(msgs, 400, provider="bedrock")
+    assert two["text"] == "from bedrock" and two["via"] == "BEDROCK" and two["model"] == bedrock.DEFAULT_MODEL
+    assert two["tokens"] == 1200 and two["cost_micro"] == bedrock.cost_micro(bedrock.DEFAULT_MODEL, {"prompt_tokens": 1000, "completion_tokens": 200}) and two["cost_micro"] != one["cost_micro"], "priced by the provider that answered"
+    sent = asked[0]
+    assert sent["modelId"] == "us.anthropic.claude-haiku-5-5" and sent["system"] == [{"text": "rules"}] and sent["messages"] == [{"role": "user", "content": [{"text": "hi"}]}] and sent["inferenceConfig"]["maxTokens"] == 400
+    three = rt.llm_gemini(msgs, 400, provider="bedrock", model="claude-sonnet-5-5")
+    assert asked[1]["modelId"] == "us.anthropic.claude-sonnet-5-5" and three["model"] == "claude-sonnet-5-5"
+    gemini.transport = lambda url, headers, body: (429, {})
+    spare = rt.llm_gemini(msgs, 400)
+    assert spare["text"] == "from bedrock", "gemini refused: bedrock is the spare"
+    gemini.transport = lambda url, headers, body: (200, {"choices": [{"message": {"content": "from gemini"}}], "usage": {}})
+
+    class Down:
+        def converse(self, **request):
+            error = Exception("x")
+            error.response = {"Error": {"Code": "ServiceUnavailableException"}}
+            raise error
+    bedrock.client_factory = Down
+    assert rt.llm_gemini(msgs, 400, provider="bedrock")["text"] == "from gemini", "bedrock refused: gemini is the spare"
+finally:
+    gemini.transport = None
+    bedrock.client_factory = None
+c = rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry.", "provider": "bedrock", "model": "claude-sonnet-5-5"})
+assert c["provider"] == "bedrock" and c["model"] == "claude-sonnet-5-5" and "provider" not in rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry."})
+for bad in ({"provider": "openai"}, {"provider": "bedrock", "model": "gemini-3.5-flash-lite"}, {"model": "claude-haiku-5-5"}, {"provider": "gemini", "model": "claude-haiku-5-5"}):
+    try:
+        rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry.", **bad})
+        raise AssertionError(bad)
+    except rt.ConfigError:
+        pass
+ran = []
+runtime2 = rt.Runtime(Stub(CONFIDENT).search, lambda messages, max_tokens, **extra: (ran.append(extra), {"text": "ok", "tokens": 1, "cost_micro": 1})[1])
+rt.respond(rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry.", "provider": "bedrock", "model": "claude-sonnet-5-5"}), "hello?", "acme", runtime2)
+rt.respond(rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry."}), "hello?", "acme", runtime2)
+assert ran == [{"provider": "bedrock", "model": "claude-sonnet-5-5"}, {}], "the version's provider and model reach the model call; a version without them passes nothing"
+print("  ok  a version may name its provider (gemini or bedrock) and model; the other provider is the spare; the cost is the answering provider's; Bedrock errors carry no AWS detail")
 print("  ok  the model call sends the fixed model with the token limit, prices the usage, and turns an odd answer into empty text and a refusal into an error")
 
 # earlier turns are shown to the model as data: fenced, escaped, after the rules, before the new message; a short follow-up is searched with the last question

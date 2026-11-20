@@ -993,16 +993,18 @@ async function editAi(t) {
   const fields = [{ name: 'limit_usd', label: 'Spending cap (USD)', type: 'number', value: a.limit_usd, min: 0.01, max: 20, step: 0.01, required: true },
     { name: 'period', label: 'Per', options: [['day', 'day'], ['month', 'month'], ['total', 'total (whole token life)']], value: a.period }];
   if (gemini) {
-    fields.push({ name: 'provider', label: 'AI service', value: a.provider, options: [['gemini', 'Google Gemini'], ['openrouter', 'OpenRouter']] });
+    const names = { gemini: 'Google Gemini', bedrock: 'Amazon Bedrock (Claude)', openrouter: 'OpenRouter' };
+    fields.push({ name: 'provider', label: 'AI service', value: a.provider, options: (a.providers || []).map((p) => [p, names[p] || p]) });
   }
   fields.push({ name: 'model', label: 'Model (you can type another)', value: a.model, maxlength: 80, required: true,
     follows: { field: gemini ? 'provider' : null, by: {
       gemini: { value: a.gemini_models[0], suggestions: a.gemini_models },
+      bedrock: { value: (a.bedrock_models || [])[0] || '', suggestions: a.bedrock_models || [] },
       openrouter: { value: a.default_model, suggestions: [a.default_model] } } } });
   if (!gemini) delete fields[fields.length - 1].follows;
   const r = await ask({ title: `AI allowance for ${t.slug}`,
     text: gemini
-      ? `Used so far: ${usd(a.used_usd)}. Gemini: the platform counts the cost of every answer itself (an answer already under way can overshoot the cap by one answer). OpenRouter enforces its own cap. Changing the service gives the student a new key setup and stops the old one.`
+      ? `Used so far: ${usd(a.used_usd)}. Gemini and Bedrock (Amazon, no key to paste: the platform's own AWS access): the platform counts the cost of every answer itself (an answer already under way can overshoot the cap by one answer). OpenRouter enforces its own cap. Compare the quality of two services by switching here and asking the same questions. Changing the service gives the student a new key setup and stops the old one.`
       : `Used so far: ${usd(a.used_usd)}. OpenRouter enforces the cap itself, so it holds even if the student's code misbehaves. Usage is counted a few seconds late.`,
     fields, confirm: 'Save' });
   if (!r) return;

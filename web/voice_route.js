@@ -5,6 +5,9 @@ export function voiceRouteText(ai, backend) {
   if (ai.provider === 'gemini') {
     return 'Voice uses: Google Gemini (free within the cap). A VOICE_MODEL setting is not used on Gemini.';
   }
+  if (ai.provider === 'bedrock') {
+    return 'Voice uses: Amazon Bedrock (Claude). Audio input is not part of this service yet, so voice ordering needs Gemini or OpenRouter.';
+  }
   const names = Array.isArray(backend?.env_names) ? backend.env_names : [];
   if (names.includes('VOICE_MODEL')) {
     return 'Voice uses: OpenRouter with the student’s own VOICE_MODEL (the name is hidden: the portal never shows values).';

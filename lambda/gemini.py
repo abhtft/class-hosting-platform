@@ -119,7 +119,7 @@ def _fail(status, data, hidden):
 _turn = {"n": 0}  # round robin: each call starts one key further on (per container)
 
 
-def chat(body, timeout=25, trace=None):
+def chat(body, timeout=25, trace=None, last_resort=True):
     """One non-streaming chat completion. Returns the parsed OpenAI-style answer; raises GeminiError (the message never holds a key).
     The Google keys take turns (round robin); when one is refused (too many requests, busy, unreachable, key not accepted) the same call goes to the next, and when every
     Google key was refused it goes to OpenRouter (field OPENROUTER_API_KEY of the same secret, the same model) when that key exists. `trace`, if given, gets the names of
@@ -144,7 +144,7 @@ def chat(body, timeout=25, trace=None):
         last = _fail(status, data, hidden)
         if status not in FAILOVER_STATUSES:
             raise last
-    fallback = _secret_values().get("OPENROUTER_API_KEY")
+    fallback = _secret_values().get("OPENROUTER_API_KEY") if last_resort else None
     if isinstance(fallback, str) and fallback.strip():
         if trace is not None:
             trace.append("OPENROUTER_API_KEY")

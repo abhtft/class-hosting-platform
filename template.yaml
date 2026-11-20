@@ -139,6 +139,13 @@ Parameters:
     Description: >
       How the worker sends the agent bot's token to Chatwoot: bearer (Authorization: Bearer, Chatwoot 4.19 and later) or api_access_token (the older header, for an
       older Chatwoot).
+  ChatwootProvider:
+    Type: String
+    Default: gemini
+    AllowedValues: [gemini, bedrock]
+    Description: >
+      Which model answers customers of an agent whose published version names no provider: gemini (Google) or bedrock (Amazon Bedrock, Claude Haiku 5.5, no key). A version
+      can choose its own in Studio. The other one is the spare when the first is refused. Needs the model access for Claude Haiku 5.5 in Bedrock for bedrock.
   WorkerEnabled:
     Type: String
     Default: 'false'
@@ -1234,6 +1241,7 @@ Resources:
           CHATWOOT_TABLE: !Ref ChatwootTable
           CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl
           CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle
+          CHATWOOT_PROVIDER: !Ref ChatwootProvider
           CHATWOOT_MEMORY_TABLE: !Ref ChatwootMemoryTable
       Policies:
         - Statement:
@@ -1276,6 +1284,13 @@ Resources:
             - Effect: Allow # the agent bot's token and account id: the same chatwoot/<agent name> secrets, nothing else
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:chatwoot/*'
+            - Effect: Allow # Amazon Bedrock: ask the offered Claude models (Converse needs InvokeModel) through the US inference profiles; these models only, nothing else of Bedrock
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-5-5'
+                - !Sub 'arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-5'
+                - !Sub 'arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-haiku-5-5'
+                - !Sub 'arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5'
 
   # Chatwoot sweeper (chatwoot_sweeper.py): every 10 minutes it finds message items the worker started but never finished (older than chatwoot.sweepStuckSeconds), marks each failed
   # with a conditional write and asks the worker, with an event of ids only, to hand that conversation to a person. It reads the adapter's own small table (a scan, because the table has
@@ -1328,6 +1343,7 @@ Resources:
         Variables:
           CHATWOOT_TABLE: !Ref ChatwootTable
           CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction
+          CHATWOOT_PROVIDER: !Ref ChatwootProvider
       Policies:
         - Statement:
             - Effect: Allow # the registry only (tenant#..., agent#...): single items, never a scan or a query, never a message item
@@ -1382,6 +1398,13 @@ Resources:
             - Effect: Allow # the Google key (this one secret, nothing else)
               Action: secretsmanager:GetSecretValue
               Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
+            - Effect: Allow # Amazon Bedrock: ask the offered Claude models (Converse needs InvokeModel) through the US inference profiles; these models only, nothing else of Bedrock
+              Action: bedrock:InvokeModel
+              Resource:
+                - !Sub 'arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-5-5'
+                - !Sub 'arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-5'
+                - !Sub 'arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-haiku-5-5'
+                - !Sub 'arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5'
             - !If # traces: it may add steps to a trace (its own partition prefix only), nothing else in that table
               - UseTraces
               - Effect: Allow

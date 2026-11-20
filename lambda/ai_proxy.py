@@ -15,6 +15,7 @@ import re
 import time
 
 import ai
+import bedrock
 import gemini
 import portal
 import trace_core
@@ -60,8 +61,8 @@ def authenticate(headers, now):
     if status != "active":
         raise ProxyError(403, "token_inactive", f"This site's token is {status}, so its AI is paused.")
     s = ai.settings(item)
-    if not (ai.gemini_enabled() and s.get("enabled") and ai.provider(item) == "gemini"):
-        raise ProxyError(403, "not_enabled", "Class AI (Gemini) is switched off for you. Ask your teacher.")
+    if not (ai.gemini_enabled() and s.get("enabled") and ai.provider(item) in ai.PROXIED):
+        raise ProxyError(403, "not_enabled", "Class AI is switched off for you. Ask your teacher.")
     return item
 
 
@@ -81,14 +82,19 @@ def parse_body(event):
     return body
 
 
+def backend_of(item):
+    """The module that answers for this student: bedrock.py or gemini.py (same chat and cost_micro)."""
+    return bedrock if ai.provider(item) == "bedrock" else gemini
+
+
 def trace_llm(item, trace_id, model, sent, answer, started, now, error=None):
     """One "llm" step in the answer's trace. Never raises (traces.record swallows its own errors)."""
     usage = (answer or {}).get("usage") or {}
     choice = ((answer or {}).get("choices") or [{}])[0]
     text = (choice.get("message") or {}).get("content") if answer else None
-    cost = gemini.cost_micro(model, usage) if answer else 0
+    cost = backend_of(item).cost_micro(model, usage) if answer else 0
     traces.record(item, trace_id, "llm", "llm", {
-        "model": model, "provider": "gemini", "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+        "model": model, "provider": ai.provider(item), "prompt_tokens": int(usage.get("prompt_tokens") or 0),
         "completion_tokens": int(usage.get("completion_tokens") or 0), "cost_micro": cost,
         "finish_reason": choice.get("finish_reason"), "temperature": sent.get("temperature"), "max_tokens": sent.get("max_tokens"),
         "messages": [m.get("content") for m in sent.get("messages", []) if isinstance(m, dict)],
@@ -113,12 +119,12 @@ def complete(item, body, now, trace_id=None):
     sent["model"] = model
     started = time.time()
     try:
-        answer = gemini.chat(sent, timeout=ai.student_timeout() - 3)
+        answer = backend_of(item).chat(sent, timeout=ai.student_timeout() - 3)
     except gemini.GeminiError as e:
         trace_llm(item, trace_id, model, sent, None, started, now, error=str(e))
         # Tokens may have been used even when Google answers late; an error carries no usage, so nothing is counted.
         raise ProxyError(429 if e.status == 429 else 502 if e.status >= 500 else e.status, "provider_error", str(e))
-    ai.add_gemini_usage(item, gemini.cost_micro(model, answer.get("usage")), now)
+    ai.add_gemini_usage(item, backend_of(item).cost_micro(model, answer.get("usage")), now)
     trace_llm(item, trace_id, model, sent, answer, started, now)
     return answer
 
@@ -134,7 +140,7 @@ def handler(event, context=None, now=None):
             trace_id = trace_core.trace_id_or_new(headers.get("x-trace-id")) if traces.available() else None
             return reply(200, complete(item, parse_body(event), now, trace_id), trace_id)
         if (method, path) == ("GET", "/v1/models"):
-            return reply(200, {"object": "list", "data": [{"id": ai.model_of(item), "object": "model", "owned_by": "google"}]})
+            return reply(200, {"object": "list", "data": [{"id": ai.model_of(item), "object": "model", "owned_by": "amazon" if ai.provider(item) == "bedrock" else "google"}]})
         raise ProxyError(404, "not_found", "Unknown route.")
     except ProxyError as e:
         return error_reply(e.status, e.code, str(e))
