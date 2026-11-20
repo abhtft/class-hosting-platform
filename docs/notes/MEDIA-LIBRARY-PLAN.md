@@ -73,3 +73,17 @@ IAM change (M1): the worker gets `s3:GetObject` on `chatwoot-media/*` only; the 
 3. Wrong media chosen by the model: limited by the catalogue, the "clearly answers" rule, and suite cases; the trace shows the choice.
 4. Copyright and privacy: the owner is responsible for the files; the library is private to the tenant; no public bucket.
 5. Storage growth: caps per agent and per tenant in settings; deleting an item deletes the object after the last version using it is retired.
+
+## 8. Control at volume (owner's answers, 2026-11-21; not built)
+
+Answers: a changed file is always a **new version** (A); an old file is deleted **only when no kept version uses it** (A); the limits are the **teacher's, one set per business** (A); the scope is the **media limits**.
+
+**8.1 Limits per business.** Today the media limits are platform-wide settings (`chatwoot.media...`). Add an optional `limits` object on the business's tenant item: `media_items`, `media_per_reply`, `image_kb`, `video_kb`, `document_kb`, `total_mb`, `total_files`. The effective value is the business's own when set, else the platform default, and never above the setting's maximum. Set by the teacher with the local command (`tenant-limits <tenant> key=value ...`, shown with `tenant-show`); not by Studio and not by the owner. Enforced in three places: the upload form (size, and the business's total), publishing a version (items per version) and the worker (items per reply).
+
+**8.2 Counting what a business stores.** One item per agent, `media#<tenant>#<agent>`: `{files: {key: {kind, size, state: pending|kept, at}}}`. The upload form reserves the announced size as `pending` (counts against `total_mb` and `total_files` at once, so a flood of uploads is stopped before the files arrive); publishing a version turns the keys it uses into `kept`. A business over its total gets a plain refusal naming the number, not a failure later.
+
+**8.3 Changing and removing.** A version never changes; to replace a photo the owner uploads a new file and publishes the next version. Old versions stay (rollback) until the owner **retires** one (a new admin call; never the live version, never the last). A file is deleted when no remaining version lists it; an upload that no version used is deleted after one day (`chatwoot.mediaPendingHours`). Deleting is done by a small scheduled **janitor** function (daily): it reads the `media#` items and versions, deletes only keys under `chatwoot-media/<tenant>/<agent>/` that nothing references, and records what it freed. IAM: `s3:DeleteObject` and `s3:ListBucket` on that prefix for the janitor only.
+
+**8.4 Phases.** M1b: business limits + counting + gating (teacher command, admin, worker, tests). M1c: retire a version + the janitor (new function and permissions, a guard test). Both before the first deploy of media, so the first live version already has the controls.
+
+**8.5 Left open on purpose.** A per-business monthly count of media sent (cost is only Chatwoot traffic, not model money); a virus scan of uploads (not done: the bytes are only checked to match the type, and the files are served to the customer's chat by Chatwoot, never opened by us).
