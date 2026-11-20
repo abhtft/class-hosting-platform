@@ -252,7 +252,7 @@ def handler(event, context=None, now=None, deps=None):
         log("duplicate", agent=agent_id, message=fields["message_id"])
         return reply(200, ok=True, duplicate=True)
     try:
-        deps.invoke({"agent_id": agent_id, "delivery_id": delivery, "text": core.message_text(payload), **fields})  # the text goes to the worker in this event only
+        deps.invoke({"agent_id": agent_id, "delivery_id": delivery, "text": core.message_text(payload), "channel": core.channel_of(payload), **fields})  # the text goes to the worker in this event only
     except Exception as error:  # remove the item so Chatwoot's retry is accepted instead of being taken for a repeat
         deps.store.forget(key)
         log("hand_over_failed", agent=agent_id, error=type(error).__name__)
@@ -330,11 +330,12 @@ def compose(event, agent, tenant, deps, now, history):
     if deps.store.usage(key) >= monthly_cap_micro(tenant):
         raise Refused("cap_reached", config=config)
     text = event.get("text") if isinstance(event.get("text"), str) else ""
+    context = {"channel": event.get("channel") if isinstance(event.get("channel"), str) and re.fullmatch(r"[a-z_]{1,40}", event["channel"]) else "", "inbox_id": event["inbox_id"]}
     reason = handover.decide(text, history, config["handover_on"])
     if reason:  # a person is asked for, a complaint, a warm lead: no model call, nothing to search
         return config["handover_text"], {"route": "handover"}, reason
     try:
-        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime, history)
+        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime, history, context)
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
         raise Refused(failure.reason, failure.metrics, config) from None

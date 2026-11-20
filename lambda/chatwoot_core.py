@@ -69,6 +69,16 @@ def _id(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
+def channel_of(payload):
+    """The kind of channel the message came on, as a short lowercase word ("whatsapp", "web_widget", "facebook_page", "instagram"...), or ''. Chatwoot names it in the
+    conversation as "Channel::Whatsapp". A word the operator's own system supplies, not the customer's: it may travel to the worker and into the prompt."""
+    conversation = payload.get("conversation") if isinstance(payload, dict) else None
+    raw = conversation.get("channel") if isinstance(conversation, dict) else None
+    if not isinstance(raw, str) or not re.fullmatch(r"Channel::[A-Za-z]{1,40}", raw):
+        return ""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", raw.split("::", 1)[1]).lower()
+
+
 def classify(payload):
     """(fields, None) for a message the bot should answer, else (None, reason). `fields` holds only numbers (message, conversation, account and inbox
     ids): the text of the message is deliberately not part of it, nothing here may store it. Reasons: not_json, event_ignored, not_incoming, private,

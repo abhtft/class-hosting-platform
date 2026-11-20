@@ -171,4 +171,12 @@ fields, reason = core.classify({**SAMPLE, "content": "secret words"})
 assert reason is None and "secret words" not in json.dumps(fields), "classify never returns the text"
 print("  ok  the customer's words are available as text for the worker (trimmed, cut, empty when missing) and never part of what classify returns")
 
+# the kind of channel: a short lowercase word, nothing else
+for raw, word in (("Channel::Whatsapp", "whatsapp"), ("Channel::WebWidget", "web_widget"), ("Channel::FacebookPage", "facebook_page"), ("Channel::Instagram", "instagram"), ("Channel::TwilioSms", "twilio_sms"), ("Channel::Api", "api")):
+    assert core.channel_of({"conversation": {"channel": raw}}) == word, raw
+for odd in (None, {}, {"conversation": None}, {"conversation": {}}, {"conversation": {"channel": 5}}, {"conversation": {"channel": "Whatsapp"}}, {"conversation": {"channel": "Channel::"}},
+            {"conversation": {"channel": "Channel::What sapp"}}, {"conversation": {"channel": "Channel::" + "A" * 41}}, {"conversation": {"channel": "Channel::Wh<script>"}}, "text"):
+    assert core.channel_of(odd) == "", odd
+print("  ok  the channel of a conversation is read as a short lowercase word, and anything odd is empty")
+
 print("test_chatwoot_core.py: signature, loop guard, payload checks and the reply")

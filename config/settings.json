@@ -2485,6 +2485,21 @@
       ]
     },
     {
+      "key": "chatwoot.inboxNoteMaxChars",
+      "group": "chatwoot",
+      "title": "Longest note about an inbox",
+      "help": "An agent may carry a short note for each inbox it serves (which number or page the customer is writing to, and what not to suggest there). Each note is cut off above this many characters: a longer one makes the version unusable.",
+      "unit": "characters",
+      "default": 500,
+      "min": 50,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.INBOX_NOTE_CHARS"
+      ]
+    },
+    {
       "key": "chatwoot.sweepStuckSeconds",
       "group": "chatwoot",
       "title": "When a message counts as stuck",

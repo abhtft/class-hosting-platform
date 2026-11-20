@@ -122,7 +122,7 @@ def call(fakes, ev, now=NOW):
 f = Fakes()
 status, body = call(f, event(SAMPLE))
 assert (status, body) == (200, {"ok": True, "accepted": True}), (status, body)
-assert len(f.invoked) == 1 and f.invoked[0] == {"agent_id": "shop", "delivery_id": "d-1", "text": TEXT, "message_id": 501, "conversation_id": 12, "account_id": 1, "inbox_id": 3}, "the text reaches the worker in the event only"
+assert len(f.invoked) == 1 and f.invoked[0] == {"agent_id": "shop", "delivery_id": "d-1", "text": TEXT, "channel": "", "message_id": 501, "conversation_id": 12, "account_id": 1, "inbox_id": 3}, "the text reaches the worker in the event only"
 item = f.store.items["msg#shop#501"]
 assert item["status"] == "received" and item["received_at"] == NOW and item["ttl"] == NOW + api.DEDUPE_TTL_DAYS * 86400 and item["delivery_id"] == "d-1"
 stored = json.dumps(f.store.items)  # the table; the event to the worker carries the text on purpose and is not stored anywhere
@@ -749,6 +749,26 @@ assert api.worker(sweep_job, None, now=NOW + 400, deps=f.wdeps) == {"skipped": "
 for bad in ({**sweep_job, "conversation_id": "x"}, {**sweep_job, "agent_id": "../x"}, {"kind": "sweep"}):
     assert api.worker(bad, None, now=NOW + 400, deps=f.wdeps) == {"skipped": "bad_event"}
 print("  ok  a stuck item is handed over with a private note and open and no sentence to the customer; a switched-off agent or a bad event does nothing")
+
+# the channel travels in the event (a word, not the customer's), and the worker tells the model: WhatsApp rule, inbox note, no second greeting
+f = Fakes()
+payload = {**SAMPLE, "conversation": {**SAMPLE["conversation"], "channel": "Channel::Whatsapp"}}
+assert call(f, event(payload))[0] == 200 and f.invoked[0]["channel"] == "whatsapp"
+job = f.invoked[0]
+f.store.items["agent#shop#v1"]["config"] = {**LIVE_CONFIG, "inbox_notes": {"3": "This is the business's own WhatsApp number."}}
+assert run_worker(f, job) == {"replied": True}
+system = f.llm_calls[0][0][0]["content"]
+assert "Never suggest that they WhatsApp, message or text that number" in system and "business's own WhatsApp number." in system and "already started" not in system
+f.store.items["msg#shop#502"] = {"pk": "msg#shop#502", "status": "received", "message_id": 502}
+api.worker({**job, "message_id": 502, "text": "and on Saturday?"}, None, now=NOW + 60, deps=f.wdeps)
+assert "already started: do NOT greet" in f.llm_calls[1][0][0]["content"], "the second message of the conversation is not greeted again"
+for odd in ("WHATSAPP", "whatsapp\n", "x" * 50, 5, None, "<b>"):
+    f, job = accepted()
+    assert run_worker(f, {**job, "channel": odd}) == {"replied": True} and "WhatsApp" not in f.llm_calls[0][0][0]["content"] and "same channel" not in f.llm_calls[0][0][0]["content"], odd
+f, job = accepted()
+run_worker(f, {**job, "channel": "telegram"})
+assert "writing on telegram" in f.llm_calls[0][0][0]["content"]
+print("  ok  the receiver passes the channel word to the worker, and the worker gives the model the channel rule, the inbox note and the no-second-greeting rule; an odd channel value is ignored")
 
 # the receiver cuts the text and sends nothing when there is none
 f = Fakes()
