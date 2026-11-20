@@ -1,0 +1,370 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Chatwoot on one small Graviton machine (Docker Compose: Chatwoot web, Sidekiq, Postgres with pgvector, Redis), its own encrypted data disk with daily snapshots, a private bucket for
+  uploads and database dumps, and nothing else. Its own stack: independent of the student-hosting platform stack. See docs/notes/CHATWOOT-MIGRATION-PLAN.md.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC the machine lives in (the default VPC is fine)
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      A public subnet of that VPC. The data disk must be in this subnet's availability zone.
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: The availability zone of that subnet
+  AdminCidr:
+    Type: String
+    AllowedPattern: '^([0-9]{1,3}\.){3}[0-9]{1,3}/(3[0-2]|[12]?[0-9])$'
+    Description: >
+      The only address range that may reach the web port while the replica is being tested, for example your own address as 203.0.113.7/32. Opened to the internet
+      at the cutover, by a deliberate change of this one parameter (and Cloudflare's address ranges instead).
+  InstanceType:
+    Type: String
+    Default: t4g.medium
+    AllowedValues: [t4g.small, t4g.medium, t4g.large]
+    Description: >
+      Chatwoot with Sidekiq uses about 1 GB of memory (measured on Railway). t4g.medium (4 GB) has room, t4g.small (2 GB) is tight.
+  DataVolumeGB:
+    Type: Number
+    Default: 30
+    MinValue: 10
+    MaxValue: 500
+    Description: Size in GB of the encrypted data disk (database, Redis, uploads)
+  ChatwootImage:
+    Type: String
+    Default: chatwoot/chatwoot:v4.18.0-ce
+    AllowedPattern: '^[a-z0-9./_-]+:[A-Za-z0-9._-]+$'
+    Description: >
+      The Chatwoot image: the same version as on Railway (4.18.0, community edition). Upgrade later, in a copy first.
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64
+    Description: >
+      Amazon Linux 2023 for Graviton, resolved when the stack is created. Keep the value at the next updates so the machine is not replaced by a newer image.
+
+Resources:
+  # Uploads, database dumps and the archive of the old installation. Private, kept when the stack is deleted (it holds the way back).
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: dumps-expire
+            Status: Enabled
+            Prefix: dumps/
+            ExpirationInDays: 30
+          - Id: abort-partial-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: HttpsOnly
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt DataBucket.Arn, !Sub '${DataBucket.Arn}/*']
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore' # run commands on the machine without a key pair or an open SSH port
+      Policies:
+        - PolicyName: chatwoot-data
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow # its own bucket only
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject, s3:AbortMultipartUpload]
+                Resource: !Sub '${DataBucket.Arn}/*'
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource: !GetAtt DataBucket.Arn
+              - Effect: Allow # the settings of Chatwoot: Parameter Store, the prefix /chatwoot/ only
+                Action: [ssm:GetParameter, ssm:GetParameters, ssm:GetParametersByPath]
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/chatwoot/*'
+              - Effect: Allow # to read those settings (SecureString, the AWS-managed key), only through Parameter Store
+                Action: kms:Decrypt
+                Resource: !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*'
+                Condition:
+                  StringEquals:
+                    'kms:ViaService': !Sub 'ssm.${AWS::Region}.amazonaws.com'
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  # Web port only, from one address range; no SSH (the machine is reached with Systems Manager).
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Chatwoot web port from the admin address; everything else closed
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AdminCidr
+          Description: Chatwoot web (replica testing)
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: images, packages and the calls Chatwoot makes out (Meta, SMTP, the bot adapter)
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  # The data disk: its own volume, so the machine can be rebuilt without touching the data. A snapshot is taken if the stack is deleted.
+  DataVolume:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      Size: !Ref DataVolumeGB
+      VolumeType: gp3
+      Encrypted: true
+      Tags:
+        - Key: Name
+          Value: chatwoot-data
+        - Key: Backup
+          Value: chatwoot
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroup]
+      IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: chatwoot
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # First boot: Docker, the data disk, the Compose files and an empty Chatwoot. Everything it prints goes to /var/log/chatwoot-bootstrap.log.
+          exec > >(tee -a /var/log/chatwoot-bootstrap.log) 2>&1
+          set -eux
+          dnf install -y docker jq
+          systemctl enable --now docker
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          COMPOSE_VERSION=v2.29.7
+          curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-aarch64"
+          curl -fsSL -o /tmp/compose.sha256 "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-aarch64.sha256"
+          (cd /usr/local/lib/docker/cli-plugins && echo "$(cut -d' ' -f1 /tmp/compose.sha256)  docker-compose" | sha256sum -c -)
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          # the data disk: wait for it, make a file system only if it has none, mount it by its UUID
+          for i in $(seq 1 60); do [ -b /dev/nvme1n1 ] && break; sleep 5; done
+          blkid /dev/nvme1n1 || mkfs.xfs -L cwdata /dev/nvme1n1
+          mkdir -p /data
+          grep -q cwdata /etc/fstab || echo "LABEL=cwdata /data xfs defaults,nofail 0 2" >> /etc/fstab
+          mount -a
+          mkdir -p /data/postgres /data/redis /data/storage /opt/chatwoot
+          chown 1000:1000 /data/storage
+          cd /opt/chatwoot
+          if [ ! -f .env ]; then
+            gen() { head -c 60 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40; }
+            PGPW=$(gen); RDPW=$(gen); SKB=$(head -c 64 /dev/urandom | od -An -tx1 | tr -d ' \n')
+            cat > .env <<EOF2
+          RAILS_ENV=production
+          NODE_ENV=production
+          INSTALLATION_ENV=docker
+          RAILS_LOG_TO_STDOUT=true
+          LOG_LEVEL=info
+          FORCE_SSL=false
+          ENABLE_ACCOUNT_SIGNUP=false
+          DEFAULT_LOCALE=en
+          FRONTEND_URL=http://${ElasticIp}
+          SECRET_KEY_BASE=$SKB
+          POSTGRES_DB=chatwoot
+          POSTGRES_USER=postgres
+          POSTGRES_PASSWORD=$PGPW
+          POSTGRES_HOST=postgres
+          POSTGRES_PORT=5432
+          POSTGRES_DATABASE=chatwoot
+          POSTGRES_USERNAME=postgres
+          REDIS_PASSWORD=$RDPW
+          REDIS_URL=redis://:$RDPW@redis:6379
+          ACTIVE_STORAGE_SERVICE=local
+          EOF2
+            sed -i 's/^ *//' .env
+            chmod 600 .env
+          fi
+          cat > docker-compose.yml <<'EOF3'
+          services:
+            postgres:
+              image: pgvector/pgvector:pg16
+              restart: always
+              env_file: .env
+              volumes:
+                - /data/postgres:/var/lib/postgresql/data
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U postgres -d chatwoot"]
+                interval: 10s
+                timeout: 5s
+                retries: 10
+            redis:
+              image: valkey/valkey:8
+              restart: always
+              env_file: .env
+              command: ["sh", "-c", "exec valkey-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+              volumes:
+                - /data/redis:/data
+            rails:
+              image: ${ChatwootImage}
+              restart: always
+              env_file: .env
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                redis:
+                  condition: service_started
+              entrypoint: docker/entrypoints/rails.sh
+              command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+              ports:
+                - "80:3000"
+              volumes:
+                - /data/storage:/app/storage
+            sidekiq:
+              image: ${ChatwootImage}
+              restart: always
+              env_file: .env
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                redis:
+                  condition: service_started
+              command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+              volumes:
+                - /data/storage:/app/storage
+          EOF3
+          sed -i 's/^          //' docker-compose.yml
+          docker compose pull
+          docker compose up -d postgres redis
+          for i in $(seq 1 30); do docker compose ps postgres | grep -q healthy && break; sleep 5; done
+          docker compose run --rm rails bundle exec rails db:chatwoot_prepare
+          docker compose up -d
+          echo "bootstrap finished"
+
+  # Snapshots of the data disk every night (01:30 India time), the last 7 kept.
+  SnapshotRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dlm.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole'
+
+  SnapshotPolicy:
+    Type: AWS::DLM::LifecyclePolicy
+    Properties:
+      Description: Chatwoot data disk nightly and 7 kept
+      State: ENABLED
+      ExecutionRoleArn: !GetAtt SnapshotRole.Arn
+      PolicyDetails:
+        ResourceTypes: [VOLUME]
+        TargetTags:
+          - Key: Backup
+            Value: chatwoot
+        Schedules:
+          - Name: nightly
+            CreateRule:
+              Interval: 24
+              IntervalUnit: HOURS
+              Times: ['20:00']
+            RetainRule:
+              Count: 7
+            CopyTags: true
+
+  VolumeAttachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref Instance
+      VolumeId: !Ref DataVolume
+      Device: /dev/sdf
+
+  AddressAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref Instance
+      AllocationId: !GetAtt ElasticIp.AllocationId
+
+  # If the machine's hardware fails, AWS restarts it elsewhere (the data disk and the address come with it).
+  RecoverAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: The machine system status check failed, so recover it automatically
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref Instance
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Sub 'arn:${AWS::Partition}:automate:${AWS::Region}:ec2:recover'
+
+Outputs:
+  PublicIp:
+    Description: The machine's fixed address (Chatwoot answers on port 80 for the admin address only).
+    Value: !Ref ElasticIp
+  InstanceId:
+    Value: !Ref Instance
+  DataBucketName:
+    Value: !Ref DataBucket
+  DataVolumeId:
+    Value: !Ref DataVolume
