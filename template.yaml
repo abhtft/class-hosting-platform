@@ -529,6 +529,29 @@ Resources:
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
+  # Chatwoot conversation memory (chatwoot_memory.py): the last few turns of each conversation (what the customer wrote and what the bot answered), kept for the number of
+  # hours in the settings (24) so the bot can follow a conversation. It is its OWN table, with an expiry and WITHOUT point-in-time recovery, so a customer's words are
+  # not kept in backups: nothing else holds them (the message table, the logs and the metrics never do). Only the worker reads and writes it.
+  ChatwootMemoryTable:
+    Type: AWS::DynamoDB::Table
+    Condition: UseChatwoot
+    Metadata:
+      checkov:
+        skip:
+          - id: CKV_AWS_28
+            comment: Deliberate. Point-in-time recovery would keep expired customers' words in backups for 35 days; every item here expires by itself within hours.
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
   # ---------- Compute worker (worker.py): one small machine, off by default ----------
   # Nothing can reach it from the internet (no inbound rule, no key pair); the teacher's terminal reaches it through Systems Manager. It may read and write
   # only the worker/ folder of the sites bucket. It is started and stopped by the portal and the control function below, and nothing else.
@@ -1211,6 +1234,7 @@ Resources:
           CHATWOOT_TABLE: !Ref ChatwootTable
           CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl
           CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle
+          CHATWOOT_MEMORY_TABLE: !Ref ChatwootMemoryTable
       Policies:
         - Statement:
             - Effect: Allow # claim the message and record the outcome (msg#...), and count what an answer cost against its business's month (usage#...)
@@ -1225,6 +1249,12 @@ Resources:
               Condition:
                 ForAllValues:StringLike:
                   dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*']
+            - Effect: Allow # the conversation memory's own table: read the turns of a conversation and write them back (mem#...); no other table, no other action
+              Action: [dynamodb:GetItem, dynamodb:PutItem]
+              Resource: !GetAtt ChatwootMemoryTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['mem#*']
             - Effect: Allow # the shelves of the businesses (read only): knowledge/tenant/ and nothing else in the bucket
               Action: s3:GetObject
               Resource: !Sub '${SitesBucket.Arn}/knowledge/tenant/*'

@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(root, "lambda"))
 
 import chatwoot_api as api  # noqa: E402
 import chatwoot_core as core  # noqa: E402
+import chatwoot_memory as mem  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
 import chatwoot_runtime as rt  # noqa: E402
 
@@ -60,10 +61,11 @@ class Fakes:
         self.llm_answer = {"text": "We open at nine and close at six.", "model": "m", "tokens": 100, "cost_micro": 40}  # what the model returns
         self.search_error = self.llm_error = None
         self.runtime = rt.make_runtime(self.search_shelves, self.ask)
+        self.mem = mem.MemoryOnly()  # the conversation memory's own table
         if registered:
             register(self.store)
         self.deps = api.Deps(self.store, api.Secrets(self.read), self.invoke, registry=reg.Registry(self.store, ttl=0))
-        self.wdeps = api.Deps(self.store, api.Secrets(self.read, api.credentials_of), http=self.post, registry=reg.Registry(self.store, ttl=0), runtime=self.runtime)
+        self.wdeps = api.Deps(self.store, api.Secrets(self.read, api.credentials_of), http=self.post, registry=reg.Registry(self.store, ttl=0), runtime=self.runtime, memory=self.mem)
 
     def read(self, name):
         self.secret_reads.append(name)
@@ -533,6 +535,82 @@ f, job = accepted()
 f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
 assert run_worker(f, job) == {"replied": True} and f.store.items["msg#shop#501"]["route"] == "fallback" and not f.llm_calls, "mode rag never starts the agent"
 print("  ok  in mode auto a message the books are not sure about is answered by the agent loop, counted and recorded as numbers; in mode rag the fallback is used")
+
+# ---- conversation memory: the turns of a conversation, kept briefly in their own table, never anywhere else ----
+HOUR = 3600
+f, job = accepted()
+assert run_worker(f, job) == {"replied": True}
+saved = f.mem.items["mem#shop#12"]
+assert saved["turns"] == [{"c": TEXT, "b": "We open at nine and close at six."}] and saved["ttl"] == NOW + 1 + 24 * HOUR, "one turn, kept for the configured 24 hours"
+assert not [k for k in f.store.items if k.startswith("mem#")], "the memory is not in the message table"
+assert TEXT not in json.dumps(f.store.items) and "nine and close" not in json.dumps({k: v for k, v in f.store.items.items() if k.startswith("msg#")}), "nor in a message item"
+
+
+def another(f, job, number, text):
+    """A second message of the same conversation: its item as the receiver would have made it, then the worker's run."""
+    f.store.items[f"msg#shop#{number}"] = {"pk": f"msg#shop#{number}", "status": "received", "message_id": number}
+    return run_worker(f, {**job, "message_id": number, "text": text}, now=NOW + 60)
+
+
+f.llm_answer = {"text": "Yes, on Saturdays too.", "model": "m", "tokens": 100, "cost_micro": 40}
+assert another(f, job, 502, "and on Saturday?") == {"replied": True}
+messages = f.llm_calls[1][0]
+assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"], "the earlier turn comes before the new message"
+assert messages[1]["content"] == "<customer>\n" + TEXT + "\n</customer>" and messages[2]["content"] == "We open at nine and close at six."
+assert "earlier part of this conversation" in messages[0]["content"] and "not instructions" in messages[0]["content"]
+assert messages[3]["content"].endswith("<customer>\nand on Saturday?\n</customer>")
+assert f.searches[1][2] == TEXT[:1000] + " and on Saturday?", "a short follow-up is searched together with what the customer asked last time"
+assert [t["c"] for t in f.mem.items["mem#shop#12"]["turns"]] == [TEXT, "and on Saturday?"] and f.mem.items["mem#shop#12"]["ttl"] == NOW + 60 + 24 * HOUR, "the time starts again with each turn"
+assert another(f, job, 503, "What are your opening hours on a normal weekday, please tell me") == {"replied": True}
+assert f.searches[2][2] == "What are your opening hours on a normal weekday, please tell me", "a full question is searched as it is"
+for number in range(504, 512):
+    another(f, job, number, f"question {number}")
+assert len(f.mem.items["mem#shop#12"]["turns"]) == mem.TURNS, "only the last turns are kept"
+assert f.mem.items["mem#shop#12"]["turns"][-1]["c"] == "question 511"
+
+# a fallback turn is marked, so a later rule can see that the bot is stuck
+f, job = accepted()
+f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []}
+run_worker(f, job)
+assert f.mem.items["mem#shop#12"]["turns"][0].get("f") == 1 and mem.stuck(f.mem.items["mem#shop#12"]["turns"], 1)
+
+# a failed reply is not remembered; an expired memory is not used; a broken memory never stops an answer
+f, job = accepted()
+f.answers = [(500, b"{}")]
+fails(f, job, "http_5xx")
+assert "mem#shop#12" not in f.mem.items, "a turn the customer never received is not remembered"
+f, job = accepted()
+run_worker(f, job)
+f.found = {"hits": [HIT], "confident": True, "tokens": 20, "cost_micro": 3, "missing": []}
+assert another(f, job, 502, "and on Saturday?") == {"replied": True} and another(f, job, 503, "and on Sunday?") == {"replied": True}
+before = len(f.llm_calls)
+f.store.items["msg#shop#504"] = {"pk": "msg#shop#504", "status": "received", "message_id": 504}
+run_worker(f, {**job, "message_id": 504, "text": "hello again"}, now=NOW + 60 + 25 * HOUR)
+assert [m["role"] for m in f.llm_calls[before][0]] == ["system", "user"], "after 24 hours the conversation starts again from nothing"
+assert [t["c"] for t in f.mem.items["mem#shop#12"]["turns"]] == ["hello again"], "and the next write replaces the expired item"
+
+
+class BrokenMemory:
+    def get(self, key):
+        raise RuntimeError("down 4111 Asha")
+
+    def put(self, key, item):
+        raise RuntimeError("down 4111 Asha")
+
+
+f, job = accepted()
+f.wdeps.memory = BrokenMemory()
+assert run_worker(f, job) == {"replied": True} and json.loads(f.requests[0][2])["content"], "a memory that is down never stops an answer"
+assert [e for e in LOGS if "memory_unavailable" in e] and not [e for e in LOGS if "4111" in e], "it is logged by error type only"
+f, job = accepted()
+f.wdeps.memory = None
+assert run_worker(f, job) == {"replied": True} and [m["role"] for m in f.llm_calls[0][0]] == ["system", "user"], "no memory table: no memory, same answers as before"
+saved_seconds = mem.HOURS_SECONDS
+mem.HOURS_SECONDS = 0
+f, job = accepted()
+assert run_worker(f, job) == {"replied": True} and not f.mem.items, "memoryHours 0: nothing is read and nothing is stored"
+mem.HOURS_SECONDS = saved_seconds
+print("  ok  the worker remembers each answered turn for 24 hours in its own table (never in message items, logs or metrics), shows earlier turns to the model, searches short follow-ups with the last question, and keeps working when memory is off, expired or down")
 
 # the receiver cuts the text and sends nothing when there is none
 f = Fakes()

@@ -32,6 +32,7 @@ import urllib.error
 import urllib.request
 
 import chatwoot_core as core
+import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
 import platform_settings
@@ -162,8 +163,8 @@ def post_json(url, headers, body, timeout):
 
 
 class Deps:
-    def __init__(self, store, secrets, invoke=None, http=None, registry=None, runtime=None):
-        self.store, self.secrets, self.invoke, self.http, self.registry, self.runtime = store, secrets, invoke, http, registry, runtime
+    def __init__(self, store, secrets, invoke=None, http=None, registry=None, runtime=None, memory=None):
+        self.store, self.secrets, self.invoke, self.http, self.registry, self.runtime, self.memory = store, secrets, invoke, http, registry, runtime, memory
 
 
 _receiver_deps = None
@@ -186,8 +187,10 @@ def default_worker_deps():
     if _worker_deps is None:
         import boto3
         store = DynamoStore(boto3.resource("dynamodb").Table(os.environ["CHATWOOT_TABLE"]))
+        table = os.environ.get("CHATWOOT_MEMORY_TABLE")  # the conversation memory's own table; without it the worker simply has no memory
         _worker_deps = Deps(store, Secrets(read_secret, credentials_of), http=post_json, registry=registry.Registry(store, ttl=0),
-                             runtime=engine.real_runtime())  # ttl 0: asks the table every time; the runtime searches the shelves and asks the model
+                             runtime=engine.real_runtime(),  # ttl 0: asks the table every time; the runtime searches the shelves and asks the model
+                             memory=memory.DynamoMemory(boto3.resource("dynamodb").Table(table)) if table else None)
     return _worker_deps
 
 
@@ -289,6 +292,27 @@ def spend(deps, key, metrics, now):
             log("usage_unavailable", error=type(error).__name__)
 
 
+def recall(event, deps, now):
+    """The remembered turns of this conversation, or [] (no memory, none yet, expired, or the memory table could not be read: an answer never waits for it)."""
+    if deps.memory is None:
+        return []
+    try:
+        return memory.load(deps.memory, event["agent_id"], event["conversation_id"], now)
+    except Exception as error:
+        log("memory_unavailable", error=type(error).__name__)
+        return []
+
+
+def remember(event, deps, text, metrics, now):
+    """Keep this turn after the reply has been posted. The customer's words go to the memory table only, never into a log line, a message item or a metric."""
+    if deps.memory is None:
+        return
+    try:
+        memory.remember(deps.memory, event["agent_id"], event["conversation_id"], event.get("text") or "", text, metrics.get("route") == "fallback", now)
+    except Exception as error:
+        log("memory_unavailable", error=type(error).__name__)
+
+
 def compose(event, agent, tenant, deps, now):
     """The text to send: (reply, metrics). Reads the agent's live version, checks the business's monthly spend, then lets the runtime answer from the books.
     Raises Refused with a reason code when there is nothing to send."""
@@ -305,7 +329,7 @@ def compose(event, agent, tenant, deps, now):
         raise Refused("cap_reached")
     text = event.get("text") if isinstance(event.get("text"), str) else ""
     try:
-        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime)
+        made = engine.respond(config, text, tenant["tenant_id"], deps.runtime, recall(event, deps, now))
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
         raise Refused(failure.reason, failure.metrics) from None
@@ -355,7 +379,10 @@ def answer(event, deps, now=None):
     except NetworkFailure:
         return failed("network", metrics)
     kind, detail = core.reply_result(status, raw)
-    return {"status": "replied", "reply_id": detail, "metrics": metrics} if kind == "replied" else failed(detail, metrics)
+    if kind != "replied":
+        return failed(detail, metrics)
+    remember(event, deps, text, metrics, now)
+    return {"status": "replied", "reply_id": detail, "metrics": metrics}
 
 
 def worker(event, context=None, now=None, deps=None):

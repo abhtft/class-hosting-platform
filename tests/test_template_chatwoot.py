@@ -18,7 +18,7 @@ def block(name):
 params = template[template.index("\nParameters:"):template.index("\nConditions:")]
 assert re.search(r"  ChatwootEnabled:\n    Type: String\n    Default: 'false'\n    AllowedValues: \['false', 'true'\]", params), "the adapter is off unless asked for"
 assert "UseChatwoot: !Equals [!Ref ChatwootEnabled, 'true']" in template, "its own switch, not tied to backends"
-for name in ("ChatwootTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction", "ChatwootAdminFunction"):
+for name in ("ChatwootTable", "ChatwootMemoryTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction", "ChatwootAdminFunction"):
     assert "Condition: UseChatwoot" in block(name), f"{name} exists only when the adapter is on"
 assert "ChatwootWebhookUrl:\n    Condition: UseChatwoot" in template, "its output exists only when it is on"
 globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
@@ -31,6 +31,16 @@ assert re.search(r"AttributeName: pk\n\s+KeyType: HASH", table) and "RANGE" not 
 assert re.search(r"TimeToLiveSpecification:\n\s+AttributeName: ttl\n\s+Enabled: true", table), "every item expires by itself"
 assert "PointInTimeRecoveryEnabled: true" in table
 assert "DeletionPolicy" not in table, "it holds only short-lived de-duplication records: nothing to keep"
+
+# ---- the conversation memory: its own table, expiring, NO point-in-time recovery (customers' words must not sit in backups), only the worker touches it ----
+memory_table = block("ChatwootMemoryTable")
+assert "AWS::DynamoDB::Table" in memory_table and "BillingMode: PAY_PER_REQUEST" in memory_table
+assert re.search(r"AttributeName: pk\n\s+KeyType: HASH", memory_table) and "RANGE" not in memory_table
+assert re.search(r"TimeToLiveSpecification:\n\s+AttributeName: ttl\n\s+Enabled: true", memory_table), "every item expires by itself"
+assert "PointInTimeRecovery" not in memory_table.split("Properties:")[1], "no point-in-time recovery: expired words must not live on in backups"
+assert re.search(r"CKV_AWS_28\n?\s+comment:", memory_table) or "id: CKV_AWS_28" in memory_table, "the scan's rule about recovery is skipped here on purpose, in the resource, with its reason"
+assert "DeletionPolicy" not in memory_table, "short-lived: nothing to keep"
+assert "ChatwootMemoryTable" not in block("ChatwootReceiverFunction") and "ChatwootMemoryTable" not in block("ChatwootAdminFunction"), "only the worker reads or writes the memory"
 
 # ---- its own API: the webhook route, its own throttle, not the student backend API ----
 api = block("ChatwootApi")
@@ -61,19 +71,21 @@ assert "Handler: chatwoot_api.worker" in worker and "CodeUri: lambda/" in worker
 assert re.search(r"EventInvokeConfig:\n\s+MaximumRetryAttempts: 0", worker), "no automatic second run: the message item decides what has been done (an event may still arrive twice, the worker claims it once)"
 assert "Events:" not in worker and "HttpApi" not in worker, "nothing on the internet reaches the worker directly"
 assert "VpcConfig" not in worker, "it must reach Chatwoot and Google, so it is not in a private network without a way out"
-assert "CHATWOOT_TABLE: !Ref ChatwootTable" in worker
+assert "CHATWOOT_TABLE: !Ref ChatwootTable" in worker and "CHATWOOT_MEMORY_TABLE: !Ref ChatwootMemoryTable" in worker
 assert "CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl" in worker and "CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle" in worker, "the one Chatwoot address and the header style come from parameters"
 assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['msg#\*', 'usage#\*'\]", worker), "it updates message items and spend counters only"
 assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'tenant#\*', 'usage#\*'\]", worker), "and reads the registry and the spend counters"
+assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootMemoryTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['mem#\*'\]", worker), "it reads and writes the conversation memory items (mem#...) of the memory table and nothing else there"
 assert re.search(r"Action: s3:GetObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/knowledge/tenant/\*'", worker), "it reads the shelves of the businesses and nothing else in the bucket"
 assert re.search(r"Action: s3:ListBucket\n\s+Resource: !GetAtt SitesBucket\.Arn\n\s+Condition:\n\s+StringLike:\n\s+s3:prefix: \['knowledge/tenant/\*'\]", worker), "listing is limited to the same prefix"
 assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:\$\{AiSecretName\}-\?\?\?\?\?\?'", worker), "the platform's Google key, this one secret"
 assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", worker), "the bot token and account id: secrets named chatwoot/..."
 assert worker.count("Action: secretsmanager:") == 2, "exactly two secret statements: the bot token and the platform's Google key"
 code = re.sub(r"#[^\n]*", "", worker)
-assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:GetItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these permissions"
+assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:GetItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these single-action permissions"
+assert re.findall(r"Action: \[([\w:, ]+)\]", code) == ["dynamodb:GetItem, dynamodb:PutItem"], "and one pair, on the memory table only"
 assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}/knowledge/tenant/*"], "objects under knowledge/tenant/ only (not the class library, not a student's shelf, not a site)"
-for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:*", "s3:PutObject", "s3:DeleteObject", "s3:*", "TokensTable", "kms:", "iam:", "ssm:", "cloudfront",
+for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:*", "s3:PutObject", "s3:DeleteObject", "s3:*", "TokensTable", "kms:", "iam:", "ssm:", "cloudfront",
                   "StudentDataTable", "TracesTable", "Resource: '*'", "Action: '*'", "knowledge/student", "knowledge/class", "sites/", "portal/"):
     assert forbidden not in code, f"the worker must not have {forbidden}"
 base_url_parameter = re.search(r"  ChatwootBaseUrl:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)

@@ -103,8 +103,8 @@ def classify(payload):
 
 
 def message_text(payload):
-    """The customer's words, cut to a limit. They are for the worker only: they travel in the asynchronous event and are never stored or logged, which is why
-    classify() does not return them."""
+    """The customer's words, cut to a limit. They are for the worker only: they travel in the asynchronous event and are never logged or put in a message item (the worker's
+    conversation memory is the one place that keeps them, briefly), which is why classify() does not return them."""
     content = payload.get("content") if isinstance(payload, dict) else None
     return content.strip()[:MAX_QUESTION_CHARS] if isinstance(content, str) else ""
 

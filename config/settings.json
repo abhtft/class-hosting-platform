@@ -2317,7 +2317,7 @@
       "key": "chatwoot.maxQuestionChars",
       "group": "chatwoot",
       "title": "Longest customer message used",
-      "help": "The customer's message is cut to this many characters before it is searched and sent to the model. It is never stored.",
+      "help": "The customer's message is cut to this many characters before it is searched and sent to the model. It is never put in a message record or a log; only the conversation memory keeps it, briefly.",
       "unit": "characters",
       "default": 1000,
       "min": 50,
@@ -2420,6 +2420,53 @@
       "risk": "careful",
       "code": [
         "chatwoot_agent.RESULT_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.memoryHours",
+      "group": "chatwoot",
+      "title": "How long a conversation is remembered",
+      "help": "How long the bot keeps the last turns of a conversation (what the customer wrote and what the bot answered) so it can follow the conversation. The turns are kept in their own table, nowhere else (never in message records, logs or backups). 0 switches memory off: nothing is read or stored.",
+      "unit": "hours",
+      "default": 24,
+      "min": 0,
+      "max": 72,
+      "scope": "runtime",
+      "risk": "security",
+      "cost": "Longer memory keeps customers' words longer; a longer history also adds tokens to every answer.",
+      "code": [
+        "chatwoot_memory.HOURS_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.memoryTurns",
+      "group": "chatwoot",
+      "title": "Turns remembered",
+      "help": "How many turns (a customer message and the bot's answer) of a conversation the bot keeps and shows the model.",
+      "unit": "turns",
+      "default": 6,
+      "min": 1,
+      "max": 20,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Each remembered turn adds tokens to every answer.",
+      "code": [
+        "chatwoot_memory.TURNS"
+      ]
+    },
+    {
+      "key": "chatwoot.memoryMessageChars",
+      "group": "chatwoot",
+      "title": "Longest remembered text",
+      "help": "Each remembered customer message and bot answer is cut to this many characters before it is kept.",
+      "unit": "characters",
+      "default": 400,
+      "min": 50,
+      "max": 1000,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_memory.MESSAGE_CHARS"
       ]
     },
     {
