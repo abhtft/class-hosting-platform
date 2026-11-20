@@ -158,7 +158,7 @@ SETTINGS = {
     "chatwoot.inboxNoteMaxChars": {"type": "int", "default": 500, "min": 50, "max": 1000, "env": None},
     "chatwoot.suiteMaxCases": {"type": "int", "default": 40, "min": 5, "max": 100, "env": None},
     "chatwoot.suiteMaxTurns": {"type": "int", "default": 3, "min": 1, "max": 5, "env": None},
-    "chatwoot.suiteParallel": {"type": "int", "default": 2, "min": 1, "max": 8, "env": None},
+    "chatwoot.suiteParallel": {"type": "int", "default": 3, "min": 1, "max": 8, "env": None},
     "chatwoot.suiteRunDays": {"type": "int", "default": 90, "min": 7, "max": 365, "env": None},
     "chatwoot.suiteBudgetSeconds": {"type": "int", "default": 90, "min": 20, "max": 110, "env": None},
     "chatwoot.sweepStuckSeconds": {"type": "int", "default": 300, "min": 150, "max": 3600, "env": None},
