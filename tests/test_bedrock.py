@@ -88,6 +88,20 @@ fake = NoTemperature()
 bedrock.client_factory = lambda: fake
 assert bedrock.chat({"model": "claude-haiku-5-5", "temperature": 0.2, "messages": [{"role": "user", "content": "hi"}]})["choices"][0]["message"]["content"] == "Hello there"
 assert fake.requests == [{"maxTokens": 1024, "temperature": 0.2}, {"maxTokens": 1024}], "a model that takes no temperature is asked again without it"
+
+class NoAccess:
+    def converse(self, **request):
+        error = Exception("x")
+        error.response = {"Error": {"Code": "ValidationException", "Message": "Operation not allowed"}}
+        raise error
+
+
+bedrock.client_factory = NoAccess
+try:
+    bedrock.chat({"model": "claude-haiku-5-5", "messages": [{"role": "user", "content": "hi"}]})
+    raise AssertionError("no access must raise")
+except gemini.GeminiError as error:
+    assert error.status == 403, "an account without Bedrock model access is 'not allowed', so the spare provider is asked"
 bedrock.client_factory = None
 print("  ok  every failure is a GeminiError with a status (429, 503, 403, 400, 502) and never any AWS detail")
 

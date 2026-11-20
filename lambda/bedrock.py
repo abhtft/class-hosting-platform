@@ -118,6 +118,8 @@ def chat(body, timeout=25, trace=None):
         code = ((getattr(error, "response", None) or {}).get("Error") or {}).get("Code") or type(error).__name__
         print(f"bedrock: {code} {str((getattr(error, 'response', None) or {}).get('Error', {}).get('Message', ''))[:200]}")
         status = ERROR_STATUS.get(code, 502)
+        if code == "ValidationException" and "not allowed" in str((getattr(error, "response", None) or {}).get("Error", {}).get("Message", "")).lower():
+            status = 403  # the account has no Bedrock model access yet (the use-case form): not the request's fault, so the spare provider is asked
         raise gemini.GeminiError(status, "The model is not allowed for this platform yet (Bedrock access)." if status == 403 else f"Bedrock answered {code}.")
     parts = (((response.get("output") or {}).get("message") or {}).get("content")) or []
     text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
