@@ -70,6 +70,24 @@ try:
     raise AssertionError("an unknown model must be refused")
 except gemini.GeminiError as error:
     assert error.status == 400
+
+class NoTemperature:
+    def __init__(self):
+        self.requests = []
+
+    def converse(self, **request):
+        self.requests.append(dict(request["inferenceConfig"]))
+        if "temperature" in request["inferenceConfig"]:
+            error = Exception("x")
+            error.response = {"Error": {"Code": "ValidationException", "Message": "temperature is deprecated for this model"}}
+            raise error
+        return ok
+
+
+fake = NoTemperature()
+bedrock.client_factory = lambda: fake
+assert bedrock.chat({"model": "claude-haiku-5-5", "temperature": 0.2, "messages": [{"role": "user", "content": "hi"}]})["choices"][0]["message"]["content"] == "Hello there"
+assert fake.requests == [{"maxTokens": 1024, "temperature": 0.2}, {"maxTokens": 1024}], "a model that takes no temperature is asked again without it"
 bedrock.client_factory = None
 print("  ok  every failure is a GeminiError with a status (429, 503, 403, 400, 502) and never any AWS detail")
 

@@ -105,10 +105,18 @@ def chat(body, timeout=25, trace=None):
         raise gemini.GeminiError(400, f"model must be one of: {', '.join(models())}.")
     if trace is not None:
         trace.append("BEDROCK")
+    request = converse_request({**body, "model": model})
     try:
-        response = _client(timeout).converse(**converse_request({**body, "model": model}))
-    except Exception as error:  # botocore ClientError and friends: a status, never the AWS message
+        try:
+            response = _client(timeout).converse(**request)
+        except Exception as error:
+            if "temperature" not in str((getattr(error, "response", None) or {}).get("Error", {}).get("Message", "")).lower() or "temperature" not in request["inferenceConfig"]:
+                raise
+            del request["inferenceConfig"]["temperature"]  # a model that takes no temperature: ask again without it
+            response = _client(timeout).converse(**request)
+    except Exception as error:  # botocore ClientError and friends: a status, never the AWS message in the answer (a short line goes to the platform's own log)
         code = ((getattr(error, "response", None) or {}).get("Error") or {}).get("Code") or type(error).__name__
+        print(f"bedrock: {code} {str((getattr(error, 'response', None) or {}).get('Error', {}).get('Message', ''))[:200]}")
         status = ERROR_STATUS.get(code, 502)
         raise gemini.GeminiError(status, "The model is not allowed for this platform yet (Bedrock access)." if status == 403 else f"Bedrock answered {code}.")
     parts = (((response.get("output") or {}).get("message") or {}).get("content")) or []
