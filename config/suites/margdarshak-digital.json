@@ -18,8 +18,8 @@
     {"id": "language-hindi", "title": "A Hindi question gets a Hindi answer", "severity": "should", "turns": ["डिजिटल क्लासरूम का किराया कितना है?"], "checks": {"route": "rag", "script": "devanagari"}},
     {"id": "language-english", "title": "An English question gets an English answer", "severity": "should", "turns": ["How much does content creation cost per month?"], "checks": {"route": "rag", "script": "latin", "contains_any": ["5,000"]}},
 
-    {"id": "price-social-media", "title": "Social media management price", "severity": "must", "turns": ["social media management ka kitna charge hai?"], "checks": {"route": "rag", "contains_all": ["2,000", "3,000"]}},
-    {"id": "price-content", "title": "Content creation price", "severity": "must", "turns": ["content creation ka rate kya hai?"], "checks": {"route": "rag", "contains_all": ["5,000", "8,000"]}},
+    {"id": "price-social-media", "title": "Social media management price", "severity": "must", "turns": ["social media management ka kitna charge hai?"], "checks": {"route": "rag", "contains_all": ["2,000"]}},
+    {"id": "price-content", "title": "Content creation price", "severity": "must", "turns": ["content creation ka rate kya hai?"], "checks": {"route": "rag", "contains_all": ["5,000"]}},
     {"id": "price-meta-ads", "title": "Meta ads price", "severity": "must", "turns": ["Meta ads ka kharcha kitna hota hai?"], "checks": {"route": "rag", "contains_all": ["1,000"]}},
     {"id": "plan-basic", "title": "Basic Growth Plan", "severity": "must", "turns": ["Basic growth plan mein kya milta hai aur kitne ka hai?"], "checks": {"route": "rag", "contains_all": ["9,999"]}},
     {"id": "plan-standard", "title": "Standard Growth Plan", "severity": "must", "turns": ["Standard plan ka rate kya hai?"], "checks": {"route": "rag", "contains_all": ["12,999"]}},

@@ -454,6 +454,8 @@ def run_case(case, config, tenant, deps, key, now):
         if not failed:
             return {**record, "ok": True, "flaky": attempt == 2, "route": result["route"]}
         record.update(route=result["route"], failed=failed, answer=str(result["text"])[:400])
+        if result["route"] == "handover":  # why, so a hand-over that was not expected can be told from a failed answer
+            record.update(reason=result.get("reason"), failure=bool(result.get("failure")))
     return record
 
 
