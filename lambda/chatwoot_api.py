@@ -371,7 +371,7 @@ def dry_turn(config, text, history, context, tenant_id, deps, key, now):
     except engine.RuntimeFailure as failure:  # in real life this customer would be handed to a person: say so
         spend(deps, key, failure.metrics, now)
         return {"route": "handover", "reason": failure.reason, "failure": True, "text": config["handover_text"], "note": handover.note_text(failure.reason, history, text),
-                "spent_micro": int(failure.metrics.get("cost_micro") or 0), "explain": failure.metrics.get("explain", [])}
+                "spent_micro": int(failure.metrics.get("cost_micro") or 0), "explain": failure.metrics.get("explain", []), "error": failure.metrics.get("error"), "http_status": failure.metrics.get("http_status")}
     spend(deps, key, metrics, now)
     out = {"route": metrics.get("route"), "text": reply_text, "confident": bool(metrics.get("confident")), "explain": metrics.get("explain", []), "tokens": int(metrics.get("tokens") or 0),
            "spent_micro": int(metrics.get("cost_micro") or 0), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
@@ -455,7 +455,7 @@ def run_case(case, config, tenant, deps, key, now):
             return {**record, "ok": True, "flaky": attempt == 2, "route": result["route"]}
         record.update(route=result["route"], failed=failed, answer=str(result["text"])[:400])
         if result["route"] == "handover":  # why, so a hand-over that was not expected can be told from a failed answer
-            record.update(reason=result.get("reason"), failure=bool(result.get("failure")))
+            record.update(reason=result.get("reason"), failure=bool(result.get("failure")), error=result.get("error"), http_status=result.get("http_status"))
     return record
 
 

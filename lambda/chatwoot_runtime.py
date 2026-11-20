@@ -279,7 +279,7 @@ def respond(config, text, tenant_id, runtime, history=None, context=None, explai
         try:
             answer = runtime.llm(messages, LLM_MAX_TOKENS)
         except Exception as error:
-            raise RuntimeFailure("llm_error", {**metrics, "error": type(error).__name__}) from None
+            raise RuntimeFailure("llm_error", {**metrics, "error": type(error).__name__, "http_status": getattr(error, "status", None)}) from None
         metrics.update(llm_ms=int((time.monotonic() - started) * 1000), tokens=metrics["tokens"] + answer["tokens"], cost_micro=metrics["cost_micro"] + answer["cost_micro"])
         reply = clean_answer(answer["text"], config["max_answer_chars"])
         if reply and not not_sure(reply):
