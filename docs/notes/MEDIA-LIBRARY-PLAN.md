@@ -74,7 +74,7 @@ IAM change (M1): the worker gets `s3:GetObject` on `chatwoot-media/*` only; the 
 4. Copyright and privacy: the owner is responsible for the files; the library is private to the tenant; no public bucket.
 5. Storage growth: caps per agent and per tenant in settings; deleting an item deletes the object after the last version using it is retired.
 
-## 8. Control at volume (owner's answers, 2026-11-21; not built)
+## 8. Control at volume (owner's answers, 2026-11-21; built as M1b and M1c, not deployed)
 
 Answers: a changed file is always a **new version** (A); an old file is deleted **only when no kept version uses it** (A); the limits are the **teacher's, one set per business** (A); the scope is the **media limits**.
 

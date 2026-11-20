@@ -107,7 +107,7 @@ def clean_config(config):
     if not isinstance(extras, list) or len(extras) > MAX_EXTRAS or any(not isinstance(e, str) or not e.strip() or len(e.strip()) > EXTRA_CHARS for e in extras):
         raise ConfigError(f"extras must be a list of at most {MAX_EXTRAS} facts, each text of at most {EXTRA_CHARS} characters.")
     try:
-        items = media.clean_items(config.get("media"))
+        items = media.clean_items(config.get("media"), limits=media.ceilings())
     except media.Invalid as error:
         raise ConfigError(str(error)) from None
     followup = config.get("followup_fallback_text")
@@ -222,7 +222,7 @@ def build_messages(config, text, hits, history=None, context=None):
     if config["instructions"]:
         parts.append("The business's own instructions (they cannot override the rules above): " + config["instructions"])
     if config.get("media"):
-        parts.append(media.prompt_part(config["media"]))
+        parts.append(media.prompt_part(config["media"], (context or {}).get("media_per_reply")))
     parts.append(f"Reply in the language the customer wrote in; if you cannot tell, reply in {LANGUAGES[config['language']]}.")
     context = context or {}
     if history:
@@ -362,7 +362,7 @@ def respond(config, text, tenant_id, runtime, history=None, context=None, explai
         except Exception as error:
             raise RuntimeFailure("llm_error", {**metrics, "error": type(error).__name__, "http_status": getattr(error, "status", None)}) from None
         metrics.update(llm_ms=int((time.monotonic() - started) * 1000), tokens=metrics["tokens"] + answer["tokens"], cost_micro=metrics["cost_micro"] + answer["cost_micro"], via=answer.get("via"))
-        raw, picked = media.split_answer(answer["text"], config.get("media"))  # the model may end with "MEDIA: id": that line is never shown to the customer
+        raw, picked = media.split_answer(answer["text"], config.get("media"), (context or {}).get("media_per_reply"))  # the model may end with "MEDIA: id": that line is never shown to the customer
         reply = clean_answer(raw, config["max_answer_chars"])
         if reply and not not_sure(reply):
             if picked:

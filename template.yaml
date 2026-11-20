@@ -1332,6 +1332,48 @@ Resources:
           Properties:
             Schedule: rate(10 minutes)
 
+  # Chatwoot media janitor (chatwoot_janitor.py): once a day it removes the media files that no published version lists any more (a file nobody used within chatwoot.mediaPendingHours, or one of
+  # a retired version). It reads the adapter's table (a scan for the media ledgers, then single reads of agents and versions), writes only ledgers and may delete objects under chatwoot-media/ and
+  # nothing else in the bucket. It reads no secret, calls neither Chatwoot nor Google and never sees a customer's words.
+  ChatwootJanitorFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseChatwoot
+    Properties:
+      CodeUri: lambda/
+      Handler: chatwoot_janitor.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 120
+      Environment:
+        Variables:
+          CHATWOOT_TABLE: !Ref ChatwootTable
+      Policies:
+        - Statement:
+            - Effect: Allow # find the media ledgers (the table also holds the registry and message items; the code keeps only media# items)
+              Action: dynamodb:Scan
+              Resource: !GetAtt ChatwootTable.Arn
+            - Effect: Allow # read the agents and their versions (to see which files are still listed) and the ledgers
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['agent#*', 'media#*']
+            - Effect: Allow # write a ledger (media#...), nothing else
+              Action: dynamodb:PutItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['media#*']
+            - Effect: Allow # delete a media file that no version lists any more
+              Action: s3:DeleteObject
+              Resource: !Sub '${SitesBucket.Arn}/chatwoot-media/*'
+      Events:
+        Daily:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+
   ChatwootAdminFunction:
     Type: AWS::Serverless::Function
     Condition: UseChatwoot
@@ -1354,7 +1396,7 @@ Resources:
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'teach#*', 'teachidx#*']
+                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'teach#*', 'teachidx#*', 'media#*']
             - Effect: Allow # take back an agent that could not be added to its business (an agent item only)
               Action: dynamodb:DeleteItem
               Resource: !GetAtt ChatwootTable.Arn

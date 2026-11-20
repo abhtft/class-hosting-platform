@@ -6,6 +6,7 @@ or a book), writes the adapter's table and a business's book shelves directly, a
   python tools/chatwoot_ctl.py --table <...> rotate-key acme                                          a new key; the old one stops working at once
   python tools/chatwoot_ctl.py --table <...> disable-tenant acme    |  enable-tenant acme
   python tools/chatwoot_ctl.py --table <...> set-cap acme 25                                          this business may spend 25 US dollars a month on answers
+  python tools/chatwoot_ctl.py --table <...> set-limits acme media_items=20 total_mb=500   this business's media limits (a name alone shows nothing new; --clear removes its own limits)
   python tools/chatwoot_ctl.py --table <...> list                                                     tenants and their agents (never a key or a hash)
   python tools/chatwoot_ctl.py --table <...> agent-set shop --tenant acme --account 1 --inboxes 3,4 [--enabled true] [--type chatbot] [--purpose sales]
   python tools/chatwoot_ctl.py --table <...> show-agent shop
@@ -36,6 +37,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lambda"))
 
 import chatwoot_admin as admin  # noqa: E402
+import chatwoot_media as media  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
 
 SUPPORTED = (".pdf", ".txt", ".text", ".md", ".markdown", ".html", ".htm")
@@ -124,6 +126,36 @@ def set_cap(store, args, out, now, shelves=None):
         out("The tenant was changed at the same moment. Run the command again.")
         return 1
     out(f"Tenant {args.id} may now spend {dollars:g} US dollars a month on answers (0 stops all answers).")
+    return 0
+
+
+def set_limits(store, args, out, now, shelves=None):
+    tenant = tenant_or_none(store, args.id)
+    if not tenant:
+        out(f"No tenant {args.id}.")
+        return 1
+    own = {} if args.clear else dict(tenant.get("limits") or {})
+    try:
+        for pair in args.pairs:
+            name, _, text = pair.partition("=")
+            own[name] = int(text) if text.lstrip("-").isdigit() else text
+        own = media.clean_limits(own)
+    except media.Invalid as error:
+        out(str(error))
+        return 2
+    changed = {**tenant, "rev": tenant["rev"] + 1, "updated_at": now}
+    changed.pop("limits", None)
+    if own:
+        changed["limits"] = own
+    if (args.pairs or args.clear) and not store.replace_if(reg.tenant_key(args.id), changed, "rev", tenant["rev"]):
+        out("The tenant was changed at the same moment. Run the command again.")
+        return 1
+    effective = media.limits_of(changed)
+    files, used = media.usage(store, args.id)
+    out(f"Media limits of {args.id} (its own where set, else the platform's):")
+    for name in media.LIMIT_SETTINGS:
+        out(f"  {name} = {effective[name]}{'  (own)' if name in own else ''}")
+    out(f"  in use: {files} files, {used // 1024 // 1024} MB")
     return 0
 
 
@@ -512,6 +544,10 @@ def parser():
     s = sub.add_parser("set-cap", help="the most a business may spend a month, in US dollars")
     s.add_argument("id")
     s.add_argument("usd")
+    s = sub.add_parser("set-limits", help="a business's media limits (items, per reply, sizes, total space and files); no pairs shows them")
+    s.add_argument("id")
+    s.add_argument("pairs", nargs="*", help="name=number, for example media_items=20 total_mb=500")
+    s.add_argument("--clear", action="store_true", help="remove the business's own limits (the platform's apply)")
     sub.add_parser("list", help="tenants and their agents")
     s = sub.add_parser("agent-set", help="create or change an agent of a tenant")
     s.add_argument("name")
@@ -561,7 +597,7 @@ def parser():
     return p
 
 
-NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run"}
+NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "set-limits", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run"}
 
 
 def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, pause=None):
@@ -576,7 +612,7 @@ def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, 
     if shelves is None and args.command in ("knowledge-sync", "eval"):
         shelves = real_shelves(args)
     commands = {"create-tenant": create_tenant, "rotate-key": rotate_key, "disable-tenant": lambda *a: set_enabled(*a[:4], False), "enable-tenant": lambda *a: set_enabled(*a[:4], True),
-                "set-cap": set_cap, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run}
+                "set-cap": set_cap, "set-limits": set_limits, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run}
     code = commands[args.command](store, args, out, now, shelves)
     if args.command == "knowledge-sync" and args.then_suite and not args.dry_run and code == 0:  # a new book can change an answer: ask the suite
         args.all_live, args.name, args.wait, args.version, args.config = True, None, True, None, None

@@ -18,7 +18,7 @@ def block(name):
 params = template[template.index("\nParameters:"):template.index("\nConditions:")]
 assert re.search(r"  ChatwootEnabled:\n    Type: String\n    Default: 'false'\n    AllowedValues: \['false', 'true'\]", params), "the adapter is off unless asked for"
 assert "UseChatwoot: !Equals [!Ref ChatwootEnabled, 'true']" in template, "its own switch, not tied to backends"
-for name in ("ChatwootTable", "ChatwootMemoryTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction", "ChatwootSweeperFunction", "ChatwootAdminFunction"):
+for name in ("ChatwootTable", "ChatwootMemoryTable", "ChatwootApi", "ChatwootReceiverFunction", "ChatwootWorkerFunction", "ChatwootSweeperFunction", "ChatwootJanitorFunction", "ChatwootAdminFunction"):
     assert "Condition: UseChatwoot" in block(name), f"{name} exists only when the adapter is on"
 assert "ChatwootWebhookUrl:\n    Condition: UseChatwoot" in template, "its output exists only when it is on"
 globals_ = template[template.index("\nGlobals:"):template.index("\nResources:")]
@@ -99,6 +99,19 @@ assert "Default: bearer" in auth_style_parameter and "AllowedValues: [bearer, ap
 assert "CHATWOOT_BASE_URL" not in block("ChatwootReceiverFunction"), "the receiver never calls out"
 assert "secretsmanager" not in block("ChatwootAdminFunction") and "s3:" not in block("ChatwootReceiverFunction") and "knowledge" not in block("ChatwootReceiverFunction"), "only the worker reads shelves and the model's key"
 
+# ---- the media janitor: once a day, ledgers only, deletes under chatwoot-media/ and nothing else ----
+janitor = block("ChatwootJanitorFunction")
+assert "Handler: chatwoot_janitor.handler" in janitor and "CodeUri: lambda/" in janitor and "Runtime: python3.12" in janitor and "HttpApi" not in janitor
+assert re.search(r"Type: Schedule\n\s+Properties:\n\s+Schedule: rate\(1 day\)", janitor) and janitor.count("Type: Schedule") == 1, "a daily schedule, nothing on the internet"
+jcode = re.sub(r"#[^\n]*", "", janitor)
+assert sorted(re.findall(r"Action: ([\w:]+)", jcode)) == ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Scan", "s3:DeleteObject"], "exactly these permissions"
+assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'media#\*'\]", janitor), "it reads agents, their versions and the ledgers"
+assert re.search(r"Action: dynamodb:PutItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['media#\*'\]", janitor), "and writes ledgers only"
+assert re.search(r"Action: s3:DeleteObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/chatwoot-media/\*'", janitor) and re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", jcode) == ["${SitesBucket.Arn}/chatwoot-media/*"], "it deletes media files only"
+for forbidden in ("secretsmanager:", "lambda:", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:UpdateItem", "s3:PutObject", "s3:GetObject", "s3:*", "dynamodb:*", "kms:", "iam:", "ssm:", "Resource: '*'", "Action: '*'", "ChatwootMemoryTable", "TokensTable"):
+    assert forbidden not in jcode, f"the janitor must not have {forbidden}"
+assert "CHATWOOT_TABLE: !Ref ChatwootTable" in janitor and "CHATWOOT_BASE_URL" not in janitor and "ChatwootJanitorFunction" not in block("ChatwootWorkerFunction")
+
 # ---- the sweeper: message items only, the one worker, on a schedule; no secrets, no Chatwoot, no memory table, nothing else ----
 sweeper = block("ChatwootSweeperFunction")
 assert "Handler: chatwoot_sweeper.handler" in sweeper and "CodeUri: lambda/" in sweeper and "Runtime: python3.12" in sweeper and "MemorySize: 256" in sweeper
@@ -122,7 +135,7 @@ assert "/hooks/chatwoot" not in admin and "BackendApi" not in admin and "Gateway
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in admin and "CHATWOOT_BASE_URL" not in admin and "CHATWOOT_AUTH_STYLE" not in admin and "CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction" in admin and "CHATWOOT_MEMORY_TABLE" not in admin
 assert re.search(r"Timeout: 29", admin), "it waits for the worker's dry run"
 assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootWorkerFunction\.Arn", admin) and admin.count("lambda:InvokeFunction") == 1, "it may start the one worker"
-assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*', 'suite#\*', 'suitestate#\*', 'suiterun#\*', 'teach#\*', 'teachidx#\*'\]", admin), "the registry, the suite's and the teach sessions' items, one at a time"
+assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*', 'suite#\*', 'suitestate#\*', 'suiterun#\*', 'teach#\*', 'teachidx#\*', 'media#\*'\]", admin), "the registry, the suite's and the teach sessions' items, one at a time"
 assert re.search(r"Action: dynamodb:DeleteItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'suiterun#\*'\]", admin), "it may remove an agent item and a run it could not start, nothing else"
 code = re.sub(r"#[^\n]*", "", admin)
 assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "[s3:PutObject, s3:GetObject]", "dynamodb:DeleteItem", "lambda:InvokeFunction"], "exactly these permissions"

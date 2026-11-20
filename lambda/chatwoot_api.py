@@ -364,7 +364,7 @@ def compose(event, agent, tenant, deps, now, history):
         raise Refused("cap_reached", config=config)
     text = event.get("text") if isinstance(event.get("text"), str) else ""
     try:
-        reply_text, metrics, reason = answer_text(config, text, history, context_of(event), tenant["tenant_id"], deps.runtime)
+        reply_text, metrics, reason = answer_text(config, text, history, {**context_of(event), "media_per_reply": media.limits_of(tenant)["media_per_reply"]}, tenant["tenant_id"], deps.runtime)
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
         raise Refused(failure.reason, failure.metrics, config) from None
@@ -729,6 +729,7 @@ def send_media(event, deps, ready, items):
     base, token = ready["base"], ready["credentials"]["api_token"]
     ids = (event["account_id"], event["conversation_id"])
     prefix = f"{media.PREFIX}{ready['tenant']['tenant_id']}/{event['agent_id']}/"
+    limits = media.limits_of(ready["tenant"])
 
     def text_message(text):
         try:
@@ -740,7 +741,7 @@ def send_media(event, deps, ready, items):
     def send_file(item):
         if deps.files is None or not item["key"].startswith(prefix):  # only this agent's own files
             return "failed"
-        data = deps.files.get(item["key"], media.max_bytes(item["kind"]))
+        data = deps.files.get(item["key"], media.max_bytes(item["kind"], limits))
         if data is None or not media.looks_like(item["key"], data):
             return "failed"
         try:

@@ -118,7 +118,7 @@ print("  ok  the attachment request is a multipart Create New Message with the s
 
 # ---- the worker sends the text, then each item
 class Fakes:
-    def __init__(self, llm_text, files=None, media_items=(OFFER, PRICES, OFFICE)):
+    def __init__(self, llm_text, files=None, media_items=(OFFER, PRICES, OFFICE), limits=None):
         self.store = api.MemoryStore()
         self.requests, self.answers = [], []
         self.llm_text = llm_text
@@ -127,7 +127,7 @@ class Fakes:
         self.files.put(KEY_PDF, PDF)
         for key, data in (files or {}).items():
             self.files.put(key, data)
-        self.store.claim(reg.tenant_key("acme"), {"tenant_id": "acme", "enabled": True, "key_hash": "x", "agents": ["shop"], "rev": 1})
+        self.store.claim(reg.tenant_key("acme"), {"tenant_id": "acme", "enabled": True, "key_hash": "x", "agents": ["shop"], "rev": 1, **({"limits": limits} if limits else {})})
         self.store.claim(reg.agent_key("shop"), {"tenant_id": "acme", "agent_id": "shop", "account_id": 1, "inbox_ids": [3], "enabled": True, "live_version": 1, "versions": 1, "rev": 1})
         self.store.claim(reg.version_key("shop", 1), {"agent_id": "shop", "tenant_id": "acme", "version": 1, "config": {**BASE_CONFIG, "media": list(media_items)}, "published_at": 1})
         self.runtime = rt.make_runtime(lambda t, c, q: {"hits": [HIT], "confident": True, "tokens": 5, "cost_micro": 1, "missing": []},
@@ -214,33 +214,152 @@ for bad in ({"media_ids": []}, {"media_ids": ["Bad Id"]}, {"no_media": False}):
         pass
 print("  ok  a dry run lists the media it would send and sends none; the suite checks media_ids and no_media")
 
-# ---- Studio: an upload form and a published version
+# ---- per-reply limit of a business
+f = Fakes("We are at Nehru Place.\nMEDIA: office_map, offer", limits={"media_per_reply": 1})
+out = api.answer(asked(), f.deps, NOW)
+assert out["metrics"]["media"] == [["office_map", "link"]] and len(f.requests) == 2, "a business limited to one media item per reply gets one, in the order the model chose"
+assert "at most 1," in rt.build_messages(rt.clean_config({**BASE_CONFIG, "media": [OFFER]}), "x", [HIT], None, {"media_per_reply": 1})[0][0]["content"]
+print("  ok  the business's own limit of media per reply reaches the prompt and the sending")
+
+# ---- limits of a business
+base = media.limits_of({})
+assert base["media_items"] == media.MAX_ITEMS and base["total_mb"] == media.TOTAL_MB and base["image_kb"] * 1024 == media.IMAGE_MAX_BYTES
+assert media.limits_of({"limits": {"media_items": 5, "total_mb": 10 ** 9, "image_kb": 0, "video_kb": "big"}}) == {**base, "media_items": 5, "total_mb": media.ceilings()["total_mb"]}, "own where valid, never above the ceiling, else the default"
+assert media.clean_limits({"media_items": 5}) == {"media_items": 5}
+for bad in ({"nope": 1}, {"media_items": 0}, {"media_items": 10 ** 6}, {"media_items": "5"}, {"media_items": True}, "x"):
+    try:
+        media.clean_limits(bad)
+        raise AssertionError(bad)
+    except media.Invalid:
+        pass
+print("  ok  a business's limits: its own where set, the platform's otherwise, never above the ceiling; bad values refused")
+
+# ---- Studio: an upload form, the ledger, a published version
 store = api.MemoryStore()
 tenant = {"tenant_id": "acme", "enabled": True, "key_hash": "x", "agents": ["shop"], "rev": 1}
 store.claim(reg.tenant_key("acme"), tenant)
 store.claim(reg.agent_key("shop"), {"tenant_id": "acme", "agent_id": "shop", "account_id": 1, "inbox_ids": [3], "enabled": True, "live_version": 0, "versions": 0, "rev": 1})
 files = media.MemoryFiles()
-status, form = admin.route(store, tenant, "POST", "/admin/agents/shop/media/upload-url", {"body": json.dumps({"filename": "Offer.JPG", "size": 1000})}, NOW, files=files)
+
+
+def upload(name="Offer.JPG", size=1000, tenant=tenant, agent="shop"):
+    return admin.route(store, tenant, "POST", f"/admin/agents/{agent}/media/upload-url", {"body": json.dumps({"filename": name, "size": size})}, NOW, files=files)
+
+
+def refused(call):
+    try:
+        call()
+    except reg.Invalid as error:
+        return str(error)
+    raise AssertionError("must be refused")
+
+
+def publish(number, items, at=NOW, target=store, who=tenant):
+    return admin.route(target, who, "PUT", f"/admin/agents/shop/versions/{number}", {"body": json.dumps({"config": {**BASE_CONFIG, "media": items}})}, at, files=files)
+
+
+status, form = upload()
 assert status == 200 and form["kind"] == "image" and form["mime"] == "image/jpeg" and form["key"].startswith("chatwoot-media/acme/shop/") and form["key"].endswith(".jpg")
 assert form["upload"]["fields"]["key"] == form["key"] and form["upload"]["max_bytes"] == 1000 and form["upload"]["expires_in"] == media.UPLOAD_SECONDS
-assert admin.route(store, tenant, "POST", "/admin/agents/ghost/media/upload-url", {"body": "{}"}, NOW, files=files)[0] == 404
-assert admin.route(store, {**tenant, "tenant_id": "other"}, "POST", "/admin/agents/shop/media/upload-url", {"body": json.dumps({"filename": "a.jpg", "size": 5})}, NOW, files=files)[0] == 404, "another business's agent is not found"
+assert media.usage(store, "acme") == (1, 1000) and store.get("media#acme")["files"][form["key"]]["state"] == "pending", "the file counts from the moment the form is given"
+assert upload(agent="ghost", size=5)[0] == 404 and admin.route(store, {**tenant, "tenant_id": "other"}, "POST", "/admin/agents/shop/media/upload-url", {"body": json.dumps({"filename": "a.jpg", "size": 5})}, NOW, files=files)[0] == 404
 assert admin.route(store, tenant, "GET", "/admin/agents/shop/media/upload-url", {}, NOW, files=files)[0] == 405
 for body in ({"filename": "run.exe", "size": 10}, {"filename": "noext", "size": 10}, {"filename": "a.jpg", "size": media.IMAGE_MAX_BYTES + 1}, {"filename": "a.jpg", "size": 0}, {"filename": "a.jpg"}, {"filename": "a.jpg", "size": 5, "x": 1}):
-    try:
-        admin.route(store, tenant, "POST", "/admin/agents/shop/media/upload-url", {"body": json.dumps(body)}, NOW, files=files)
-        raise AssertionError(body)
-    except reg.Invalid:
-        pass
-files.put(KEY_IMG, JPEG)
-status, version = admin.route(store, tenant, "PUT", "/admin/agents/shop/versions/1", {"body": json.dumps({"config": {**BASE_CONFIG, "media": [OFFER, OFFICE]}})}, NOW, files=files)
-assert status == 201 and version["version"] == 1
+    refused(lambda body=body: admin.route(store, tenant, "POST", "/admin/agents/shop/media/upload-url", {"body": json.dumps(body)}, NOW, files=files))
+assert media.usage(store, "acme") == (1, 1000), "a refused request counts nothing"
+mine = {**OFFER, "key": form["key"], "size": len(JPEG)}
+files.put(form["key"], JPEG)
+status, version = publish(1, [mine, OFFICE])
+assert status == 201 and version["version"] == 1 and store.get("media#acme")["files"][form["key"]]["state"] == "kept"
 for bad_items in ([{**OFFER, "key": KEY_PDF}], [{**OFFER, "key": "chatwoot-media/acme/shop/" + "f" * 32 + ".jpg"}], [{**OFFER, "key": KEY_OTHER}]):
-    try:
-        admin.route(store, tenant, "PUT", "/admin/agents/shop/versions/2", {"body": json.dumps({"config": {**BASE_CONFIG, "media": bad_items}})}, NOW, files=files)
-        raise AssertionError(bad_items)
-    except reg.Invalid:
-        pass
-print("  ok  Studio gets an upload form only for an allowed type and size of its own agent, and a version cannot be published with a file that is missing, of another type, or another business's")
+    refused(lambda items=bad_items: publish(2, items))
+status, second = upload("Other.png", 2000)
+assert "was not uploaded" in refused(lambda: publish(2, [{**OFFER, "key": second["key"], "size": 2000}])), "a form was given but the file never arrived"
+print("  ok  Studio gets an upload form only for an allowed type and size, the file counts at once, and a version needs files that were uploaded for this agent, exist, and fit the type")
+
+# ---- over the business's total
+small = {**tenant, "limits": {"total_files": 2, "total_mb": 1, "image_kb": 600, "media_items": 1}}
+store2 = api.MemoryStore()
+store2.claim(reg.tenant_key("acme"), small)
+store2.claim(reg.agent_key("shop"), {"tenant_id": "acme", "agent_id": "shop", "account_id": 1, "inbox_ids": [3], "enabled": True, "live_version": 0, "versions": 0, "rev": 1})
+
+
+def upload2(size, name="a.jpg"):
+    return admin.route(store2, small, "POST", "/admin/agents/shop/media/upload-url", {"body": json.dumps({"filename": name, "size": size})}, NOW, files=files)
+
+
+assert "at most 600 KB" in refused(lambda: upload2(700 * 1024)), "the kind's size for this business"
+assert upload2(600 * 1024)[0] == 200 and "at most 1 MB" in refused(lambda: upload2(600 * 1024)), "the business's total space, before the second file arrives"
+assert upload2(1000)[0] == 200 and "at most 2 media files" in refused(lambda: upload2(10)), "the business's total number of files"
+two = [{**OFFICE, "id": "one"}, {**OFFICE, "id": "two"}]
+assert "at most 1 items" in refused(lambda: publish(1, two, target=store2, who=small)), "items in one version"
+print("  ok  a business over its own limits is refused in plain words: file size, total space, total files, items in a version")
+
+# ---- retiring a version
+status, v2 = publish(2, [OFFICE])
+assert status == 201
+assert admin.route(store, tenant, "POST", "/admin/agents/shop/live", {"body": json.dumps({"version": 2})}, NOW)[0] == 200
+assert admin.route(store, tenant, "DELETE", "/admin/agents/shop/versions/2", {}, NOW)[1]["error"] == "version_live"
+assert admin.route(store, tenant, "DELETE", "/admin/agents/shop/versions/9", {}, NOW)[0] == 404 and admin.route(store, {**tenant, "tenant_id": "other"}, "DELETE", "/admin/agents/shop/versions/1", {}, NOW)[0] == 404
+status, gone = admin.route(store, tenant, "DELETE", "/admin/agents/shop/versions/1", {}, NOW)
+assert status == 200 and gone == {"retired": 1, "left": 1} and admin.route(store, tenant, "GET", "/admin/agents/shop/versions/1", {}, NOW)[0] == 404
+assert admin.route(store, tenant, "DELETE", "/admin/agents/shop/versions/1", {}, NOW)[0] == 404, "a retired version is gone"
+assert admin.route(store, tenant, "POST", "/admin/agents/shop/live", {"body": json.dumps({"version": 1})}, NOW)[0] == 404, "and cannot be made live"
+assert admin.route(store, tenant, "PUT", "/admin/agents/shop/versions/1", {"body": json.dumps({"config": {**BASE_CONFIG}})}, NOW)[0] == 409, "its number is not used again"
+assert admin.route(store, tenant, "DELETE", "/admin/agents/shop/versions/2", {}, NOW)[0] == 409
+print("  ok  a version can be retired, but not the live one, not an unknown one, not another business's, and its number is never reused")
+
+# ---- the janitor
+import chatwoot_janitor as janitor  # noqa: E402
+
+HOUR = 3600
+later = NOW + 25 * HOUR
+other_key = "chatwoot-media/acme/shop/" + "9" * 32 + ".jpg"
+files.put(other_key, JPEG)
+media.change_ledger(store, "acme", lambda f: f.update({other_key: {"agent": "shop", "kind": "image", "size": 5, "state": "pending", "at": NOW}}), NOW)
+files.put(second["key"], b"x")
+result = janitor.handler(None, None, now=NOW + HOUR, store=store, files=files)
+assert result == {"removed": 0, "skipped": 0} and other_key in files.objects, "nothing is touched within the first day"
+result = janitor.handler(None, None, now=later, store=store, files=files)
+assert result["removed"] == 3, result
+assert store.get("media#acme")["files"] == {} and form["key"] not in files.objects and other_key not in files.objects and second["key"] not in files.objects, "unused uploads of a day ago and the retired version's photo leave the ledger and S3"
+assert media.usage(store, "acme") == (0, 0), "and stop counting against the business"
+status, kform = upload()
+files.put(kform["key"], JPEG)
+assert publish(3, [{**OFFER, "key": kform["key"], "size": len(JPEG)}], at=NOW + 30 * HOUR)[0] == 201
+result = janitor.handler(None, None, now=NOW + 60 * HOUR, store=store, files=files)
+assert result["removed"] == 0 and kform["key"] in files.objects and store.get("media#acme")["files"][kform["key"]]["state"] == "kept", "a file a version lists stays for ever"
+
+
+class Broken(api.MemoryStore):
+    def get(self, key):
+        if key.startswith("agent#"):
+            raise RuntimeError("table down")
+        return super().get(key)
+
+
+broken = Broken()
+broken.items = store.items
+seven = "chatwoot-media/acme/shop/" + "7" * 32 + ".jpg"
+files.put(seven, JPEG)
+media.change_ledger(store, "acme", lambda f: f.update({seven: {"agent": "shop", "kind": "image", "size": 5, "state": "pending", "at": 1}}), NOW)
+result = janitor.handler(None, None, now=NOW + 90 * HOUR, store=broken, files=files)
+assert result == {"removed": 0, "skipped": 1} and seven in files.objects, "when a business cannot be read the janitor deletes nothing"
+print("  ok  the janitor removes what no version lists (after a day, or once the version is retired), keeps what one lists, and deletes nothing when it cannot read")
+
+# ---- the teacher's command
+sys.path.insert(0, os.path.join(root, "tools"))
+import chatwoot_ctl as ctl  # noqa: E402
+
+shown = []
+cstore = api.MemoryStore()
+cstore.claim(reg.tenant_key("acme"), {"tenant_id": "acme", "enabled": True, "key_hash": "x", "agents": [], "rev": 1})
+assert ctl.main(["set-limits", "acme", "media_items=7", "total_mb=50"], store=cstore, out=shown.append, now=NOW) == 0
+assert cstore.get("tenant#acme")["limits"] == {"media_items": 7, "total_mb": 50} and any("media_items = 7  (own)" in line for line in shown) and any("image_kb" in line and "(own)" not in line for line in shown)
+assert ctl.main(["set-limits", "acme", "total_mb=60"], store=cstore, out=shown.append, now=NOW) == 0 and cstore.get("tenant#acme")["limits"] == {"media_items": 7, "total_mb": 60}, "pairs are added to the business's own limits"
+assert ctl.main(["set-limits", "acme"], store=cstore, out=shown.append, now=NOW) == 0 and cstore.get("tenant#acme")["rev"] == 3, "no pairs only shows"
+assert ctl.main(["set-limits", "acme", "media_items=0"], store=cstore, out=shown.append, now=NOW) == 2 and ctl.main(["set-limits", "acme", "x=1"], store=cstore, out=shown.append, now=NOW) == 2 and ctl.main(["set-limits", "ghost", "total_mb=1"], store=cstore, out=shown.append, now=NOW) == 1
+assert ctl.main(["set-limits", "acme", "--clear"], store=cstore, out=shown.append, now=NOW) == 0 and "limits" not in cstore.get("tenant#acme")
+print("  ok  the teacher sets, adds, shows and clears a business's media limits")
 
 print("test_chatwoot_media.py: the media library: send photos, videos, files and links, never read them")

@@ -151,26 +151,43 @@ def put_agent(store, tenant, name, body, now):
 
 
 def check_media(config, tenant, name, files):
-    """The version's media list must be well formed, belong to this agent, and (when the file store is at hand) the files must really be uploaded."""
+    """The version's media list must be well formed within the business's limits, belong to this agent, and (when the file store is at hand) the files must really be uploaded.
+    Returns the checked items."""
     try:
-        items = media.clean_items(config.get("media"), tenant["tenant_id"], name)
+        items = media.clean_items(config.get("media"), tenant["tenant_id"], name, media.limits_of(tenant))
         if files is None and any(i["kind"] in media.FILE_KINDS for i in items) and os.environ.get("BUCKET"):
             files = media.S3Files()
         for item in items:
             if files is not None and item["kind"] in media.FILE_KINDS and not files.size(item["key"]):
                 raise media.Invalid(f"Media {item['id']}: the file was not uploaded. Upload it again.")
+        return items
     except media.Invalid as error:
         raise reg.Invalid(str(error)) from None
 
 
-def media_upload(store, tenant, name, body, files):
+def media_upload(store, tenant, name, body, files, now):
     agent = owned(store, tenant, name)
     if agent is None:
         return problem(404, "not_found", "No such agent.")
     try:
-        return 200, media.upload_form(files, tenant["tenant_id"], name, body)
+        return 200, media.upload_form(store, files, tenant, name, body, now)
     except media.Invalid as error:
         raise reg.Invalid(str(error)) from None
+
+
+def retire_version(store, tenant, name, number):
+    """Take a published version away (its files are removed by the janitor when no other version lists them). Never the live version, never the last one."""
+    agent = owned(store, tenant, name)
+    if agent is None or not 1 <= number <= (agent.get("versions") or 0) or store.get(reg.version_key(name, number)) is None:
+        return problem(404, "not_found", "No such version.")
+    if agent.get("live_version") == number:
+        return problem(409, "version_live", "The live version cannot be retired. Make another version live first.")
+    left = [n for n in range(1, (agent.get("versions") or 0) + 1) if store.get(reg.version_key(name, n)) is not None]
+    if len(left) <= 1:
+        return problem(409, "last_version", "The last version cannot be retired.")
+    store.forget(reg.version_key(name, number))
+    log("version_retired", tenant=tenant["tenant_id"], agent=name, version=number)
+    return 200, {"retired": number, "left": len(left) - 1}
 
 
 def put_version(store, tenant, name, number, body, now, files=None):
@@ -178,7 +195,11 @@ def put_version(store, tenant, name, number, body, now, files=None):
     if agent is None:
         return problem(404, "not_found", "No such agent.")
     config = reg.clean_config(body)
-    check_media(config, tenant, name, files)
+    items = check_media(config, tenant, name, files)
+    try:
+        media.mark_kept(store, tenant["tenant_id"], name, items, now)
+    except media.Invalid as error:
+        raise reg.Invalid(str(error)) from None
     versions = agent.get("versions") or 0
     if number > reg.MAX_VERSIONS:
         return problem(409, "version_limit", f"An agent may have at most {reg.MAX_VERSIONS} versions.")
@@ -686,6 +707,8 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None):
             return 200, {"version": number, "config": version["config"], "published_at": version.get("published_at"), "live": agent.get("live_version") == number}
         if method == "PUT" and number >= 1:
             return put_version(store, tenant, name, number, parse_body(event), now, files)
+        if method == "DELETE" and number >= 1:
+            return retire_version(store, tenant, name, number)
         return problem(405 if number >= 1 else 404, "method_not_allowed" if number >= 1 else "not_found", "Use GET or PUT, with a version number of 1 or more.")
     found = LIVE.fullmatch(path)
     if found:
@@ -736,7 +759,7 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None):
     if found:
         if method != "POST":
             return problem(405, "method_not_allowed", "Use POST.")
-        return media_upload(store, tenant, found.group(1), parse_body(event), files or media.S3Files())
+        return media_upload(store, tenant, found.group(1), parse_body(event), files or media.S3Files(), now)
     found = TEST.fullmatch(path)
     if found:
         if method != "POST":

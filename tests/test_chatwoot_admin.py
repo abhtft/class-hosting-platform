@@ -174,7 +174,7 @@ assert call(store, "PUT", "/admin/agents/shop/versions/2", {"config": {"instruct
 for bad in ({}, {"config": []}, {"config": "x"}, {"config": {}, "extra": 1}, {"cfg": {}}):
     assert call(store, "PUT", "/admin/agents/shop/versions/3", bad)[0] == 400, bad
 assert call(store, "PUT", "/admin/agents/shop/versions/0", {"config": {}})[0] == 404 and call(store, "GET", "/admin/agents/shop/versions/0")[0] == 404
-assert call(store, "GET", "/admin/agents/shop/versions/9")[0] == 404 and call(store, "DELETE", "/admin/agents/shop/versions/1")[0] == 405
+assert call(store, "GET", "/admin/agents/shop/versions/9")[0] == 404 and call(store, "PATCH", "/admin/agents/shop/versions/1")[0] == 405
 huge = {"config": {"text": "x" * (reg.MAX_VERSION_BYTES + 10)}}
 status, body = call(store, "PUT", "/admin/agents/shop/versions/3", huge)
 assert status == 400 and "KB" in body["message"] and store.get("agent#shop#v3") is None
