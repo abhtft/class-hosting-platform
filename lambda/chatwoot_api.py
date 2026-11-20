@@ -23,10 +23,12 @@ receiver asks first (answered 200 `ignored: not_mapped`, nothing stored) and the
 What is stored: ids, status, a reason code and times of a message, never its text, the customer's name, a token or any other personal data. Items expire by
 themselves (ttl). What is logged: names and reason codes, never a secret, a token, a signature or a message."""
 import base64
+import concurrent.futures
 import json
 import os
 import re
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -36,6 +38,7 @@ import chatwoot_handover as handover
 import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
+import chatwoot_suite as suite
 import platform_settings
 from chatwoot_store import CONDITION_FAILED, DynamoStore, MemoryStore  # noqa: F401  (the table lives in chatwoot_store.py; these names stay importable from here)
 
@@ -45,6 +48,9 @@ SECRET_CACHE_SECONDS = platform_settings.value("chatwoot.secretCacheSeconds")
 HTTP_TIMEOUT_SECONDS = platform_settings.value("chatwoot.httpTimeoutSeconds")
 DEFAULT_CAP_USD = platform_settings.value("chatwoot.defaultMonthlyCapUsd")  # what one business may spend a month on answers, unless its tenant item says otherwise
 BASE_URL = platform_settings.value("chatwoot.baseUrl")  # the one Chatwoot address the worker may call (a template parameter)
+SUITE_PARALLEL = platform_settings.value("chatwoot.suiteParallel")  # test cases run at the same time
+SUITE_RUN_DAYS = platform_settings.value("chatwoot.suiteRunDays")  # how long the record of a suite run is kept
+SUITE_BUDGET_SECONDS = platform_settings.value("chatwoot.suiteBudgetSeconds")  # no new case is started after this long: the worker has 120 seconds
 AUTH_STYLE = platform_settings.value("chatwoot.authStyle")  # bearer, or api_access_token for a Chatwoot older than 4.19
 SECRET_PREFIX = "chatwoot/"  # the secret of agent <id> is named chatwoot/<id>; the template lets the functions read exactly this prefix
 ROUTE = re.compile(r"/hooks/chatwoot/([^/]+)")
@@ -357,49 +363,167 @@ def compose(event, agent, tenant, deps, now, history):
     return reply_text, metrics, reason
 
 
-def test(event, deps, now):
-    """A dry run for Studio's test chat (started by the admin function and nobody else): answer one message the way the worker would, from a draft configuration or from a published
-    version, with the history Studio sends, but post nothing to Chatwoot, write no message item and no memory, and hand over to nobody: a hand-over is only described. What it spends
-    is counted against the business's month like a real answer. The customer's words (here: the tester's) are not stored or logged. Returns {"result": {...}} or {"error": code}."""
-    agent_id, tenant_id, text = event.get("agent_id"), event.get("tenant_id"), event.get("text")
-    if not core.AGENT_ID.fullmatch(str(agent_id)) or not isinstance(text, str) or not text.strip():
-        return {"error": "bad_event"}
+def dry_turn(config, text, history, context, tenant_id, deps, key, now):
+    """One message answered the way the worker would, but only described: {"route", "text", "used"?, "confident", "explain", "tokens", "spent_micro", "retrieval_ms", "llm_ms"} plus, for a
+    hand-over (a reason or a failure of the answer), {"reason", "failure", "note"}. What it spends is counted against the business's month. Shared by the test chat (test) and the suite run."""
     try:
-        agent, tenant = deps.registry.load(agent_id)
-    except Exception as error:
-        log("registry_unavailable", agent=agent_id, error=type(error).__name__)
-        return {"error": "registry_unavailable"}
-    if not isinstance(agent, dict) or not isinstance(tenant, dict) or tenant.get("enabled") is not True or agent.get("tenant_id") != tenant.get("tenant_id") or tenant.get("tenant_id") != tenant_id:
-        return {"error": "not_found"}
+        reply_text, metrics, reason = answer_text(config, text, history, context, tenant_id, deps.runtime, explain=True)
+    except engine.RuntimeFailure as failure:  # in real life this customer would be handed to a person: say so
+        spend(deps, key, failure.metrics, now)
+        return {"route": "handover", "reason": failure.reason, "failure": True, "text": config["handover_text"], "note": handover.note_text(failure.reason, history, text),
+                "spent_micro": int(failure.metrics.get("cost_micro") or 0), "explain": failure.metrics.get("explain", [])}
+    spend(deps, key, metrics, now)
+    out = {"route": metrics.get("route"), "text": reply_text, "confident": bool(metrics.get("confident")), "explain": metrics.get("explain", []), "tokens": int(metrics.get("tokens") or 0),
+           "spent_micro": int(metrics.get("cost_micro") or 0), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
+    if reason:
+        out.update(route="handover", reason=reason, failure=False, note=handover.note_text(reason, history, text))
+    return out
+
+
+def dry_target(agent_id, tenant, event, deps):
+    """(config, label) for a dry run or a suite run from a draft configuration or a published version, or ({"error": code, ...}, None)."""
     if isinstance(event.get("config"), dict):
         source, used = event["config"], "the editor"
     else:
         number = event.get("version")
         found = deps.store.get(registry.version_key(agent_id, number)) if isinstance(number, int) and not isinstance(number, bool) and number >= 1 else None
         if not found:
-            return {"error": "version_not_found"}
+            return {"error": "version_not_found"}, None
         source, used = found.get("config"), f"version {number}"
     try:
-        config = engine.clean_config(source)
+        return engine.clean_config(source), used
     except engine.ConfigError as error:
-        return {"error": "bad_config", "message": str(error)}
-    key = usage_key(tenant_id, now)
+        return {"error": "bad_config", "message": str(error)}, None
+
+
+def owned_pair(event, deps):
+    """(agent, tenant) of a dry run or a suite run started by the admin function, or (None, {"error": code}): the tenant of the request must be the agent's own, and enabled."""
+    agent_id, tenant_id = event.get("agent_id"), event.get("tenant_id")
+    if not core.AGENT_ID.fullmatch(str(agent_id)):
+        return None, {"error": "bad_event"}
+    try:
+        agent, tenant = deps.registry.load(agent_id)
+    except Exception as error:
+        log("registry_unavailable", agent=agent_id, error=type(error).__name__)
+        return None, {"error": "registry_unavailable"}
+    if not isinstance(agent, dict) or not isinstance(tenant, dict) or tenant.get("enabled") is not True or agent.get("tenant_id") != tenant.get("tenant_id") or tenant.get("tenant_id") != tenant_id:
+        return None, {"error": "not_found"}
+    return (agent, tenant), None
+
+
+def test(event, deps, now):
+    """A dry run for Studio's test chat (started by the admin function and nobody else): answer one message the way the worker would, from a draft configuration or from a published
+    version, with the history Studio sends, but post nothing to Chatwoot, write no message item and no memory, and hand over to nobody: a hand-over is only described. What it spends
+    is counted against the business's month like a real answer. The customer's words (here: the tester's) are not stored or logged. Returns {"result": {...}} or {"error": code}."""
+    text = event.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return {"error": "bad_event"}
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    config, used = dry_target(event["agent_id"], tenant, event, deps)
+    if used is None:
+        return config
+    key = usage_key(event["tenant_id"], now)
     if deps.store.usage(key) >= monthly_cap_micro(tenant):
         return {"error": "cap_reached"}
     history = memory.clean(event.get("history"))
     text = text.strip()[:core.MAX_QUESTION_CHARS]
-    try:
-        reply_text, metrics, reason = answer_text(config, text, history, context_of(event), tenant_id, deps.runtime, explain=True)
-    except engine.RuntimeFailure as failure:  # in real life this customer would be handed to a person: say so
-        spend(deps, key, failure.metrics, now)
-        return {"result": {"route": "handover", "reason": failure.reason, "failure": True, "text": config["handover_text"], "note": handover.note_text(failure.reason, history, text), "used": used,
-                           "spent_micro": int(failure.metrics.get("cost_micro") or 0), "explain": failure.metrics.get("explain", [])}}
-    spend(deps, key, metrics, now)
-    out = {"route": metrics.get("route"), "text": reply_text, "used": used, "confident": bool(metrics.get("confident")), "explain": metrics.get("explain", []), "tokens": int(metrics.get("tokens") or 0),
-           "spent_micro": int(metrics.get("cost_micro") or 0), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
-    if reason:
-        out.update(route="handover", reason=reason, failure=False, note=handover.note_text(reason, history, text))
+    out = dry_turn(config, text, history, context_of(event), event["tenant_id"], deps, key, now)
+    out["used"] = used
+    out["spent_micro"] = int(out.get("spent_micro") or 0)
     return {"result": out}
+
+
+def run_case(case, config, tenant, deps, key, now):
+    """One test case: its customer messages in order (each answered with the history so far, like a conversation), the last answer judged. A failed case is tried once more: a pass on
+    the retry is a pass marked flaky (the model answered differently). Returns the case's record: {"id", "title", "severity", "ok", "flaky", "route", "failed": [...], "answer"}."""
+    record = {"id": case["id"], "title": case["title"], "severity": case["severity"], "ok": False, "flaky": False, "ran": True, "route": None, "failed": []}
+    context = {"channel": case["channel"], "inbox_id": case.get("inbox_id")}
+    for attempt in (1, 2):
+        history, result = [], None
+        for turn in case["turns"]:
+            if deps.store.usage(key) >= monthly_cap_micro(tenant):
+                return {**record, "ran": False, "failed": [{"check": "run", "expected": "a run", "got": "the monthly spend limit was reached"}]}
+            result = dry_turn(config, turn, history, context, tenant["tenant_id"], deps, key, now)
+            history.append({"c": turn, "b": result["text"], **({"f": 1} if result["route"] == "fallback" else {}), **({"h": 1} if result["route"] == "handover" else {})})
+            if result["route"] == "handover":  # in real life the bot goes quiet after a hand-over
+                break
+        failed = suite.evaluate(case, result, config)
+        if not failed:
+            return {**record, "ok": True, "flaky": attempt == 2, "route": result["route"]}
+        record.update(route=result["route"], failed=failed, answer=str(result["text"])[:400])
+    return record
+
+
+def suite_run(event, deps, now):
+    """A test suite run, started by the admin function (or the local command) with an asynchronous event: run the agent's cases against a published version or a draft, a few at a time,
+    write the progress and the verdict to the run's item as it goes (Studio and the command read it), and, for a published version, what that version's last run found. Nothing is posted
+    to Chatwoot, no message item or memory is written; the cost of the answers counts against the business's month. The cases are the operator's own test text and are stored with the run's
+    results (the answers only for cases that failed); a customer's words are never involved."""
+    began = time.monotonic()
+    agent_id, run_id = event.get("agent_id"), str(event.get("run_id") or "")
+    if not re.fullmatch(r"[0-9a-f]{12}", run_id):
+        return {"error": "bad_event"}
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    run_key = registry.suite_run_key(agent_id, run_id)
+    item = deps.store.get(run_key)
+    if not item or item.get("tenant_id") != event["tenant_id"] or item.get("status") != "queued":
+        return {"error": "bad_event"}
+    config, used = dry_target(agent_id, tenant, event, deps)
+    stored = deps.store.get(registry.suite_key(agent_id))
+    state_key = registry.suite_state_key(agent_id)
+
+    def finish(**fields):
+        item.update(fields, finished_at=now + int(time.monotonic() - began))
+        deps.store.put(run_key, item)
+        state = deps.store.get(state_key) or {"runs": [], "versions": {}}
+        entry = {"run_id": run_id, "target": item.get("target"), "version": item.get("version"), "status": item["status"], "ok": item.get("ok"), "passed": item.get("passed"), "total": item.get("total"),
+                 "must_failed": item.get("must_failed"), "should_failed": item.get("should_failed"), "flaky": item.get("flaky"), "suite_rev": item.get("suite_rev"), "started_at": item.get("started_at"),
+                 "finished_at": item["finished_at"]}
+        state["runs"] = [entry] + [r for r in state.get("runs", []) if r.get("run_id") != run_id][:19]
+        state["latest"] = {"run_id": run_id, "status": item["status"], "started_at": item.get("started_at")}
+        if item.get("version") and item["status"] == "done":
+            state.setdefault("versions", {})[str(item["version"])] = {k: entry[k] for k in ("run_id", "ok", "passed", "total", "must_failed", "suite_rev", "finished_at")}
+        deps.store.put(state_key, state)
+        return {"run": run_id, "status": item["status"]}
+    if used is None:
+        return finish(status="failed", error=config.get("error"), message=config.get("message"))
+    if not stored or not stored.get("cases"):
+        return finish(status="failed", error="no_suite")
+    cases = stored["cases"]
+    item.update(status="running", started_at=now, total=len(cases), done=0, results=[], suite_rev=stored.get("rev"), target=used)
+    deps.store.put(run_key, item)
+    key = usage_key(event["tenant_id"], now)
+    lock = threading.Lock()
+    done_at = time.monotonic() + SUITE_BUDGET_SECONDS
+    records = {}
+
+    def work(case):
+        base = {"id": case["id"], "title": case["title"], "severity": case["severity"], "ok": False, "flaky": False, "ran": False, "route": None}
+        if time.monotonic() > done_at:  # out of time: the rest is reported as not run, never guessed
+            record = {**base, "failed": [{"check": "run", "expected": "a run", "got": "the time for the run was used up"}]}
+        else:
+            try:
+                record = run_case(case, config, tenant, deps, key, now)
+            except Exception as error:  # a bug in one case does not stop the others
+                log("suite_case_error", agent=agent_id, case=case["id"], error=type(error).__name__)
+                record = {**base, "failed": [{"check": "run", "expected": "a run", "got": f"an error ({type(error).__name__})"}]}
+        with lock:
+            records[case["id"]] = record
+            item.update(done=len(records), results=[records[c["id"]] for c in cases if c["id"] in records])
+            deps.store.put(run_key, item)
+        return record
+    with concurrent.futures.ThreadPoolExecutor(max_workers=SUITE_PARALLEL) as pool:
+        list(pool.map(work, cases))
+    results = [records[c["id"]] for c in cases]
+    summary = suite.summarise(results)
+    log("suite_run", agent=agent_id, run=run_id, passed=summary["passed"], total=summary["total"], must_failed=summary["must_failed"])
+    return finish(status="done", results=results, ttl=now + SUITE_RUN_DAYS * 86400, **summary)
 
 
 def hand_over(event, deps, base, credentials, reason, sentence, history, text, send_text):
@@ -531,6 +655,8 @@ def worker(event, context=None, now=None, deps=None):
         return sweep(event, deps, now)
     if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
         return test(event, deps, now)
+    if event.get("kind") == "suite":  # from the admin function or the local command: a test suite run, asynchronous
+        return suite_run(event, deps, now)
     agent_id, message_id = event.get("agent_id"), event.get("message_id")
     ids = [event.get(name) for name in ("conversation_id", "account_id", "inbox_id")]
     if not core.AGENT_ID.fullmatch(str(agent_id)) or any(not isinstance(i, int) or isinstance(i, bool) or i < 1 for i in [message_id, *ids]):

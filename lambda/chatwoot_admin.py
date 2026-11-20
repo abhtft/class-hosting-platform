@@ -10,6 +10,11 @@
   PUT    /admin/agents/{name}/versions/{n}       publish version n (must be the next number): {"config": {...}}; a version never changes
   GET    /admin/agents/{name}/versions/{n}
   POST   /admin/agents/{name}/live               {"version": n} chooses the live version (0 = none)
+  GET    /admin/agents/{name}/suite              the agent's test suite: {"rev", "cases"}
+  PUT    /admin/agents/{name}/suite              replace it: {"cases": [...], "expected_rev"?}
+  GET    /admin/agents/{name}/suite/state        the latest runs and, per published version, whether it passed
+  POST   /admin/agents/{name}/suite/runs         start a run (asynchronous): {"version"} or {"config"}; answers 202 with its run_id
+  GET    /admin/agents/{name}/suite/runs/{id}    a run's progress and, when done, its verdict per case
   POST   /admin/agents/{name}/test               Studio's dry run: {"text", "version" or "config", "history"?, "channel"?, "inbox_id"?}; the worker answers in the same call (nothing is posted
                                                  to Chatwoot, nothing is stored) and the answer, its route and the passages it used come back
 
@@ -21,11 +26,13 @@ import base64
 import json
 import os
 import re
+import secrets
 import time
 
 import chatwoot_core as core
 import chatwoot_memory as memory
 import chatwoot_registry as reg
+import chatwoot_suite as suite
 import platform_settings
 from chatwoot_store import DynamoStore
 
@@ -36,6 +43,10 @@ AGENT = re.compile(rf"/admin/agents/({_NAME})")
 VERSION = re.compile(rf"/admin/agents/({_NAME})/versions/([0-9]{{1,6}})")
 LIVE = re.compile(rf"/admin/agents/({_NAME})/live")
 TEST = re.compile(rf"/admin/agents/({_NAME})/test")
+SUITE = re.compile(rf"/admin/agents/({_NAME})/suite")
+SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
+SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
+SUITE_RUN = re.compile(rf"/admin/agents/({_NAME})/suite/runs/([0-9a-f]{{12}})")
 
 
 def log(what, **details):
@@ -189,6 +200,14 @@ def parse_body(event):
     return body
 
 
+def invoke_worker_async(payload):
+    """Start the worker on a suite run and do not wait (a run takes up to a minute and a half; the caller reads the run's item)."""
+    import boto3
+    response = boto3.client("lambda").invoke(FunctionName=os.environ["CHATWOOT_WORKER_FUNCTION"], InvocationType="Event", Payload=json.dumps(payload).encode("utf8"))
+    if response.get("StatusCode") != 202:
+        raise RuntimeError("the worker was not started")
+
+
 def invoke_worker(payload):
     """Ask the worker for a dry run and wait for its answer (a synchronous call: Studio's test chat shows it at once)."""
     import boto3
@@ -249,6 +268,96 @@ def run_test(store, tenant, name, body, invoke):
     return problem(status, str(code), answer.get("message") if code == "bad_config" and isinstance(answer.get("message"), str) else message)
 
 
+def get_suite(store, tenant, name):
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    item = store.get(reg.suite_key(name)) or {}
+    return 200, {"rev": item.get("rev", 0), "cases": item.get("cases", []), "updated_at": item.get("updated_at")}
+
+
+def put_suite(store, tenant, name, body, now):
+    """Replace an agent's test suite: every case is checked (suite.clean_suite), the revision refuses an overwrite of a newer change."""
+    unknown = sorted(set(body) - {"cases", "expected_rev"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    try:
+        cases = suite.clean_suite(body.get("cases"))
+    except suite.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+    existing = store.get(reg.suite_key(name))
+    if "expected_rev" in body and body["expected_rev"] != (existing or {}).get("rev", 0):
+        return problem(409, "changed", "The suite was changed since you read it.", rev=(existing or {}).get("rev", 0))
+    item = {"tenant_id": tenant["tenant_id"], "agent_id": name, "rev": (existing or {}).get("rev", 0) + 1, "cases": cases, "updated_at": now}
+    stored = store.replace_if(reg.suite_key(name), item, "rev", existing["rev"]) if existing else store.claim(reg.suite_key(name), item)
+    if not stored:
+        return problem(409, "changed", "The suite was changed by another call at the same moment. Read it and try again.")
+    log("suite_saved", tenant=tenant["tenant_id"], agent=name, cases=len(cases))
+    return (200 if existing else 201), {"rev": item["rev"], "cases": cases, "updated_at": now}
+
+
+def get_suite_state(store, tenant, name):
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    state = store.get(reg.suite_state_key(name)) or {}
+    stored = store.get(reg.suite_key(name)) or {}
+    return 200, {"runs": state.get("runs", []), "versions": state.get("versions", {}), "latest": state.get("latest"), "suite_rev": stored.get("rev", 0), "cases": len(stored.get("cases", []))}
+
+
+def start_suite_run(store, tenant, name, body, now, invoke):
+    """Start a run of the agent's suite on a published version or a draft: the run's item is written first (so Studio can read it at once), then the worker is started and not waited for.
+    One run at a time per agent. Cost: about a tenth of a cent a case, counted against the business's month."""
+    unknown = sorted(set(body) - {"version", "config"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    if ("version" in body) == ("config" in body):
+        raise reg.Invalid("Send either version (a published version) or config (a draft), not both and not neither.")
+    payload = {"kind": "suite", "tenant_id": tenant["tenant_id"], "agent_id": name}
+    if "config" in body:
+        if not isinstance(body["config"], dict) or len(json.dumps(body["config"]).encode("utf8")) > reg.MAX_VERSION_BYTES:
+            raise reg.Invalid(f"config must be a JSON object of at most {reg.MAX_VERSION_BYTES // 1024} KB.")
+        payload["config"], label, version = body["config"], "the editor", None
+    else:
+        number = body["version"]
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= reg.MAX_VERSIONS:
+            raise reg.Invalid("version must be a published version number.")
+        payload["version"], label, version = number, f"version {number}", number
+    stored = store.get(reg.suite_key(name))
+    if not stored or not stored.get("cases"):
+        return problem(409, "no_suite", "This agent has no test suite yet. Add cases first.")
+    state = store.get(reg.suite_state_key(name)) or {"runs": [], "versions": {}}
+    latest = state.get("latest") or {}
+    if latest.get("status") in ("queued", "running") and now - int(latest.get("started_at") or 0) < 300:
+        return problem(409, "run_in_progress", "A run of this suite is still going. Wait for it to finish.", run_id=latest.get("run_id"))
+    run_id = secrets.token_hex(6)
+    run = {"tenant_id": tenant["tenant_id"], "agent_id": name, "run_id": run_id, "status": "queued", "target": label, "version": version, "total": len(stored["cases"]), "done": 0, "results": [],
+           "suite_rev": stored.get("rev"), "started_at": now, "ttl": now + 86400}
+    store.put(reg.suite_run_key(name, run_id), run)
+    store.put(reg.suite_state_key(name), {**state, "latest": {"run_id": run_id, "status": "queued", "started_at": now}})
+    payload["run_id"] = run_id
+    try:
+        (invoke or invoke_worker_async)(payload)
+    except Exception as error:
+        store.forget(reg.suite_run_key(name, run_id))
+        store.put(reg.suite_state_key(name), state)
+        log("suite_not_started", tenant=tenant["tenant_id"], agent=name, error=type(error).__name__)
+        return problem(502, "run_not_started", "The run could not be started. Try again.")
+    log("suite_started", tenant=tenant["tenant_id"], agent=name, run=run_id)
+    return 202, {"run_id": run_id, "total": run["total"], "target": label}
+
+
+def get_suite_run(store, tenant, name, run_id):
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    item = store.get(reg.suite_run_key(name, run_id))
+    if not item or item.get("tenant_id") != tenant["tenant_id"]:
+        return problem(404, "not_found", "No such run.")
+    return 200, {k: v for k, v in item.items() if k not in ("pk", "ttl")}
+
+
 def route(store, tenant, method, path, event, now, invoke=None):
     if LIST.fullmatch(path):
         if method != "GET":
@@ -286,6 +395,20 @@ def route(store, tenant, method, path, event, now, invoke=None):
         if method != "POST":
             return problem(405, "method_not_allowed", "Use POST.")
         return set_live(store, tenant, found.group(1), parse_body(event), now)
+    found = SUITE_RUN.fullmatch(path)
+    if found:
+        return get_suite_run(store, tenant, found.group(1), found.group(2)) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = SUITE_RUNS.fullmatch(path)
+    if found:
+        return start_suite_run(store, tenant, found.group(1), parse_body(event), now, invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    found = SUITE_STATE.fullmatch(path)
+    if found:
+        return get_suite_state(store, tenant, found.group(1)) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = SUITE.fullmatch(path)
+    if found:
+        if method == "GET":
+            return get_suite(store, tenant, found.group(1))
+        return put_suite(store, tenant, found.group(1), parse_body(event), now) if method == "PUT" else problem(405, "method_not_allowed", "Use GET or PUT.")
     found = TEST.fullmatch(path)
     if found:
         if method != "POST":

@@ -2500,6 +2500,82 @@
       ]
     },
     {
+      "key": "chatwoot.suiteMaxCases",
+      "group": "chatwoot",
+      "title": "Most cases in a test suite",
+      "help": "How many test cases one agent's suite may hold. Each case is run for real on every suite run, so a larger suite costs more and takes longer.",
+      "unit": "cases",
+      "default": 40,
+      "min": 5,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "careful",
+      "cost": "Each case is one or more real answers (about a tenth of a cent each) on every run.",
+      "code": [
+        "chatwoot_suite.MAX_CASES"
+      ]
+    },
+    {
+      "key": "chatwoot.suiteMaxTurns",
+      "group": "chatwoot",
+      "title": "Most customer messages in one test case",
+      "help": "A test case may be a short conversation: this many customer messages at most. The last answer is the one checked.",
+      "unit": "messages",
+      "default": 3,
+      "min": 1,
+      "max": 5,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_suite.MAX_TURNS"
+      ]
+    },
+    {
+      "key": "chatwoot.suiteParallel",
+      "group": "chatwoot",
+      "title": "Test cases run at the same time",
+      "help": "How many cases of a suite run at once. More is faster but asks the model for several answers together, which a provider's rate limit may refuse.",
+      "unit": "cases",
+      "default": 4,
+      "min": 1,
+      "max": 8,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_api.SUITE_PARALLEL"
+      ]
+    },
+    {
+      "key": "chatwoot.suiteRunDays",
+      "group": "chatwoot",
+      "title": "How long a suite run is kept",
+      "help": "The record of a suite run (what passed, what failed and why) is removed after this many days.",
+      "unit": "days",
+      "default": 90,
+      "min": 7,
+      "max": 365,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.SUITE_RUN_DAYS"
+      ]
+    },
+    {
+      "key": "chatwoot.suiteBudgetSeconds",
+      "group": "chatwoot",
+      "title": "Time a suite run may take",
+      "help": "No new test case is started after a suite run has used this many seconds; the cases left are reported as not run. Keep it under the worker's own time limit (120 seconds).",
+      "unit": "seconds",
+      "default": 90,
+      "min": 20,
+      "max": 110,
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_api.SUITE_BUDGET_SECONDS"
+      ]
+    },
+    {
       "key": "chatwoot.sweepStuckSeconds",
       "group": "chatwoot",
       "title": "When a message counts as stuck",

@@ -50,6 +50,10 @@ class DynamoStore:
         """Write the item only if there is none yet. True for the first write, False for a repeat."""
         return self._conditional(kind=self.table.put_item, Item={**storable(item), "pk": key}, ConditionExpression="attribute_not_exists(pk)")
 
+    def put(self, key, item):
+        """Write the item, replacing any (a suite run's progress, a suite's state: items one writer owns)."""
+        self.table.put_item(Item={**storable(item), "pk": key})
+
     def replace_if(self, key, item, field, expected):
         """Replace the item only if its `field` still equals `expected`. True when replaced."""
         return self._conditional(kind=self.table.put_item, Item={**storable(item), "pk": key}, ConditionExpression="#f = :e",
@@ -133,6 +137,9 @@ class MemoryStore:
             return False
         self.items[key] = json.loads(json.dumps({**item, "pk": key}))
         return True
+
+    def put(self, key, item):
+        self.items[key] = json.loads(json.dumps({**item, "pk": key}))
 
     def replace_if(self, key, item, field, expected):
         current = self.items.get(key)

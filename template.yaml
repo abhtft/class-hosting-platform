@@ -1243,12 +1243,18 @@ Resources:
               Condition:
                 ForAllValues:StringLike:
                   dynamodb:LeadingKeys: ['msg#*', 'usage#*']
-            - Effect: Allow # read the registry again just before replying (the agent, its tenant and its live version) and the business's spend so far
+            - Effect: Allow # read the registry again just before replying (the agent, its tenant and its live version) and the business's spend so far; for a suite run also the suite, its runs and its state
               Action: dynamodb:GetItem
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*']
+                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*', 'suite#*', 'suitestate#*', 'suiterun#*']
+            - Effect: Allow # a suite run writes its progress and verdict (suiterun#...) and what it found (suitestate#...): nothing else
+              Action: dynamodb:PutItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['suiterun#*', 'suitestate#*']
             - Effect: Allow # the conversation memory's own table: read the turns of a conversation and write them back (mem#...); no other table, no other action
               Action: [dynamodb:GetItem, dynamodb:PutItem]
               Resource: !GetAtt ChatwootMemoryTable.Arn
@@ -1329,13 +1335,13 @@ Resources:
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*']
+                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*']
             - Effect: Allow # take back an agent that could not be added to its business (an agent item only)
               Action: dynamodb:DeleteItem
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['agent#*']
+                  dynamodb:LeadingKeys: ['agent#*', 'suiterun#*']
             - Effect: Allow # Studio's test chat: ask the one worker for a dry run and wait for its answer
               Action: lambda:InvokeFunction
               Resource: !GetAtt ChatwootWorkerFunction.Arn

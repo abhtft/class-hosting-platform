@@ -835,6 +835,140 @@ f = Fakes()
 assert dry(f, text="x" * 5000)["result"]["route"] == "rag" and len(f.searches[-1][2]) <= core.MAX_QUESTION_CHARS, "the tester's text is cut like a customer's"
 print("  ok  the dry run refuses another business's agent, a missing or unusable version or draft, empty text, a switched-off business and a business at its cap; it cuts long text")
 
+# ---- a test suite run: the cases run like real answers, judged, recorded, and nothing leaves ----
+RUN = "0123456789ab"
+
+
+def queue_run(f, cases, run=RUN, tenant="acme", agent="shop"):
+    f.store.items[f"suite#{agent}"] = {"pk": f"suite#{agent}", "tenant_id": tenant, "agent_id": agent, "rev": 3, "cases": cases}
+    f.store.items[f"suiterun#{agent}#{run}"] = {"pk": f"suiterun#{agent}#{run}", "tenant_id": tenant, "agent_id": agent, "run_id": run, "status": "queued", "target": "version 1", "version": 1, "total": len(cases),
+                                                "done": 0, "results": [], "suite_rev": 3, "started_at": NOW}
+
+
+def run_suite(f, run=RUN, **more):
+    return api.worker({"kind": "suite", "tenant_id": "acme", "agent_id": "shop", "run_id": run, "version": 1, **more}, None, now=NOW + 5, deps=f.wdeps)
+
+
+def case(case_id, turns, checks, severity="must", **more):
+    return {"id": case_id, "title": case_id, "severity": severity, "channel": "whatsapp", "turns": turns, "checks": checks, **more}
+
+
+f = Fakes()
+queue_run(f, [case("opens", ["when do you open?"], {"route": "rag", "contains_all": ["nine"], "source_contains": ["handbook"]}), case("wrong", ["when do you open?"], {"contains_all": ["ten"]}),
+              case("person", ["call me please"], {"route": "handover", "handover_reason": "person_asked"}), case("soft", ["when do you open?"], {"contains_all": ["eleven"]}, severity="should"),
+              case("talk", ["when do you open?", "and Saturday?"], {"route": "rag"})])
+assert run_suite(f) == {"run": RUN, "status": "done"}
+run = f.store.items[f"suiterun#shop#{RUN}"]
+verdict = {r["id"]: (r["ok"], r["severity"], r["route"]) for r in run["results"]}
+assert verdict == {"opens": (True, "must", "rag"), "wrong": (False, "must", "rag"), "person": (True, "must", "handover"), "soft": (False, "should", "rag"), "talk": (True, "must", "rag")}, verdict
+assert (run["status"], run["total"], run["done"], run["passed"], run["must_failed"], run["should_failed"], run["flaky"], run["ok"]) == ("done", 5, 5, 3, 1, 1, 0, False), run
+failed = next(r for r in run["results"] if r["id"] == "wrong")
+assert failed["failed"] == [{"check": "contains_all", "expected": "ten", "got": "missing"}] and failed["answer"] == "We open at nine and close at six." and "answer" not in run["results"][0], "the answer is kept for a failure only"
+assert run["target"] == "version 1" and run["suite_rev"] == 3 and run["started_at"] == NOW + 5 and NOW + 5 <= run["finished_at"] <= NOW + 60 and run["ttl"] == NOW + 5 + 90 * 86400, run
+state = f.store.items["suitestate#shop"]
+assert state["latest"]["status"] == "done" and state["runs"][0]["run_id"] == RUN and state["runs"][0]["must_failed"] == 1 and state["versions"]["1"]["ok"] is False and state["versions"]["1"]["passed"] == 3
+assert not f.requests and not f.mem.items and not [k for k in f.store.items if k.startswith("msg#")], "nothing is posted to Chatwoot, no memory, no message item"
+assert f.store.usage(MONTH) > 0, "the answers cost real money and are counted"
+assert len(f.llm_calls) >= 5, "the cases really asked the model"
+print("  ok  a suite run answers every case like a customer would, judges it, records the verdict with the failed checks and the answer of failures, counts the cost and posts, stores and hands over nothing")
+
+# a clean run records a passing version; a retry that passes is flaky; a draft has no version record
+f = Fakes()
+queue_run(f, [case("opens", ["when do you open?"], {"route": "rag", "contains_all": ["nine"]})])
+run_suite(f)
+assert f.store.items["suitestate#shop"]["versions"]["1"] == {"run_id": RUN, "ok": True, "passed": 1, "total": 1, "must_failed": 0, "suite_rev": 3, "finished_at": f.store.items["suitestate#shop"]["versions"]["1"]["finished_at"]}
+f = Fakes()
+queue_run(f, [case("flaky", ["when do you open?"], {"contains_all": ["nine"]})])
+answers = iter([{"text": "We never close.", "model": "m", "tokens": 10, "cost_micro": 5}, {"text": "We open at nine.", "model": "m", "tokens": 10, "cost_micro": 5}])
+f.runtime.llm = lambda messages, max_tokens: next(answers)
+run_suite(f)
+record = f.store.items[f"suiterun#shop#{RUN}"]["results"][0]
+assert record["ok"] is True and record["flaky"] is True and f.store.items[f"suiterun#shop#{RUN}"]["flaky"] == 1 and f.store.items[f"suiterun#shop#{RUN}"]["ok"] is True, "failed once, passed on the retry: a pass, marked flaky"
+f = Fakes()
+queue_run(f, [case("opens", ["when do you open?"], {"contains_all": ["nine"]})])
+f.store.items[f"suiterun#shop#{RUN}"]["version"] = None  # the admin function leaves it empty for a draft
+run_suite(f, version=None, config={**LIVE_CONFIG, "instructions": "Be brief."})
+run = f.store.items[f"suiterun#shop#{RUN}"]
+assert run["target"] == "the editor" and "versions" in f.store.items["suitestate#shop"] and f.store.items["suitestate#shop"]["versions"] == {}, "a draft is tested but is not a published version's record"
+assert "Be brief." in f.llm_calls[0][0][0]["content"]
+print("  ok  a pass on the retry is a flaky pass, and a run on a draft leaves no record for any published version")
+
+# the turns of a case are a conversation; after a hand-over the bot is quiet
+f = Fakes()
+queue_run(f, [case("chat", ["when do you open?", "and Saturday?"], {"route": "rag"}), case("quiet", ["call me", "hello again"], {"route": "handover"}, channel="whatsapp", inbox_id=3)])
+run_suite(f)
+assert "already started" in f.llm_calls[1][0][0]["content"] and [m["role"] for m in f.llm_calls[1][0]][1:3] == ["user", "assistant"], "the second message is answered with the first as history"
+assert len(f.llm_calls) == 2 and f.store.items[f"suiterun#shop#{RUN}"]["results"][1]["ok"] is True, "after the hand-over the conversation stops (the second message is not asked)"
+print("  ok  a case with several messages is a conversation with history, and it stops at a hand-over like the real bot")
+
+# what it refuses and how it fails
+f = Fakes()
+queue_run(f, [case("a", ["hi"], {})])
+for bad in ({"run_id": "nope"}, {"run_id": "0123456789AB"}, {"run_id": "0123456789ac"}, {"tenant_id": "beta"}, {"agent_id": "nobody"}):
+    assert api.worker({"kind": "suite", "tenant_id": "acme", "agent_id": "shop", "run_id": RUN, "version": 1, **bad}, None, now=NOW + 5, deps=f.wdeps) in ({"error": "bad_event"}, {"error": "not_found"}), bad
+assert f.store.items[f"suiterun#shop#{RUN}"]["status"] == "queued", "nothing started"
+run_suite(f)
+assert run_suite(f) == {"error": "bad_event"}, "a run that has been started is not started again"
+f = Fakes()
+queue_run(f, [case("a", ["hi"], {})])
+f.store.items["tenant#acme"]["enabled"] = False
+assert run_suite(f) == {"error": "not_found"}
+f = Fakes()
+queue_run(f, [case("a", ["hi"], {})])
+run_suite(f, version=9)
+run = f.store.items[f"suiterun#shop#{RUN}"]
+assert run["status"] == "failed" and run["error"] == "version_not_found" and f.store.items["suitestate#shop"]["latest"]["status"] == "failed" and f.store.items["suitestate#shop"]["versions"] == {}
+f = Fakes()
+queue_run(f, [])
+run_suite(f)
+assert f.store.items[f"suiterun#shop#{RUN}"]["status"] == "failed" and f.store.items[f"suiterun#shop#{RUN}"]["error"] == "no_suite"
+f = Fakes()
+queue_run(f, [case("a", ["hi"], {})])
+run_suite(f, version=None, config={"collections": []})
+assert f.store.items[f"suiterun#shop#{RUN}"]["error"] == "bad_config" and "collections" in f.store.items[f"suiterun#shop#{RUN}"]["message"]
+print("  ok  a run refuses a bad event, another business's tenant, a switched-off business and a run already started; a missing version, a missing suite or an unusable draft fail the run in words")
+
+# the spend limit and the time budget: a case that was not run is never a pass
+f = Fakes()
+queue_run(f, [case("a", ["when do you open?"], {"route": "rag"}), case("b", ["when do you open?"], {"route": "rag"})])
+f.store.usage_add(MONTH, api.DEFAULT_CAP_USD * 1000000, NOW)
+run_suite(f)
+run = f.store.items[f"suiterun#shop#{RUN}"]
+assert run["ok"] is False and all(r["ran"] is False for r in run["results"]) and not f.llm_calls and run["results"][0]["failed"][0]["got"] == "the monthly spend limit was reached"
+saved = api.SUITE_BUDGET_SECONDS
+api.SUITE_BUDGET_SECONDS = -1
+f = Fakes()
+queue_run(f, [case("a", ["when do you open?"], {"route": "rag"})])
+run_suite(f)
+api.SUITE_BUDGET_SECONDS = saved
+run = f.store.items[f"suiterun#shop#{RUN}"]
+assert run["ok"] is False and run["results"][0]["ran"] is False and "time" in run["results"][0]["failed"][0]["got"] and not f.llm_calls
+print("  ok  at the business's spend limit or out of time the cases are reported as not run, and a run with a case not run is not a pass")
+
+# a bug in one case does not stop the others and leaks no words
+f = Fakes()
+queue_run(f, [case("boom", ["when do you open?"], {"route": "rag"}), case("fine", ["when do you open?"], {"route": "rag"})])
+original = f.runtime.llm
+calls = {"n": 0}
+
+
+def sometimes(messages, max_tokens):
+    calls["n"] += 1
+    if calls["n"] <= 2:
+        raise RuntimeError("model down for 4111 Asha")
+    return original(messages, max_tokens)
+
+
+saved_parallel = api.SUITE_PARALLEL
+api.SUITE_PARALLEL = 1
+f.runtime.llm = sometimes
+run_suite(f)
+api.SUITE_PARALLEL = saved_parallel
+results = {r["id"]: r for r in f.store.items[f"suiterun#shop#{RUN}"]["results"]}
+assert results["boom"]["ok"] is False and results["boom"]["route"] == "handover" and results["fine"]["ok"] is True, "a model that is down hands the case over, the next case still runs"
+assert "4111" not in json.dumps(f.store.items) and "4111" not in "".join(LOGS), "an error's text is never kept"
+print("  ok  a failing model fails its case, the other cases still run, and no error text is kept")
+
 # the receiver cuts the text and sends nothing when there is none
 f = Fakes()
 long_text = "word " * 1000

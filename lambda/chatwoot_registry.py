@@ -41,6 +41,20 @@ def agent_key(name):
     return f"agent#{name}"
 
 
+def suite_key(agent):
+    """The test suite of an agent (its cases and their revision)."""
+    return f"suite#{agent}"
+
+
+def suite_state_key(agent):
+    """What the suite runs of an agent have found: the latest runs and, per published version, whether it passed."""
+    return f"suitestate#{agent}"
+
+
+def suite_run_key(agent, run_id):
+    return f"suiterun#{agent}#{run_id}"
+
+
 def version_key(name, number):
     return f"agent#{name}#v{int(number)}"
 

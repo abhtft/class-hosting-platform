@@ -11,6 +11,11 @@ or a book), writes the adapter's table and a business's book shelves directly, a
   python tools/chatwoot_ctl.py --table <...> show-agent shop
   python tools/chatwoot_ctl.py --table <...> publish shop --tenant acme --config shop.json [--live]      publish the next version (checked as the worker will use it)
   python tools/chatwoot_ctl.py --table <...> set-live shop --tenant acme --version 2                     choose the live version (0 = none)
+  python tools/chatwoot_ctl.py --table <...> suite-load shop --tenant acme --file config/suites/margdarshak-digital.json     save an agent's test suite (a file with "cases")
+  python tools/chatwoot_ctl.py --table <...> suite-show shop --tenant acme                              the suite and what its latest runs found, per published version
+  python tools/chatwoot_ctl.py --table <...> --worker <ChatwootWorkerFunction name> suite-run shop --tenant acme [--version N | --config file.json] [--wait]
+  python tools/chatwoot_ctl.py --table <...> --worker <...> suite-run --all-live [--tenant acme]       run the suite of every agent that has a live version and a suite, wait, exit 1 on a failure
+        (a run asks the real model about 30 questions: about 2 cents; run it after every deployment and every new book: `knowledge-sync ... --then-suite` does it for you)
 
   python tools/chatwoot_ctl.py --table <...> --bucket <sites bucket> knowledge-sync --tenant acme [--folder knowledge/acme] [--prune] [--dry-run]
         a folder of books -> the business's shelves. The folder holds one sub-folder per shelf: knowledge/acme/faq/returns.pdf. New and changed files (PDF, text,
@@ -352,11 +357,152 @@ def eval_cases(store, args, out, now, shelves=None, cache=None):
     return 1 if wrong else 0
 
 
+# ---------- the test suite of an agent ----------
+
+def real_invoke(args):
+    """The function that starts the worker on a run (asynchronously), or None when no worker is named."""
+    name = args.worker or os.environ.get("CHATWOOT_WORKER_FUNCTION")
+    if not name:
+        return None
+
+    def invoke(payload):
+        import boto3
+        response = boto3.client("lambda").invoke(FunctionName=name, InvocationType="Event", Payload=json.dumps(payload).encode("utf8"))
+        if response.get("StatusCode") != 202:
+            raise RuntimeError("the worker was not started")
+    return invoke
+
+
+def suite_load(store, args, out, now, shelves=None):
+    tenant = tenant_or_none(store, args.tenant)
+    if not tenant:
+        out(f"No tenant {args.tenant}.")
+        return 1
+    try:
+        with open(args.file, encoding="utf8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as error:
+        out(f"Cannot read {args.file} as JSON ({type(error).__name__}).")
+        return 2
+    try:
+        status, payload = admin.put_suite(store, tenant, args.name, {"cases": data.get("cases") if isinstance(data, dict) else data}, now)
+    except reg.Invalid as error:
+        out(str(error))
+        return 2
+    if status in (200, 201):
+        out(f"Saved the suite of {args.name}: {len(payload['cases'])} cases, revision {payload['rev']}.")
+        return 0
+    out(payload.get("message", "The suite was not saved."))
+    return 1
+
+
+def suite_show(store, args, out, now, shelves=None):
+    tenant = tenant_or_none(store, args.tenant)
+    agent = admin.owned(store, tenant, args.name) if tenant else None
+    if not agent:
+        out(f"No agent {args.name} for tenant {args.tenant}.")
+        return 1
+    _, state = admin.get_suite_state(store, tenant, args.name)
+    out(f"{args.name}: {state['cases']} cases (revision {state['suite_rev']}); live version {agent.get('live_version') or 'none'}.")
+    for version, found in sorted(state["versions"].items(), key=lambda kv: int(kv[0])):
+        out(f"  version {version}: {'passed' if found['ok'] else 'FAILED'}  {found['passed']} of {found['total']}  (must-cases failed: {found['must_failed']}, suite revision {found['suite_rev']})")
+    for run in state["runs"][:5]:
+        out(f"  run {run['run_id']}  {run['target']}  {run['status']}  {run.get('passed')} of {run.get('total')}  flaky {run.get('flaky')}")
+    return 0
+
+
+def print_run(out, run):
+    for r in run.get("results", []):
+        mark = "FLAKY" if r.get("flaky") else ("PASS" if r.get("ok") else ("SKIP" if r.get("ran") is False else "FAIL"))
+        line = f"  {mark:5} {r['severity']:6} {r['id']}"
+        if not r.get("ok"):
+            line += "  <- " + "; ".join(f"{c['check']}: wanted {c['expected']}, got {c['got']}" for c in r.get("failed", []))
+        out(line)
+    if run.get("status") == "failed":
+        out(f"The run failed: {run.get('error')} {run.get('message') or ''}".rstrip())
+    else:
+        out(f"{run.get('passed')} of {run.get('total')} passed; must-cases failed: {run.get('must_failed')}; should-cases failed: {run.get('should_failed')}; flaky: {run.get('flaky')}  ->  {'OK' if run.get('ok') else 'FAILED'}")
+
+
+def wait_for_run(store, name, run_id, seconds, pause):
+    """The run's item once it is done or failed, or the last item read when the time is up."""
+    deadline = time.monotonic() + seconds
+    while True:
+        item = store.get(reg.suite_run_key(name, run_id)) or {}
+        if item.get("status") in ("done", "failed") or time.monotonic() > deadline:
+            return item
+        pause()
+
+
+def suite_run_one(store, tenant, name, body, args, out, now, pause):
+    invoke = getattr(args, "invoke", None) or real_invoke(args)
+    if invoke is None:
+        out("Name the worker with --worker (the stack's ChatwootWorkerFunction) or the environment variable CHATWOOT_WORKER_FUNCTION.")
+        return 2
+    try:
+        status, started = admin.start_suite_run(store, tenant, name, body, now, invoke)
+    except reg.Invalid as error:
+        out(str(error))
+        return 2
+    if status != 202:
+        out(f"{name}: {started.get('message', 'the run did not start')}")
+        return 1
+    out(f"{name}: a run of the suite on {started['target']} ({started['total']} cases) was started: {started['run_id']}")
+    if not args.wait:
+        return 0
+    run = wait_for_run(store, name, started["run_id"], args.timeout, pause)
+    if run.get("status") not in ("done", "failed"):
+        out("The run is not finished yet; look again with suite-show.")
+        return 1
+    print_run(out, run)
+    return 0 if run.get("status") == "done" and run.get("ok") else 1
+
+
+def suite_run(store, args, out, now, shelves=None):
+    pause = getattr(args, "pause", None) or (lambda: time.sleep(3))
+    if args.all_live:
+        code = 0
+        for item in store.list_prefix("agent#"):
+            if item["pk"].count("#") != 1 or not item.get("live_version") or (args.tenant and item.get("tenant_id") != args.tenant):
+                continue
+            tenant = tenant_or_none(store, item["tenant_id"])
+            if not tenant or not store.get(reg.suite_key(item["agent_id"])):
+                out(f"{item['agent_id']}: no suite, skipped")
+                continue
+            args.wait = True
+            code = max(code, suite_run_one(store, tenant, item["agent_id"], {"version": item["live_version"]}, args, out, now, pause))
+        return code
+    if not args.name or not args.tenant:
+        out("Give an agent name and --tenant, or --all-live.")
+        return 2
+    tenant = tenant_or_none(store, args.tenant)
+    agent = admin.owned(store, tenant, args.name) if tenant else None
+    if not agent:
+        out(f"No agent {args.name} for tenant {args.tenant}.")
+        return 1
+    if args.config:
+        try:
+            with open(args.config, encoding="utf8") as handle:
+                body = {"config": json.load(handle)}
+        except (OSError, ValueError) as error:
+            out(f"Cannot read {args.config} as JSON ({type(error).__name__}).")
+            return 2
+    elif args.version:
+        body = {"version": args.version}
+    elif agent.get("live_version"):
+        body = {"version": agent["live_version"]}
+    else:
+        out(f"{args.name} has no live version: name one with --version or a draft with --config.")
+        return 1
+    return suite_run_one(store, tenant, args.name, body, args, out, now, pause)
+
+
 def parser():
     p = argparse.ArgumentParser(prog="chatwoot_ctl.py", description="The teacher's command for the Chatwoot adapter's tenants, service keys, agents and books.")
     p.add_argument("--table", default=os.environ.get("CHATWOOT_TABLE"), help="the stack output ChatwootTableName (or the environment variable CHATWOOT_TABLE)")
     p.add_argument("--bucket", default=None, help="the sites bucket, for the book commands (or the environment variable BUCKET)")
     p.add_argument("--secret-name", default=None, help="the AI secret's name (the stack's AiSecretName), for the book commands")
+    p.add_argument("--worker", default=None, help="the stack's ChatwootWorkerFunction name (or the environment variable CHATWOOT_WORKER_FUNCTION), for suite-run")
     sub = p.add_subparsers(dest="command", required=True)
     s = sub.add_parser("create-tenant", help="create a business and print its service key once")
     s.add_argument("id")
@@ -390,19 +536,37 @@ def parser():
     s.add_argument("--folder")
     s.add_argument("--prune", action="store_true", help="also remove books that are no longer in the folder")
     s.add_argument("--dry-run", action="store_true", help="show what would happen and change nothing")
+    s.add_argument("--then-suite", action="store_true", help="afterwards run the test suite of every live agent of the business (about 2 cents each) and exit 1 if one fails")
+    s.add_argument("--timeout", type=int, default=300, help="with --then-suite: seconds to wait for a run")
     s = sub.add_parser("eval", help="real searches on a business's shelves")
     s.add_argument("--tenant", required=True)
     s.add_argument("--collections", required=True, help="comma-separated shelf names")
     s.add_argument("--cases", required=True, help="a JSON file of questions")
     s.add_argument("--k", type=int, default=4)
+    s = sub.add_parser("suite-load", help="save an agent's test suite from a JSON file with \"cases\"")
+    s.add_argument("name")
+    s.add_argument("--tenant", required=True)
+    s.add_argument("--file", required=True)
+    s = sub.add_parser("suite-show", help="an agent's suite and what its latest runs found")
+    s.add_argument("name")
+    s.add_argument("--tenant", required=True)
+    s = sub.add_parser("suite-run", help="run an agent's test suite on a published version or a draft (about 2 cents)")
+    s.add_argument("name", nargs="?")
+    s.add_argument("--tenant")
+    s.add_argument("--version", type=int)
+    s.add_argument("--config", help="a JSON configuration file: a draft to test")
+    s.add_argument("--wait", action="store_true", help="wait for the run and print the result; exit 1 when a must-case failed")
+    s.add_argument("--all-live", action="store_true", help="every agent with a live version and a suite (waits; for after a deployment)")
+    s.add_argument("--timeout", type=int, default=300, help="seconds to wait for a run")
     return p
 
 
-NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync"}
+NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run"}
 
 
-def main(argv=None, store=None, out=print, now=None, shelves=None):
+def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, pause=None):
     args = parser().parse_args(argv)
+    args.invoke, args.pause = invoke, pause  # tests start the worker in-process and do not wait
     now = int(now if now is not None else time.time())
     if store is None and args.command in NEEDS_TABLE:
         if not args.table:
@@ -412,8 +576,12 @@ def main(argv=None, store=None, out=print, now=None, shelves=None):
     if shelves is None and args.command in ("knowledge-sync", "eval"):
         shelves = real_shelves(args)
     commands = {"create-tenant": create_tenant, "rotate-key": rotate_key, "disable-tenant": lambda *a: set_enabled(*a[:4], False), "enable-tenant": lambda *a: set_enabled(*a[:4], True),
-                "set-cap": set_cap, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases}
-    return commands[args.command](store, args, out, now, shelves)
+                "set-cap": set_cap, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run}
+    code = commands[args.command](store, args, out, now, shelves)
+    if args.command == "knowledge-sync" and args.then_suite and not args.dry_run and code == 0:  # a new book can change an answer: ask the suite
+        args.all_live, args.name, args.wait, args.version, args.config = True, None, True, None, None
+        return suite_run(store, args, out, now, shelves)
+    return code
 
 
 if __name__ == "__main__":

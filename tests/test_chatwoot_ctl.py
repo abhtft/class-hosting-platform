@@ -272,4 +272,99 @@ assert shop["versions"] == 2 and shop["live_version"] == 2 and store.get(reg.ver
 assert run("set-live", "shop", "--tenant", "acme", "--version", "0")[0] == 0 and store.get(reg.agent_key("shop"))["live_version"] == 0
 print("  ok  publish checks the configuration as the worker will, stores the next version without making it live (unless --live); set-live chooses or clears the live version")
 
+# ---- the test suite commands: load, show, run on a version / a draft / every live agent, and after a new book ----
+suite_dir = tempfile.mkdtemp()
+suite_file = os.path.join(suite_dir, "suite.json")
+open(suite_file, "w", encoding="utf8").write(json.dumps({"cases": [{"id": "a", "turns": ["when do you open?"], "checks": {"route": "rag"}}, {"id": "b", "turns": ["price?"], "checks": {"contains_all": ["2,000"]}}]}))
+assert run("suite-load", "shop", "--tenant", "nobody", "--file", suite_file)[0] == 1 and run("suite-load", "shop", "--tenant", "acme", "--file", os.path.join(suite_dir, "missing.json"))[0] == 2
+open(os.path.join(suite_dir, "bad.json"), "w", encoding="utf8").write(json.dumps({"cases": [{"id": "Bad Id", "turns": ["x"]}]}))
+code, text = run("suite-load", "shop", "--tenant", "acme", "--file", os.path.join(suite_dir, "bad.json"))
+assert code == 2 and "id must" in text
+code, text = run("suite-load", "shop", "--tenant", "acme", "--file", suite_file)
+assert code == 0 and "2 cases, revision 1" in text
+code, text = run("suite-show", "shop", "--tenant", "acme")
+assert code == 0 and "2 cases (revision 1)" in text and run("suite-show", "nope", "--tenant", "acme")[0] == 1
+
+outcome = {"ok": True, "started": []}
+
+
+def worker(payload):
+    """A stand-in for the worker (asynchronous in real life): it finishes the run at once with a chosen verdict."""
+    outcome["started"].append(payload)
+    key = f"suiterun#{payload['agent_id']}#{payload['run_id']}"
+    item = store.get(key)
+    results = [{"id": "a", "severity": "must", "ok": True, "flaky": False, "ran": True, "failed": []},
+               {"id": "b", "severity": "must", "ok": outcome["ok"], "flaky": False, "ran": True, "failed": [] if outcome["ok"] else [{"check": "contains_all", "expected": "2,000", "got": "missing"}]}]
+    done = {"status": "done", "results": results, "done": 2, "total": 2, "passed": 2 if outcome["ok"] else 1, "must_failed": 0 if outcome["ok"] else 1, "should_failed": 0, "flaky": 0, "ok": outcome["ok"]}
+    store.put(key, {**item, **done})
+
+
+def run_ctl(*argv, invoke=worker):
+    lines = []
+    try:
+        code = ctl.main(list(argv), store=store, out=lines.append, now=NOW, shelves=shelves, invoke=invoke, pause=lambda: None)
+    except SystemExit as error:
+        code = error.code
+    return code, "\n".join(lines)
+
+
+def free_run():
+    """Let the next run start: the suite allows one run at a time, and the stand-in worker does not move the state pointer."""
+    state = store.get("suitestate#shop") or {}
+    store.put("suitestate#shop", {**state, "latest": {"run_id": "x", "status": "done", "started_at": 0}})
+
+
+assert run("set-live", "shop", "--tenant", "acme", "--version", "1")[0] == 0
+code, text = run_ctl("suite-run", "shop", "--tenant", "acme")
+assert code == 0 and "a run of the suite on version 1 (2 cases) was started" in text and outcome["started"][-1]["version"] == 1 and "PASS" not in text, "without --wait it only starts the run"
+free_run()
+code, text = run_ctl("suite-run", "shop", "--tenant", "acme", "--wait")
+assert code == 0 and "PASS  must   a" in text and "2 of 2 passed" in text and "OK" in text.splitlines()[-1], text
+free_run()
+outcome["ok"] = False
+code, text = run_ctl("suite-run", "shop", "--tenant", "acme", "--version", "2", "--wait")
+assert code == 1 and "FAIL  must   b  <- contains_all: wanted 2,000, got missing" in text and "FAILED" in text.splitlines()[-1] and outcome["started"][-1]["version"] == 2, text
+free_run()
+draft = os.path.join(suite_dir, "draft.json")
+open(draft, "w", encoding="utf8").write(json.dumps({"collections": ["faq"], "fallback_text": "Sorry."}))
+code, text = run_ctl("suite-run", "shop", "--tenant", "acme", "--config", draft)
+assert code == 0 and "the editor" in text and outcome["started"][-1]["config"] == {"collections": ["faq"], "fallback_text": "Sorry."}
+free_run()
+assert run_ctl("suite-run", "shop", "--tenant", "acme", "--config", os.path.join(suite_dir, "missing.json"))[0] == 2
+assert run_ctl("suite-run", "shop")[0] == 2 and run_ctl("suite-run", "nope", "--tenant", "acme")[0] == 1
+code, text = run_ctl("suite-run", "shop", "--tenant", "acme", "--wait", invoke=None)
+assert code == 2 and "--worker" in text, "without a worker to start the command says so"
+os.environ.pop("CHATWOOT_WORKER_FUNCTION", None)
+
+# every agent with a live version and a suite: a failure anywhere is exit 1
+outcome["ok"] = True
+free_run()
+code, text = run_ctl("suite-run", "--all-live", "--tenant", "acme")
+assert code == 0 and "shop: a run of the suite on version 1" in text and "OK" in text, text
+free_run()
+outcome["ok"] = False
+assert run_ctl("suite-run", "--all-live", "--tenant", "acme")[0] == 1
+free_run()
+code, text = run_ctl("suite-run", "--all-live", "--tenant", "margdarshak-none")
+assert code == 0 and "shop" not in text, "another business's agents are not run"
+print("  ok  suite-load saves a checked suite, suite-show reports it, suite-run starts a run on the live version, a version or a draft and with --wait prints each case and exits 1 on a failed must-case; --all-live runs every live agent that has a suite")
+
+# a new book can change an answer: knowledge-sync --then-suite asks the suite afterwards
+outcome["ok"] = True
+free_run()
+book_folder = os.path.join(tempfile.mkdtemp(), "knowledge", "acme", "faq")
+os.makedirs(book_folder)
+open(os.path.join(book_folder, "extra.txt"), "w", encoding="utf8").write("Extra shop notes. " * 30 + "The shop gives a free coffee to every customer on the first Monday of the month, whatever they buy.")
+code, text = run_ctl("knowledge-sync", "--tenant", "acme", "--folder", os.path.dirname(book_folder), "--then-suite")
+assert code == 0 and "extra.txt: added" in text and "a run of the suite on version 1" in text and "OK" in text.splitlines()[-1], text
+free_run()
+outcome["ok"] = False
+code, text = run_ctl("knowledge-sync", "--tenant", "acme", "--folder", os.path.dirname(book_folder), "--then-suite")
+assert code == 1, "a book that breaks the suite is a failed command"
+free_run()
+before = len(outcome["started"])
+code, text = run_ctl("knowledge-sync", "--tenant", "acme", "--folder", os.path.dirname(book_folder), "--dry-run", "--then-suite")
+assert len(outcome["started"]) == before, "a dry run starts nothing"
+print("  ok  knowledge-sync --then-suite runs the suites of the business's live agents after the books are in, and fails the command when one breaks")
+
 print("test_chatwoot_ctl.py: the teacher's local command")

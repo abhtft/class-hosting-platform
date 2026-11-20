@@ -74,7 +74,8 @@ assert "VpcConfig" not in worker, "it must reach Chatwoot and Google, so it is n
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in worker and "CHATWOOT_MEMORY_TABLE: !Ref ChatwootMemoryTable" in worker
 assert "CHATWOOT_BASE_URL: !Ref ChatwootBaseUrl" in worker and "CHATWOOT_AUTH_STYLE: !Ref ChatwootAuthStyle" in worker, "the one Chatwoot address and the header style come from parameters"
 assert re.search(r"Action: dynamodb:UpdateItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['msg#\*', 'usage#\*'\]", worker), "it updates message items and spend counters only"
-assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'tenant#\*', 'usage#\*'\]", worker), "and reads the registry and the spend counters"
+assert re.search(r"Action: dynamodb:GetItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'tenant#\*', 'usage#\*', 'suite#\*', 'suitestate#\*', 'suiterun#\*'\]", worker), "and reads the registry, the spend counters and, for a suite run, the suite, its runs and its state"
+assert re.search(r"Action: dynamodb:PutItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['suiterun#\*', 'suitestate#\*'\]", worker), "and writes a suite run's progress and what it found, nothing else"
 assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootMemoryTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['mem#\*'\]", worker), "it reads and writes the conversation memory items (mem#...) of the memory table and nothing else there"
 assert re.search(r"Action: s3:GetObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/knowledge/tenant/\*'", worker), "it reads the shelves of the businesses and nothing else in the bucket"
 assert re.search(r"Action: s3:ListBucket\n\s+Resource: !GetAtt SitesBucket\.Arn\n\s+Condition:\n\s+StringLike:\n\s+s3:prefix: \['knowledge/tenant/\*'\]", worker), "listing is limited to the same prefix"
@@ -82,7 +83,7 @@ assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn
 assert re.search(r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:chatwoot/\*'", worker), "the bot token and account id: secrets named chatwoot/..."
 assert worker.count("Action: secretsmanager:") == 2, "exactly two secret statements: the bot token and the platform's Google key"
 code = re.sub(r"#[^\n]*", "", worker)
-assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:GetItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these single-action permissions"
+assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these single-action permissions"
 assert re.findall(r"Action: \[([\w:, ]+)\]", code) == ["dynamodb:GetItem, dynamodb:PutItem"], "and one pair, on the memory table only"
 assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}/knowledge/tenant/*"], "objects under knowledge/tenant/ only (not the class library, not a student's shelf, not a site)"
 for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:*", "s3:PutObject", "s3:DeleteObject", "s3:*", "TokensTable", "kms:", "iam:", "ssm:", "cloudfront",
@@ -118,8 +119,8 @@ assert "/hooks/chatwoot" not in admin and "BackendApi" not in admin and "Gateway
 assert "CHATWOOT_TABLE: !Ref ChatwootTable" in admin and "CHATWOOT_BASE_URL" not in admin and "CHATWOOT_AUTH_STYLE" not in admin and "CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction" in admin and "CHATWOOT_MEMORY_TABLE" not in admin
 assert re.search(r"Timeout: 29", admin), "it waits for the worker's dry run"
 assert re.search(r"Action: lambda:InvokeFunction\n\s+Resource: !GetAtt ChatwootWorkerFunction\.Arn", admin) and admin.count("lambda:InvokeFunction") == 1, "it may start the one worker"
-assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*'\]", admin), "registry items only, one at a time"
-assert re.search(r"Action: dynamodb:DeleteItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*'\]", admin), "it may remove an agent item and nothing else"
+assert re.search(r"Action: \[dynamodb:GetItem, dynamodb:PutItem\]\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['tenant#\*', 'agent#\*', 'suite#\*', 'suitestate#\*', 'suiterun#\*'\]", admin), "the registry and the suite's items, one at a time"
+assert re.search(r"Action: dynamodb:DeleteItem\n\s+Resource: !GetAtt ChatwootTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['agent#\*', 'suiterun#\*'\]", admin), "it may remove an agent item and a run it could not start, nothing else"
 code = re.sub(r"#[^\n]*", "", admin)
 assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", code)) == ["[dynamodb:GetItem, dynamodb:PutItem]", "dynamodb:DeleteItem", "lambda:InvokeFunction"], "exactly these permissions"
 for forbidden in ("secretsmanager:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem", "dynamodb:*", "msg#", "TokensTable", "SitesBucket", "s3:", "kms:", "ChatwootMemoryTable",

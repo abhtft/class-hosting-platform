@@ -286,6 +286,63 @@ status, body = test_call({"text": "my card is 4111", "version": 1}, invoke=broke
 assert status == 500 and body["error"] == "try_again" and "4111" not in json.dumps(body) and "4111" not in "".join(LOGS), "a failing worker is a plain 500; the tester's words are in no response or log"
 print("  ok  the test route validates its body, takes the tenant from the key, cuts the text, never reaches the worker with a bad request, shows another business's agent as missing, and maps the worker's errors")
 
+# ---- the test suite routes: save, read, start a run (asynchronous), read a run and the state ----
+started = []
+
+
+def suite_call(method, path, body=None, key="acme", invoke=None):
+    event = {"rawPath": path, "requestContext": {"http": {"method": method}}, "headers": {"Authorization": "Bearer " + store.keys[key]}, "body": json.dumps(body) if body is not None else "", "isBase64Encoded": False}
+    out = admin.handler(event, None, now=NOW, store=store, invoke=invoke or started.append)
+    return out["statusCode"], json.loads(out["body"])
+
+
+CASE = {"id": "price", "title": "Price", "turns": ["kitna lagega?"], "checks": {"route": "rag", "contains_all": ["2,000"]}}
+assert suite_call("GET", "/admin/agents/shop/suite") == (200, {"rev": 0, "cases": [], "updated_at": None})
+assert suite_call("POST", "/admin/agents/shop/suite/runs", {"version": 1}) == (409, {"error": "no_suite", "message": "This agent has no test suite yet. Add cases first."})
+status, saved = suite_call("PUT", "/admin/agents/shop/suite", {"cases": [CASE]})
+assert status == 201 and saved["rev"] == 1 and saved["cases"][0]["severity"] == "must" and saved["cases"][0]["channel"] == "whatsapp" and saved["updated_at"] == NOW, "the cases come back tidied, with the defaults filled in"
+assert suite_call("GET", "/admin/agents/shop/suite")[1]["rev"] == 1 and store.items["suite#shop"]["tenant_id"] == "acme"
+status, again = suite_call("PUT", "/admin/agents/shop/suite", {"cases": [CASE, {**CASE, "id": "hours"}], "expected_rev": 1})
+assert status == 200 and again["rev"] == 2 and len(again["cases"]) == 2
+status, body = suite_call("PUT", "/admin/agents/shop/suite", {"cases": [CASE], "expected_rev": 1})
+assert status == 409 and body["error"] == "changed" and body["rev"] == 2, "a stale editor cannot overwrite a newer suite"
+for bad, why in (({"cases": []}, "1 to"), ({"cases": "x"}, "1 to"), ({"cases": [{"id": "Bad"}]}, "id must"), ({"cases": [CASE, CASE]}, "Two cases"), ({"cases": [CASE], "extra": 1}, "Unknown field"), ({}, "1 to"), ({"cases": [{**CASE, "turns": []}]}, "turns")):
+    status, body = suite_call("PUT", "/admin/agents/shop/suite", bad)
+    assert status == 400 and why.lower() in body["message"].lower(), (bad, status, body)
+assert suite_call("PUT", "/admin/agents/nobody/suite", {"cases": [CASE]})[0] == 404 and suite_call("GET", "/admin/agents/shop/suite", key="beta")[0] == 404, "another business's agent is not found"
+assert suite_call("GET", "/admin/agents/shop/suite/state") == (200, {"runs": [], "versions": {}, "latest": None, "suite_rev": 2, "cases": 2})
+
+status, begun = suite_call("POST", "/admin/agents/shop/suite/runs", {"version": 1})
+assert status == 202 and re.fullmatch(r"[0-9a-f]{12}", begun["run_id"]) and begun["total"] == 2 and begun["target"] == "version 1"
+assert started[-1] == {"kind": "suite", "tenant_id": "acme", "agent_id": "shop", "version": 1, "run_id": begun["run_id"]}, "the tenant is the key's"
+run_item = store.items[f"suiterun#shop#{begun['run_id']}"]
+assert run_item["status"] == "queued" and run_item["tenant_id"] == "acme" and run_item["total"] == 2 and run_item["suite_rev"] == 2, "the run exists before the worker starts, so Studio can read it at once"
+assert suite_call("GET", f"/admin/agents/shop/suite/runs/{begun['run_id']}")[1]["status"] == "queued" and "ttl" not in suite_call("GET", f"/admin/agents/shop/suite/runs/{begun['run_id']}")[1]
+status, body = suite_call("POST", "/admin/agents/shop/suite/runs", {"version": 1})
+assert status == 409 and body["error"] == "run_in_progress" and body["run_id"] == begun["run_id"], "one run at a time"
+store.items["suitestate#shop"]["latest"]["status"] = "done"
+assert suite_call("POST", "/admin/agents/shop/suite/runs", {"config": {"collections": ["faq"]}})[0] == 202 and started[-1]["config"] == {"collections": ["faq"]} and "version" not in started[-1]
+store.items["suitestate#shop"]["latest"]["status"] = "done"
+for bad in ({}, {"version": 1, "config": {}}, {"version": 0}, {"version": "1"}, {"version": True}, {"config": "x"}, {"config": []}, {"config": {"k": "y" * 300000}}, {"version": 1, "extra": 1}):
+    status, body = suite_call("POST", "/admin/agents/shop/suite/runs", bad)
+    assert status in (400, 413) and body["error"] in ("bad_request", "too_large"), (bad, status, body)
+assert suite_call("POST", "/admin/agents/nobody/suite/runs", {"version": 1})[0] == 404 and suite_call("POST", "/admin/agents/shop/suite/runs", {"version": 1}, key="beta")[0] == 404
+assert suite_call("GET", f"/admin/agents/shop/suite/runs/{begun['run_id']}", key="beta")[0] == 404 and suite_call("GET", "/admin/agents/shop/suite/runs/ffffffffffff") == (404, {"error": "not_found", "message": "No such run."})
+store.items["suitestate#shop"]["latest"]["status"] = "done"
+
+
+def refuses(payload):
+    raise RuntimeError("could not start 4111 Asha")
+
+
+before = len([k for k in store.items if k.startswith("suiterun#")])
+status, body = suite_call("POST", "/admin/agents/shop/suite/runs", {"version": 1}, invoke=refuses)
+assert status == 502 and body["error"] == "run_not_started" and "4111" not in json.dumps(body) and len([k for k in store.items if k.startswith("suiterun#")]) == before, "a run that could not be started leaves nothing behind"
+assert store.items["suitestate#shop"]["latest"]["status"] == "done", "and the earlier state is put back"
+for method, path in (("POST", "/admin/agents/shop/suite"), ("GET", "/admin/agents/shop/suite/runs"), ("POST", "/admin/agents/shop/suite/state"), ("PUT", f"/admin/agents/shop/suite/runs/{begun['run_id']}")):
+    assert suite_call(method, path)[0] == 405, (method, path)
+print("  ok  the suite routes save a checked suite with a revision, start one run at a time asynchronously with the tenant of the key, read a run and the state, keep businesses apart and leave nothing behind when a run cannot be started")
+
 # ---- nothing secret is returned or logged ----
 everything = json.dumps([call(store, "GET", "/admin/agents"), call(store, "GET", "/admin/agents/shop"), refusals]) + "\n".join(LOGS)
 for key in ALL_KEYS:
@@ -294,7 +351,7 @@ for key in ALL_KEYS:
 for item in store.items.values():
     assert not any(key.split(".", 1)[1] in json.dumps(item) for key in ALL_KEYS), "only hashes are in the table"
 assert "key_hash" not in everything and not re.search(r"cs_[a-z0-9-]+\.[A-Za-z0-9_-]{32,}", everything), "no key, hash or key-shaped text in a response or a log"
-assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable") for line in LOGS)
+assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable", "suite_saved", "suite_started", "suite_not_started") for line in LOGS)
 print("  ok  no service key, its hash or a bearer header is in any response or log line, and the table holds only hashes")
 
 print("test_chatwoot_admin.py: service-key access, agents, versions, tenant isolation, concurrency and secrecy")
