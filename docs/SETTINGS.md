@@ -407,6 +407,7 @@ These numbers are not settings: they are units, facts from a provider, or values
 
 | Where | Why it is not a setting |
 |---|---|
+| `gemini.FAILOVER_STATUSES` | HTTP status codes that mean this key was refused (not accepted, forbidden, too many requests, unreachable, busy), not a choice. |
 | `ai.MICRO` | Unit conversion (one US dollar is a million micro-dollars), not a choice. |
 | `portal.DAY` | Unit conversion (seconds in a day), not a choice. |
 | `knowledge.MB` | Unit conversion (bytes in a megabyte), not a choice. |

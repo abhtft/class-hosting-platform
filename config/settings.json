@@ -3626,6 +3626,10 @@
   ],
   "fixed": [
     {
+      "code": "gemini.FAILOVER_STATUSES",
+      "reason": "HTTP status codes that mean this key was refused (not accepted, forbidden, too many requests, unreachable, busy), not a choice."
+    },
+    {
       "code": "ai.MICRO",
       "reason": "Unit conversion (one US dollar is a million micro-dollars), not a choice."
     },

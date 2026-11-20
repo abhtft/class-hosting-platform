@@ -247,6 +247,86 @@ sys.modules["boto3"] = real_boto3 if real_boto3 else sys.modules.pop("boto3", No
 gemini._secret.update(real_secret)
 print("  ok  a Gemini switch without a saved Google key is a plain 503 instruction, with no AWS detail")
 
+# ---------- 8c. several Google keys take turns; a refused key moves the call on; OpenRouter is the last way ----------
+saved_secret, saved_transport, saved_turn = dict(gemini._secret), gemini.transport, dict(gemini._turn)
+many = {"GOOGLE_API_KEY": "g-main", "GOOGLE_API_KEY_B": "g-bee", "GOOGLE_API_KEY_A": "g-ay", "OTHER_KEY": "nope", "OPENROUTER_API_KEY": "or-key", "GOOGLE_API_KEY_EMPTY": " "}
+gemini._secret.update(value=many, at=10**12)
+assert [n for n, _ in gemini.google_keys()] == ["GOOGLE_API_KEY", "GOOGLE_API_KEY_A", "GOOGLE_API_KEY_B"], "the main key, then the others by name; other names and empty values are ignored"
+used = []
+good = {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+
+
+def spread(url, headers, body):
+    used.append(headers["Authorization"].split()[1])
+    return 200, good
+
+
+gemini.transport = spread
+gemini._turn["n"] = 0
+for _ in range(4):
+    gemini.chat({"model": gemini.DEFAULT_MODEL, "messages": []})
+assert used == ["g-main", "g-ay", "g-bee", "g-main"], used
+print("  ok  the Google keys take turns (round robin)")
+
+used.clear()
+trace = []
+
+
+def first_busy(url, headers, body):
+    key = headers["Authorization"].split()[1]
+    used.append(key)
+    return (429, {"error": {"message": "quota for g-main"}}) if key == "g-main" else (200, good)
+
+
+gemini.transport = first_busy
+gemini._turn["n"] = 0
+assert gemini.chat({"model": gemini.DEFAULT_MODEL, "messages": []}, trace=trace) == good and used == ["g-main", "g-ay"] and trace == ["GOOGLE_API_KEY", "GOOGLE_API_KEY_A"]
+print("  ok  a key that answers 429 moves the same call to the next key; the trace holds names, not values")
+
+used.clear()
+trace.clear()
+
+
+def all_busy(url, headers, body):
+    used.append(url.split("/")[2] + " " + headers["Authorization"].split()[1])
+    if "openrouter" in url:
+        return 200, good
+    return 503, {"error": {"message": "busy g-ay"}}
+
+
+gemini.transport = all_busy
+gemini._turn["n"] = 0
+assert gemini.chat({"model": gemini.DEFAULT_MODEL, "messages": []}, trace=trace) == good
+assert [u.split()[0] for u in used] == ["generativelanguage.googleapis.com"] * 3 + ["openrouter.ai"] and trace[-1] == "OPENROUTER_API_KEY"
+sent = []
+gemini.transport = lambda url, headers, body: (sent.append(body), (429, {}) if "google" in url else (200, good))[1]
+gemini.chat({"model": gemini.DEFAULT_MODEL, "messages": []})
+assert sent[-1]["model"] == "google/" + gemini.DEFAULT_MODEL, "OpenRouter is asked for the same model"
+print("  ok  when every Google key is refused the call goes to OpenRouter with the same model")
+
+gemini.transport = lambda url, headers, body: (400, {"error": {"message": "bad request g-main"}})
+try:
+    gemini.chat({"model": gemini.DEFAULT_MODEL, "messages": []})
+    raise AssertionError("a bad request must raise")
+except gemini.GeminiError as error:
+    assert error.status == 400 and "g-main" not in str(error), "a bad request is not tried on another key, and no key shows in the message"
+gemini.transport = lambda url, headers, body: (429, {"error": {"message": "slow down g-ay or-key"}})
+try:
+    gemini.chat({"model": gemini.DEFAULT_MODEL, "messages": []})
+    raise AssertionError("everything refused must raise")
+except gemini.GeminiError as error:
+    assert error.status == 429 and "g-ay" not in str(error) and "or-key" not in str(error)
+gemini._secret.update(value={k: v for k, v in many.items() if k != "OPENROUTER_API_KEY"}, at=10**12)
+try:
+    gemini.chat({"model": gemini.DEFAULT_MODEL, "messages": []})
+    raise AssertionError("no fallback key must raise the last refusal")
+except gemini.GeminiError as error:
+    assert error.status == 429
+print("  ok  a bad request goes no further; with every way refused the last refusal is raised; no key ever shows in a message")
+gemini._secret.update(saved_secret)
+gemini.transport = saved_transport
+gemini._turn.update(saved_turn)
+
 # ---------- 9. nothing secret in any response ----------
 blob = "\n".join(EXPOSED)
 assert GOOGLE_KEY not in blob and "ga_" + slug + "." not in blob, "no key material in any teacher response"

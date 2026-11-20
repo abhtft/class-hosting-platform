@@ -374,7 +374,7 @@ def dry_turn(config, text, history, context, tenant_id, deps, key, now):
                 "spent_micro": int(failure.metrics.get("cost_micro") or 0), "explain": failure.metrics.get("explain", []), "error": failure.metrics.get("error"), "http_status": failure.metrics.get("http_status")}
     spend(deps, key, metrics, now)
     out = {"route": metrics.get("route"), "text": reply_text, "confident": bool(metrics.get("confident")), "explain": metrics.get("explain", []), "tokens": int(metrics.get("tokens") or 0),
-           "spent_micro": int(metrics.get("cost_micro") or 0), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
+           "spent_micro": int(metrics.get("cost_micro") or 0), "via": metrics.get("via"), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
     if reason:
         out.update(route="handover", reason=reason, failure=False, note=handover.note_text(reason, history, text))
     return out

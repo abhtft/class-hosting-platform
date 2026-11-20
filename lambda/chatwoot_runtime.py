@@ -217,17 +217,18 @@ def llm_gemini(messages, max_tokens, timeout=None):
     """One Gemini call with the platform's key: {"text", "model", "tokens", "cost_micro"}. Raises gemini.GeminiError."""
     model = gemini.DEFAULT_MODEL
     body = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.2}
+    via = []  # the names of the keys tried (never values)
     try:
-        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout)
+        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout, trace=via)
     except gemini.GeminiError as error:
         if not LLM_RETRY_PAUSE_SECONDS or error.status not in (429, 503):  # too many requests or busy: one more try after a short pause
             raise
         time.sleep(LLM_RETRY_PAUSE_SECONDS)
-        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout)
+        data = gemini.chat(body, timeout=LLM_TIMEOUT_SECONDS if timeout is None else timeout, trace=via)
     choices = data.get("choices") if isinstance(data, dict) else None
     content = ((choices or [{}])[0].get("message") or {}).get("content") if choices else None
     usage = data.get("usage") if isinstance(data, dict) and isinstance(data.get("usage"), dict) else {}
-    return {"text": content if isinstance(content, str) else "", "model": model, "tokens": int(usage.get("total_tokens") or 0), "cost_micro": gemini.cost_micro(model, usage)}
+    return {"text": content if isinstance(content, str) else "", "model": model, "tokens": int(usage.get("total_tokens") or 0), "cost_micro": gemini.cost_micro(model, usage), "via": via[-1] if via else None}
 
 
 class Runtime:
@@ -288,7 +289,7 @@ def respond(config, text, tenant_id, runtime, history=None, context=None, explai
             answer = runtime.llm(messages, LLM_MAX_TOKENS)
         except Exception as error:
             raise RuntimeFailure("llm_error", {**metrics, "error": type(error).__name__, "http_status": getattr(error, "status", None)}) from None
-        metrics.update(llm_ms=int((time.monotonic() - started) * 1000), tokens=metrics["tokens"] + answer["tokens"], cost_micro=metrics["cost_micro"] + answer["cost_micro"])
+        metrics.update(llm_ms=int((time.monotonic() - started) * 1000), tokens=metrics["tokens"] + answer["tokens"], cost_micro=metrics["cost_micro"] + answer["cost_micro"], via=answer.get("via"))
         reply = clean_answer(answer["text"], config["max_answer_chars"])
         if reply and not not_sure(reply):
             return result("rag", reply)
