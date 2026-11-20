@@ -15,6 +15,7 @@ import chatwoot_admin as admin  # noqa: E402
 import chatwoot_core as core  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
 import chatwoot_store as cs  # noqa: E402
+import chatwoot_teach as teach  # noqa: E402
 
 NOW = 1_800_000_000
 LOGS = []
@@ -422,6 +423,54 @@ assert status == 201 and draft["base"] == {"config": "a draft"} and store.items[
 for method, path in (("GET", base + "/turn"), ("POST", base), ("DELETE", "/admin/agents/shop/teach"), ("GET", base + "/finish")):
     assert teach_call(method, path)[0] == 405, (method, path)
 print("  ok  a teach session: a link on a version or a draft, the client starts, asks, marks answers and corrects them (applied at once, inside the session), the client sees only the talk, the owner sees books and cost, a correction becomes a suite case, caps, expiry, finish, revoke and other businesses are handled")
+
+# ---- teach sessions: the interview, the summary and the client's confirmation ----
+def interviewer(question="What do you sell?", topic="services", summary="- Social media from Rs 2,500"):
+    def invoke(payload):
+        asked.append(payload)
+        if payload["kind"] == "interview":
+            return {"result": {"question": question, "topic": payload["topic"], "spent_micro": 11}}
+        return {"result": {"text": summary, "spent_micro": 13}}
+    return invoke
+
+
+status, made = teach_call("POST", "/admin/agents/shop/teach", {"version": 1})
+isid = made["sid"]
+ibase = f"/admin/agents/shop/teach/{isid}"
+assert teach_call("POST", ibase + "/interview")[1]["error"] == "not_started"
+teach_call("POST", ibase + "/start", {})
+status, q = teach_call("POST", ibase + "/interview", invoke=interviewer())
+assert status == 200 and q["n"] == 1 and q["question"] == "What do you sell?" and q["topic"] == "services"
+assert asked[-1]["kind"] == "interview" and asked[-1]["topic"] == "services" and asked[-1]["tenant_id"] == "acme" and asked[-1]["version"] == 1 and asked[-1]["facts"] == [] and isinstance(asked[-1]["weak"], list)
+before = len(asked)
+status, again = teach_call("POST", ibase + "/interview", invoke=interviewer("other?"))
+assert status == 200 and again["again"] is True and again["question"] == "What do you sell?" and len(asked) == before, "one open question at a time: it is shown again, the model is not asked"
+assert teach_call("POST", ibase + "/turn", {"kind": "answer", "of": 1, "text": "Social media and ads."})[0] == 200
+assert teach_call("POST", ibase + "/turn", {"kind": "answer", "of": 1, "text": "Twice."})[0] == 400
+status, q2 = teach_call("POST", ibase + "/interview", invoke=interviewer("Anything else?"))
+assert q2["n"] == 3 and asked[-1]["facts"] == ["Asked: What do you sell? The client answered: Social media and ads."] and asked[-1]["recent"] == ["Interviewer asked: What do you sell?", "Client answered: Social media and ads."]
+assert teach_call("POST", ibase + "/turn", {"kind": "ask", "text": "price?"})[0] == 200 and asked[-1]["facts"][0].startswith("Asked: What do you sell?"), "what the client said in the interview is a fact of the session"
+status, summed = teach_call("POST", ibase + "/summary", invoke=interviewer())
+assert status == 200 and summed["summary"] == "- Social media from Rs 2,500" and asked[-1]["kind"] == "summary" and asked[-1]["facts"]
+assert teach_call("GET", ibase, query={"view": "client"})[1]["summary"] == "waiting"
+status, body = teach_call("POST", ibase + "/confirm", {"ok": False, "note": "We also do chatbots."})
+assert status == 200 and teach_call("GET", ibase)[1]["summary"] is False and "We also do chatbots." in json.dumps(teach_call("GET", ibase)[1]["facts"])
+assert teach_call("POST", ibase + "/confirm", {"ok": True})[0] == 400 and teach_call("POST", ibase + "/confirm", {"ok": "yes", "x": 1})[0] == 400
+assert teach_call("POST", "/admin/agents/shop/teach/" + isid + "/interview", key="beta")[0] == 404
+status, empty = teach_call("POST", "/admin/agents/shop/teach", {"version": 1})
+teach_call("POST", f"/admin/agents/shop/teach/{empty['sid']}/start", {})
+assert teach_call("POST", f"/admin/agents/shop/teach/{empty['sid']}/summary", invoke=interviewer())[0] == 400, "nothing to summarise yet"
+status, broke = teach_call("POST", f"/admin/agents/shop/teach/{empty['sid']}/interview", invoke=lambda p: {"error": "model_unavailable"})
+assert status == 502 and broke["error"] == "model_unavailable" and "model" not in broke["message"].lower().replace("model_unavailable", "")
+assert teach_call("POST", f"/admin/agents/shop/teach/{empty['sid']}/interview", invoke=lambda p: {"error": "cap_reached"})[0] == 429
+# every topic done: the interview is over
+full = store.items[f"teach#shop#{empty['sid']}"]
+full["counts"] = {t: teach.QUESTIONS_PER_TOPIC for t in teach.TOPIC_IDS}
+assert teach_call("POST", f"/admin/agents/shop/teach/{empty['sid']}/interview", invoke=interviewer()) == (200, {"done": True, "closed": None})
+store.items["suitestate#shop"] = {"latest": {"run_id": "aaaaaaaaaaaa"}}
+store.items["suiterun#shop#aaaaaaaaaaaa"] = {"results": [{"id": "p", "title": "Price of the plan", "ok": False}, {"id": "q", "title": "Fine", "ok": True}]}
+assert admin.weak_spots(store, "shop") == ["Price of the plan"] and admin.weak_spots(store, "nobody") == []
+print("  ok  the interview: one open question at a time, answers become facts the next question knows, a summary is written and confirmed or corrected, a model that fails or a business at its cap is reported plainly, the suite's failures steer the questions")
 
 # ---- nothing secret is returned or logged ----
 everything = json.dumps([call(store, "GET", "/admin/agents"), call(store, "GET", "/admin/agents/shop"), refusals]) + "\n".join(LOGS)

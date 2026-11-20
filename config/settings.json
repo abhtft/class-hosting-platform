@@ -2363,6 +2363,36 @@
       ]
     },
     {
+      "key": "chatwoot.teachQuestionsPerTopic",
+      "group": "chatwoot",
+      "title": "Questions per topic in an interview",
+      "help": "How many questions the interviewer asks the client about one topic (services, prices, hours ...) before it moves to the next. The interview is over when every topic has had this many.",
+      "unit": "questions",
+      "default": 2,
+      "min": 1,
+      "max": 5,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_teach.QUESTIONS_PER_TOPIC"
+      ]
+    },
+    {
+      "key": "chatwoot.teachInterviewMaxTokens",
+      "group": "chatwoot",
+      "title": "Longest question or summary of the interviewer",
+      "help": "The most the model may write when it asks the client a question or writes what it learned in a teach session.",
+      "unit": "tokens",
+      "default": 600,
+      "min": 100,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.INTERVIEW_MAX_TOKENS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",

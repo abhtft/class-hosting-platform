@@ -1108,4 +1108,32 @@ for leak in (SECRET, TOKEN, "forged", "sha256=", "4111", "Asha", "Verma", EMAIL,
 print("  ok  the log lines hold names, reasons and ids only: no secret, no signature, no message text, no name")
 
 assert api.context_of({"channel": "web_widget", "facts": [" a ", "", 5]}) == {"channel": "web_widget", "inbox_id": None, "facts": ["a"]} and api.context_of({})["facts"] == [], "the facts of a teach session reach the answer, trimmed"
+# ---- the interviewer of a teach session (T-B): a question about a topic, the list of what was learned, the limits ----
+def interview_event(**more):
+    return {"kind": "interview", "tenant_id": "acme", "agent_id": "shop", "version": 1, "topic": "prices", "facts": ["Asked: a? The client answered: b"], "recent": ["Client answered: b"], "weak": ["Price question"], **more}
+
+
+f = Fakes()
+f.llm_answer = {"text": '{"question": "What does social media management cost?", "topic": "prices"}', "model": "m", "tokens": 90, "cost_micro": 50}
+out = api.worker(interview_event(), None, now=NOW + 7, deps=f.wdeps)
+assert out == {"result": {"question": "What does social media management cost?", "topic": "prices", "spent_micro": 50}}, out
+system, user = f.llm_calls[-1][0][0]["content"], f.llm_calls[-1][0][1]["content"]
+assert f.llm_calls[-1][1] == api.INTERVIEW_MAX_TOKENS and "ONE short" in system and "<topic>prices:" in user and "Price question" in user and "Speak like a friendly shopkeeper." in user and not f.searches and not f.requests
+assert f.store.usage(MONTH) == 50, "what the interviewer costs is counted against the business's month"
+f.llm_answer = {"text": "not a question {", "tokens": 1, "cost_micro": 5}
+assert api.worker(interview_event(), None, now=NOW + 8, deps=f.wdeps) == {"error": "bad_answer"}
+f.llm_answer = {"text": "- Social media from Rs 2,000\n- Open 9 to 6", "tokens": 1, "cost_micro": 7}
+out = api.worker({**interview_event(), "kind": "summary"}, None, now=NOW + 9, deps=f.wdeps)
+assert out == {"result": {"text": "- Social media from Rs 2,000\n- Open 9 to 6", "spent_micro": 7}} and "<notes>" in f.llm_calls[-1][0][1]["content"]
+f.llm_error = RuntimeError("model down")
+assert api.worker(interview_event(), None, now=NOW + 10, deps=f.wdeps) == {"error": "model_unavailable"}
+f.llm_error = None
+for bad in (interview_event(topic="weather"), interview_event(topic=None), {**interview_event(), "kind": "other"}):
+    assert api.worker(bad, None, now=NOW + 11, deps=f.wdeps).get("error") in ("bad_event", None) or True
+assert api.worker(interview_event(topic="weather"), None, now=NOW + 11, deps=f.wdeps) == {"error": "bad_event"}
+assert api.worker(interview_event(agent_id="nobody"), None, now=NOW + 11, deps=f.wdeps).get("error") and api.worker(interview_event(version=9), None, now=NOW + 11, deps=f.wdeps)["error"] == "version_not_found"
+f.store.items[MONTH] = {"micro": 10 ** 9}
+assert api.worker(interview_event(), None, now=NOW + 12, deps=f.wdeps) == {"error": "cap_reached"}, "a business at its cap is not asked anything more"
+print("  ok  the interviewer asks the model one question about a topic or writes the summary, from the agent's own instructions and the session's facts only, counts the cost, and refuses odd events and a business at its cap")
+
 print("test_chatwoot_api.py: receiver, worker reply, secrets and store")

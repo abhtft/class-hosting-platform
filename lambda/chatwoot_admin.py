@@ -48,7 +48,7 @@ TEST = re.compile(rf"/admin/agents/({_NAME})/test")
 SUITE = re.compile(rf"/admin/agents/({_NAME})/suite")
 TEACH = re.compile(rf"/admin/agents/({_NAME})/teach")
 TEACH_ONE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})")
-TEACH_ACT = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(turn|start|finish|revoke)")
+TEACH_ACT = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(turn|start|finish|revoke|interview|summary|confirm)")
 TEACH_TEST = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/turns/([0-9]{{1,4}})/test")
 SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
@@ -448,6 +448,35 @@ def teach_act(store, tenant, name, sid, action, body, now, invoke):
             if not isinstance(name_given, str) or len(name_given.strip()) > teach.NAME_MAX:
                 raise reg.Invalid(f"client_name must be text of at most {teach.NAME_MAX} characters.")
             changed = {**session, "client_name": name_given.strip(), "consent_at": session["consent_at"] or now, "rev": session["rev"] + 1}
+        elif action in ("interview", "summary", "confirm"):
+            if not session["consent_at"]:
+                return problem(409, "not_started", "Start the session first.")
+            if action == "confirm":
+                unknown = sorted(set(body) - {"ok", "note"})
+                if unknown:
+                    raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+                changed = teach.confirm_summary(session, body.get("ok"), body.get("note"), now)
+            else:
+                waiting = teach.pending_question(session) if action == "interview" else None
+                if waiting is not None:  # one open question at a time: the same one is shown again, nothing is asked of the model
+                    return 200, {"n": waiting["n"], "question": waiting["q"], "topic": waiting["topic"], "closed": None, "again": True}
+                topic = teach.next_topic(session) if action == "interview" else None
+                if action == "interview" and topic is None:
+                    return 200, {"done": True, "closed": None}
+                if action == "summary" and not teach.notes(session):
+                    raise reg.Invalid("Nothing has been said yet to summarise.")
+                payload = {"kind": action, "tenant_id": tenant["tenant_id"], "agent_id": name, "facts": teach.notes(session), **session["base"]}
+                if action == "interview":
+                    payload.update(topic=topic, recent=teach.recent_talk(session), weak=weak_spots(store, name))
+                made = (invoke or invoke_worker)(payload)
+                if not isinstance(made, dict) or not isinstance(made.get("result"), dict):
+                    status, message = test_error((made or {}).get("error") if isinstance(made, dict) else None)
+                    if isinstance(made, dict) and made.get("error") in ("model_unavailable", "bad_answer"):
+                        return problem(502, str(made["error"]), "The assistant could not think of a question. Try again in a moment.")
+                    return problem(status, "test_failed" if status == 502 else str(made.get("error")), message)
+                result = made["result"]
+                changed = (teach.add_question(session, result["question"], result["topic"], result.get("spent_micro"), now) if action == "interview"
+                           else teach.set_summary(session, result["text"], result.get("spent_micro"), now))
         else:
             if not session["consent_at"]:
                 return problem(409, "not_started", "Start the session first.")
@@ -465,14 +494,28 @@ def teach_act(store, tenant, name, sid, action, body, now, invoke):
     if not store.replace_if(reg.teach_key(name, sid), changed, "rev", session["rev"]):
         return problem(409, "changed", "The session changed at the same moment. Try again.")
     out = {"status": changed["status"], "closed": teach.closed_reason(changed, now), "seconds_left": max(changed["expires_at"] - now, 0)}
-    if action == "turn":
+    if action in ("turn", "interview", "summary", "confirm"):
         last = changed["turns"][-1]
         out.update(n=last["n"], answer=last.get("a"))
+        if action == "interview":
+            out.update(question=last["q"], topic=last["topic"])
+        if action == "summary":
+            out.update(summary=last["text"])
     return 200, out
 
 
 TEACH_CLOSED = {"expired": "This session has ended.", "revoked": "This link is no longer active.", "finished": "This session is finished.", "turn_limit": "This session is full.",
                 "cap_reached": "This session reached its limit."}
+
+
+def weak_spots(store, name):
+    """Titles of the cases the agent's latest suite run got wrong (at most five): what the interviewer should ask about first. Best effort: no suite, no run, nothing."""
+    try:
+        latest = (store.get(reg.suite_state_key(name)) or {}).get("latest") or {}
+        run = store.get(reg.suite_run_key(name, latest.get("run_id"))) if latest.get("run_id") else None
+        return [str(r.get("title") or r.get("id"))[:120] for r in (run or {}).get("results", []) if not r.get("ok")][:5]
+    except Exception:
+        return []
 
 
 def save_teach_test(store, tenant, name, sid, number, now):

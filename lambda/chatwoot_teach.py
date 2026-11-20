@@ -26,6 +26,8 @@ MAX_CAP_USD = platform_settings.maximum("chatwoot.teachCapUsd")
 RETENTION_DAYS = platform_settings.value("chatwoot.teachRetentionDays")
 MAX_FACTS = platform_settings.value("chatwoot.teachFacts")
 MAX_SESSIONS = platform_settings.value("chatwoot.teachSessionsKept")
+QUESTIONS_PER_TOPIC = platform_settings.value("chatwoot.teachQuestionsPerTopic")
+TOPIC_IDS = ("services", "prices", "hours", "location", "policies", "faq", "tone", "never_say", "handover", "extra")  # the interviewer's checklist (chatwoot_interview.TOPICS)
 HISTORY_TURNS = platform_settings.value("chatwoot.memoryTurns")
 MICRO = 1_000_000
 SID = re.compile(r"[0-9a-f]{12}")
@@ -65,7 +67,7 @@ def create(tenant_id, agent_id, sid, body, base, now):
         raise Invalid(f"client_name must be text of at most {NAME_MAX} characters.")
     expires = now + int(hours * 3600)
     return {"sid": sid, "tenant_id": tenant_id, "agent_id": agent_id, "status": "open", "created_at": now, "expires_at": expires, "cap_micro": round(cap * MICRO), "spent_micro": 0,
-            "client_name": name.strip(), "consent_at": None, "base": base, "turns": [], "facts": [], "rev": 1, "ttl": expires + RETENTION_DAYS * 86400}
+            "client_name": name.strip(), "consent_at": None, "base": base, "turns": [], "facts": [], "counts": {}, "summary": None, "rev": 1, "ttl": expires + RETENTION_DAYS * 86400}
 
 
 def closed_reason(session, now):
@@ -88,9 +90,9 @@ def clean_turn(body):
     if not isinstance(body, dict):
         raise Invalid("Send a JSON object.")
     kind = body.get("kind")
-    allowed = {"ask": {"kind", "text"}, "fact": {"kind", "text"}, "feedback": {"kind", "of", "verdict", "correction"}}.get(kind)
+    allowed = {"ask": {"kind", "text"}, "fact": {"kind", "text"}, "feedback": {"kind", "of", "verdict", "correction"}, "answer": {"kind", "of", "text"}}.get(kind)
     if allowed is None:
-        raise Invalid("kind must be ask, fact or feedback.")
+        raise Invalid("kind must be ask, fact, feedback or answer.")
     unknown = sorted(set(body) - allowed)
     if unknown:
         raise Invalid(f"Unknown field: {unknown[0]}.")
@@ -98,7 +100,9 @@ def clean_turn(body):
         return {"kind": kind, "text": _text(body.get("text"), "text")}
     number = body.get("of")
     if not isinstance(number, int) or isinstance(number, bool) or number < 1:
-        raise Invalid("of must be the number of the answer you are judging.")
+        raise Invalid("of must be the number of the answer you are judging." if kind == "feedback" else "of must be the number of the question you are answering.")
+    if kind == "answer":
+        return {"kind": "answer", "of": number, "text": _text(body.get("text"), "text")}
     if body.get("verdict") not in VERDICTS:
         raise Invalid("verdict must be right or wrong.")
     return {"kind": "feedback", "of": number, "verdict": body["verdict"], "correction": _text(body.get("correction"), "correction", required=False)}
@@ -106,6 +110,80 @@ def clean_turn(body):
 
 def answers(session):
     return {t["n"]: t for t in session["turns"] if t["kind"] == "ask"}
+
+
+def questions(session):
+    return {t["n"]: t for t in session["turns"] if t["kind"] == "iq"}
+
+
+def pending_question(session):
+    """The interviewer's question the client has not answered yet, or None."""
+    answered = {t["of"] for t in session["turns"] if t["kind"] == "ia"}
+    open_ones = [t for t in session["turns"] if t["kind"] == "iq" and t["n"] not in answered]
+    return open_ones[-1] if open_ones else None
+
+
+def next_topic(session):
+    """The first topic of the checklist that has had fewer than QUESTIONS_PER_TOPIC answers, or None when the interview is complete."""
+    counts = session.get("counts", {})
+    return next((t for t in TOPIC_IDS if counts.get(t, 0) < QUESTIONS_PER_TOPIC), None)
+
+
+def add_question(session, question, topic, spent, now):
+    """The session with the interviewer's question added (one open question at a time)."""
+    if topic not in TOPIC_IDS:
+        raise Invalid("The interviewer asked about an unknown topic.")
+    turn = {"n": len(session["turns"]) + 1, "t": now, "kind": "iq", "q": question, "topic": topic, "spent": int(spent or 0)}
+    return {**session, "turns": session["turns"] + [turn], "spent_micro": session["spent_micro"] + turn["spent"], "rev": session["rev"] + 1}
+
+
+def set_summary(session, text, spent, now):
+    """The session with 'what I learned' added for the client to confirm."""
+    turn = {"n": len(session["turns"]) + 1, "t": now, "kind": "summary", "text": text, "spent": int(spent or 0)}
+    return {**session, "turns": session["turns"] + [turn], "summary": {"text": text, "at": now, "confirmed": None}, "spent_micro": session["spent_micro"] + turn["spent"], "rev": session["rev"] + 1}
+
+
+def confirm_summary(session, ok, note, now):
+    """The client's verdict on the summary: yes, or no with what is wrong (kept as a fact too)."""
+    summary = session.get("summary")
+    if not summary or summary.get("confirmed") is not None:
+        raise Invalid("There is no summary waiting for an answer.")
+    if not isinstance(ok, bool):
+        raise Invalid("ok must be true or false.")
+    note = _text(note, "note", required=False)
+    turn = {"n": len(session["turns"]) + 1, "t": now, "kind": "confirm", "ok": ok, "text": note}
+    new_facts = list(session["facts"])
+    if not ok and note:
+        new_facts.append({"n": turn["n"], "text": f"The client said the summary was not right: {note}"[:TEXT_CHARS * 2]})
+    return {**session, "turns": session["turns"] + [turn], "facts": new_facts[-MAX_FACTS:], "summary": {**summary, "confirmed": ok}, "rev": session["rev"] + 1}
+
+
+def summary_state(session):
+    """None (no summary yet), "waiting" (the client has not answered), True (confirmed) or False (the client said it is not right)."""
+    summary = session.get("summary")
+    if not summary:
+        return None
+    return "waiting" if summary.get("confirmed") is None else summary["confirmed"]
+
+
+def notes(session):
+    """What the summary is written from: every answered interview question and every fact the client told (as plain sentences)."""
+    return [f["text"] for f in session["facts"]]
+
+
+def recent_talk(session, limit=6):
+    """The last few turns as short plain lines for the interviewer (the client's words are data to it)."""
+    lines = []
+    for t in session["turns"]:
+        if t["kind"] == "ask":
+            lines.append(f"Client asked the assistant: {t['q']}")
+        elif t["kind"] == "iq":
+            lines.append(f"Interviewer asked: {t['q']}")
+        elif t["kind"] == "ia":
+            lines.append(f"Client answered: {t['text']}")
+        elif t["kind"] == "fact":
+            lines.append(f"Client told the assistant: {t['text']}")
+    return [line[:TEXT_CHARS] for line in lines[-limit:]]
 
 
 def history(session):
@@ -138,6 +216,14 @@ def add_turn(session, event, now, answer=None):
     elif event["kind"] == "fact":
         turn = {"n": number, "t": now, "kind": "fact", "text": event["text"]}
         new_facts.append({"n": number, "text": event["text"]})
+    elif event["kind"] == "answer":
+        asked = questions(session).get(event["of"])
+        if asked is None or any(t["kind"] == "ia" and t["of"] == event["of"] for t in session["turns"]):
+            raise Invalid("There is no such open question to answer.")
+        turn = {"n": number, "t": now, "kind": "ia", "of": event["of"], "text": event["text"]}
+        new_facts.append({"n": number, "text": f"Asked: {asked['q']} The client answered: {event['text']}"[:TEXT_CHARS * 2]})
+        counts = {**session.get("counts", {}), asked["topic"]: session.get("counts", {}).get(asked["topic"], 0) + 1}
+        return {**session, "turns": turns + [turn], "facts": new_facts[-MAX_FACTS:], "counts": counts, "rev": session["rev"] + 1}
     else:
         target = answers(session).get(event["of"])
         if target is None:
@@ -158,7 +244,8 @@ def view(session, now, owner):
         turns.append(shown)
     out = {"sid": session["sid"], "agent": session["agent_id"], "status": session["status"], "closed": closed_reason(session, now), "client_name": session["client_name"],
            "consent_at": session["consent_at"], "created_at": session["created_at"], "expires_at": session["expires_at"], "seconds_left": max(session["expires_at"] - now, 0),
-           "turns": turns}
+           "turns": turns, "summary": summary_state(session),
+           "interview": {"open_question": (pending_question(session) or {}).get("n"), "topics_left": sum(1 for t in TOPIC_IDS if session.get("counts", {}).get(t, 0) < QUESTIONS_PER_TOPIC)}}
     if owner:
         out.update(base=session["base"] if "version" in session["base"] else {"config": "a draft"}, cap_usd=session["cap_micro"] / MICRO, spent_usd=session["spent_micro"] / MICRO,
                    facts=session["facts"])
@@ -168,7 +255,8 @@ def view(session, now, owner):
 def row(session, now):
     """One line of the owner's list of sessions."""
     return {"sid": session["sid"], "status": session["status"], "closed": closed_reason(session, now), "client_name": session["client_name"], "created_at": session["created_at"],
-            "expires_at": session["expires_at"], "questions": sum(1 for t in session["turns"] if t["kind"] == "ask"), "corrections": sum(1 for t in session["turns"] if t["kind"] == "feedback" and t["verdict"] == "wrong"),
+            "expires_at": session["expires_at"], "questions": sum(1 for t in session["turns"] if t["kind"] == "ask"), "answers": sum(1 for t in session["turns"] if t["kind"] == "ia"),
+            "summary": summary_state(session), "corrections": sum(1 for t in session["turns"] if t["kind"] == "feedback" and t["verdict"] == "wrong"),
             "spent_usd": session["spent_micro"] / MICRO}
 
 

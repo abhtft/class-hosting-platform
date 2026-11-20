@@ -39,6 +39,7 @@ import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
 import chatwoot_suite as suite
+import chatwoot_interview as interview_topics
 import chatwoot_teach as teach
 import platform_settings
 from chatwoot_store import CONDITION_FAILED, DynamoStore, MemoryStore  # noqa: F401  (the table lives in chatwoot_store.py; these names stay importable from here)
@@ -49,6 +50,7 @@ SECRET_CACHE_SECONDS = platform_settings.value("chatwoot.secretCacheSeconds")
 HTTP_TIMEOUT_SECONDS = platform_settings.value("chatwoot.httpTimeoutSeconds")
 DEFAULT_CAP_USD = platform_settings.value("chatwoot.defaultMonthlyCapUsd")  # what one business may spend a month on answers, unless its tenant item says otherwise
 BASE_URL = platform_settings.value("chatwoot.baseUrl")  # the one Chatwoot address the worker may call (a template parameter)
+INTERVIEW_MAX_TOKENS = platform_settings.value("chatwoot.teachInterviewMaxTokens")  # the question or the summary is short
 SUITE_PARALLEL = platform_settings.value("chatwoot.suiteParallel")  # test cases run at the same time
 SUITE_RUN_DAYS = platform_settings.value("chatwoot.suiteRunDays")  # how long the record of a suite run is kept
 SUITE_BUDGET_SECONDS = platform_settings.value("chatwoot.suiteBudgetSeconds")  # no new case is started after this long: the worker has 120 seconds
@@ -437,6 +439,48 @@ def test(event, deps, now):
     return {"result": out}
 
 
+def interview(event, deps, now):
+    """The interviewer of a teach session (started by the admin function and nobody else): `kind` "interview" asks the model for the next question about `topic`, `kind` "summary"
+    for the plain list of what was learned. The model is the version's provider and model when it names them, else the platform's choice. No search, no Chatwoot, nothing stored here;
+    what it costs is counted against the business's month. Returns {"result": {"question" | "text", "topic"?, "spent_micro"}} or {"error": code}."""
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    config, used = dry_target(event["agent_id"], tenant, event, deps)
+    if used is None:
+        return config
+    key = usage_key(event["tenant_id"], now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+    language = engine.LANGUAGES[config["language"]]
+    facts = teach.clean_facts(event.get("facts"))
+    extra = {k: config[k] for k in ("provider", "model") if config.get(k)}
+    if event["kind"] == "interview":
+        topic = event.get("topic")
+        if topic not in interview_topics.TOPIC_IDS:
+            return {"error": "bad_event"}
+        recent = [str(x)[:teach.TEXT_CHARS] for x in (event.get("recent") or []) if isinstance(x, str)][:12]
+        weak = [str(x)[:120] for x in (event.get("weak") or []) if isinstance(x, str)][:5]
+        messages = interview_topics.question_messages(topic, language, config["instructions"], facts, recent, weak)
+    elif event["kind"] == "summary":
+        messages = interview_topics.summary_messages(language, config["instructions"], facts)
+    else:
+        return {"error": "bad_event"}
+    try:
+        answer = deps.runtime.llm(messages, INTERVIEW_MAX_TOKENS, **extra)
+    except Exception as error:
+        log("interview_failed", error=type(error).__name__)
+        return {"error": "model_unavailable"}
+    spend(deps, key, {"cost_micro": answer.get("cost_micro")}, now)
+    spent = int(answer.get("cost_micro") or 0)
+    if event["kind"] == "interview":
+        question = interview_topics.parse_question(answer.get("text"), topic)
+        return {"result": {"question": question, "topic": topic, "spent_micro": spent}} if question else {"error": "bad_answer"}
+    text = interview_topics.clean_summary(answer.get("text"))
+    return {"result": {"text": text, "spent_micro": spent}} if text else {"error": "bad_answer"}
+
+
 def run_case(case, config, tenant, deps, key, now):
     """One test case: its customer messages in order (each answered with the history so far, like a conversation), the last answer judged. A failed case is tried once more: a pass on
     the retry is a pass marked flaky (the model answered differently). Returns the case's record: {"id", "title", "severity", "ok", "flaky", "route", "failed": [...], "answer"}."""
@@ -658,6 +702,8 @@ def worker(event, context=None, now=None, deps=None):
         return sweep(event, deps, now)
     if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
         return test(event, deps, now)
+    if event.get("kind") in ("interview", "summary"):  # from the admin function: the interviewer of a teach session, answered in the same invocation
+        return interview(event, deps, now)
     if event.get("kind") == "suite":  # from the admin function or the local command: a test suite run, asynchronous
         return suite_run(event, deps, now)
     agent_id, message_id = event.get("agent_id"), event.get("message_id")
