@@ -865,7 +865,25 @@ verdict = {r["id"]: (r["ok"], r["severity"], r["route"]) for r in run["results"]
 assert verdict == {"opens": (True, "must", "rag"), "wrong": (False, "must", "rag"), "person": (True, "must", "handover"), "soft": (False, "should", "rag"), "talk": (True, "must", "rag")}, verdict
 assert (run["status"], run["total"], run["done"], run["passed"], run["must_failed"], run["should_failed"], run["flaky"], run["ok"]) == ("done", 5, 5, 3, 1, 1, 0, False), run
 failed = next(r for r in run["results"] if r["id"] == "wrong")
-assert failed["failed"] == [{"check": "contains_all", "expected": "ten", "got": "missing"}] and failed["answer"] == "We open at nine and close at six." and "answer" not in run["results"][0], "the answer is kept for a failure only"
+assert failed["failed"] == [{"check": "contains_all", "expected": "ten", "got": "missing"}] and failed["answer"] == "We open at nine and close at six." and run["results"][0]["answer"] == "We open at nine and close at six.", "the answer is kept for every case: the Tests table shows it beside the verdict"
+assert all("meaning" not in r for r in run["results"]), "no expected answer, no meaning score"
+
+# a case with an expected answer: the meaning of the answer against it is shown (advice, never the verdict); a scorer that fails leaves it out; a hand-over has none
+g = Fakes()
+scored_calls = []
+g.runtime.extras = lambda texts, query: (scored_calls.append((list(texts), query)), {"scores": [0.82], "tokens": 5, "cost_micro": 2})[1]
+queue_run(g, [case("hours", ["when do you open?"], {"contains_all": ["nine"]}, expected="The shop opens at nine and closes at six."), case("miss", ["when do you open?"], {"contains_all": ["ten"]}, expected="Ten to six."),
+              case("person", ["call me please"], {"route": "handover"}, expected="A person will call."), case("plain", ["when do you open?"], {"route": "rag"})])
+assert run_suite(g) == {"run": RUN, "status": "done"}
+rows = {r["id"]: r for r in g.store.items[f"suiterun#shop#{RUN}"]["results"]}
+assert rows["hours"]["ok"] is True and rows["hours"]["meaning"] == 0.82 and rows["miss"]["ok"] is False and rows["miss"]["meaning"] == 0.82, "the verdict comes from the checks, whatever the meaning says"
+assert "meaning" not in rows["person"] and "meaning" not in rows["plain"], "no meaning for a hand-over or a case without an expected answer"
+assert [c[0] for c in scored_calls][:1] == [["The shop opens at nine and closes at six."]] and scored_calls[0][1] == "We open at nine and close at six.", "the expected text is scored against the answer"
+assert g.store.usage(api.usage_key("acme", NOW + 5)) > 0
+h = Fakes()
+h.runtime.extras = lambda texts, query: (_ for _ in ()).throw(RuntimeError("embedding down"))
+queue_run(h, [case("hours", ["when do you open?"], {"contains_all": ["nine"]}, expected="Nine to six.")])
+assert run_suite(h) == {"run": RUN, "status": "done"} and "meaning" not in h.store.items[f"suiterun#shop#{RUN}"]["results"][0] and h.store.items[f"suiterun#shop#{RUN}"]["results"][0]["ok"] is True, "an embedding that fails never fails a case"
 assert run["target"] == "version 1" and run["suite_rev"] == 3 and run["started_at"] == NOW + 5 and NOW + 5 <= run["finished_at"] <= NOW + 60 and run["ttl"] == NOW + 5 + 90 * 86400, run
 state = f.store.items["suitestate#shop"]
 assert state["latest"]["status"] == "done" and state["runs"][0]["run_id"] == RUN and state["runs"][0]["must_failed"] == 1 and state["versions"]["1"]["ok"] is False and state["versions"]["1"]["passed"] == 3

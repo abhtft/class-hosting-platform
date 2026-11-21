@@ -568,6 +568,19 @@ def run_case(case, config, tenant, deps, key, now):
     the retry is a pass marked flaky (the model answered differently). Returns the case's record: {"id", "title", "severity", "ok", "flaky", "route", "failed": [...], "answer"}."""
     record = {"id": case["id"], "title": case["title"], "severity": case["severity"], "ok": False, "flaky": False, "ran": True, "route": None, "failed": []}
     context = {"channel": case["channel"], "inbox_id": case.get("inbox_id")}
+
+    def judged(result):
+        """What every record shows beside the verdict: the answer (cut) and, when the case has an expected answer, how close in meaning the answer is to it (0 to 1). The meaning is advice
+        for the person reading the table, never part of pass or fail; an embedding that cannot be made leaves it out."""
+        shown = {"answer": str(result["text"])[:400]}
+        if case.get("expected") and getattr(deps.runtime, "extras", None) is not None and result["route"] != "handover":
+            try:
+                scored = deps.runtime.extras([case["expected"]], str(result["text"]))
+                spend(deps, key, {"tokens": scored["tokens"], "cost_micro": scored["cost_micro"]}, now)
+                shown["meaning"] = round(min(1.0, max(0.0, float(scored["scores"][0]))), 2)
+            except Exception as error:
+                log("meaning_failed", agent=case["id"], error=type(error).__name__)
+        return shown
     for attempt in (1, 2):
         history, result = [], None
         for turn in case["turns"]:
@@ -579,8 +592,8 @@ def run_case(case, config, tenant, deps, key, now):
                 break
         failed = suite.evaluate(case, result, config)
         if not failed:
-            return {**record, "ok": True, "flaky": attempt == 2, "route": result["route"]}
-        record.update(route=result["route"], failed=failed, answer=str(result["text"])[:400])
+            return {**record, "ok": True, "flaky": attempt == 2, "route": result["route"], **judged(result)}
+        record.update(route=result["route"], failed=failed, **judged(result))
         if result["route"] == "handover":  # why, so a hand-over that was not expected can be told from a failed answer
             record.update(reason=result.get("reason"), failure=bool(result.get("failure")), error=result.get("error"), http_status=result.get("http_status"))
     return record

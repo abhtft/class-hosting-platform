@@ -20,6 +20,7 @@ import platform_settings
 
 MAX_CASES = platform_settings.value("chatwoot.suiteMaxCases")
 MAX_TURNS = platform_settings.value("chatwoot.suiteMaxTurns")
+EXPECTED_CHARS = platform_settings.value("chatwoot.suiteExpectedChars")
 SEVERITIES = ("must", "should")
 ROUTES = ("rag", "fallback", "handover", "agent")
 SCRIPTS = ("devanagari", "latin")
@@ -46,7 +47,7 @@ def clean_case(case, position):
     """One case, checked and tidied; Invalid says what is wrong."""
     if not isinstance(case, dict):
         raise Invalid(f"Case {position}: a case is a JSON object.")
-    unknown = sorted(set(case) - {"id", "title", "severity", "channel", "inbox_id", "turns", "checks"})
+    unknown = sorted(set(case) - {"id", "title", "severity", "channel", "inbox_id", "turns", "checks", "expected"})
     if unknown:
         raise Invalid(f"Case {position}: unknown field {unknown[0]}.")
     case_id = case.get("id")
@@ -71,6 +72,11 @@ def clean_case(case, position):
     if not isinstance(turns, list) or not 1 <= len(turns) <= MAX_TURNS or not all(isinstance(t, str) and t.strip() and len(t) <= core.MAX_QUESTION_CHARS for t in turns):
         raise Invalid(f"Case {case_id}: turns must be 1 to {MAX_TURNS} customer messages of at most {core.MAX_QUESTION_CHARS} characters.")
     out["turns"] = [t.strip() for t in turns]
+    if "expected" in case:  # the answer a good agent gives, in the owner's words: shown to people and compared in meaning (advice only); the checks below decide pass or fail
+        expected = case["expected"]
+        if not isinstance(expected, str) or not 1 <= len(expected.strip()) <= EXPECTED_CHARS:
+            raise Invalid(f"Case {case_id}: expected must be text of at most {EXPECTED_CHARS} characters.")
+        out["expected"] = expected.strip()
     checks = case.get("checks", {})
     if not isinstance(checks, dict):
         raise Invalid(f"Case {case_id}: checks is a JSON object.")

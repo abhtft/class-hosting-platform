@@ -2691,6 +2691,21 @@
       ]
     },
     {
+      "key": "chatwoot.suiteExpectedChars",
+      "group": "chatwoot",
+      "title": "Longest expected answer of a test case",
+      "help": "The answer a good agent gives, written by the owner in a test case (the Tests table in Studio). It is shown beside the agent's answer and compared in meaning as advice; pass or fail is decided by the case's checks.",
+      "unit": "characters",
+      "default": 600,
+      "min": 20,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_suite.EXPECTED_CHARS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",

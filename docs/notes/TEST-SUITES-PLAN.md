@@ -1,6 +1,6 @@
 # Two levels of tests for every agent: the application's own question table, and a central safety suite (plan v1, waiting for approval)
 
-Status: plan only. Nothing is built from it. It extends the test-suite engine that exists (step S3a: `lambda/chatwoot_suite.py`, the worker's `kind: suite`, `chatwoot_ctl.py suite-*`, `config/suites/margdarshak-digital.json`).
+Status: approved by the owner on 2026-11-21 with D1 to D5 as recommended (key facts decide, OWASP LLM Top 10 as the skeleton, central failures block Make live with a typed reason and application failures warn, about 40 cases each, only the teacher edits the central suite). T1 (the engine) is built locally; T2 onward follow phase by phase. Original text: plan only. It extends the test-suite engine that exists (step S3a: `lambda/chatwoot_suite.py`, the worker's `kind: suite`, `chatwoot_ctl.py suite-*`, `config/suites/margdarshak-digital.json`).
 
 ## 1. What the owner asked for
 

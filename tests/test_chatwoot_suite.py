@@ -27,6 +27,15 @@ for bad, why in (("text", "JSON object"), ({**GOOD, "extra": 1}, "unknown field"
         raise AssertionError(bad)
     except su.Invalid as error:
         assert why.lower() in str(error).lower(), (bad, str(error))
+withexp = su.clean_case({**GOOD, "expected": "  The shop opens at nine.  "}, 1)
+assert withexp["expected"] == "The shop opens at nine." and "expected" not in su.clean_case(GOOD, 1), "an expected answer is optional, kept trimmed"
+for bad in ("", "   ", 5, None, "x" * (su.EXPECTED_CHARS + 1)):
+    try:
+        su.clean_case({**GOOD, "expected": bad}, 1)
+        raise AssertionError(bad)
+    except su.Invalid as error:
+        assert "expected" in str(error)
+assert su.evaluate(su.clean_case({**GOOD, "expected": "Rs 2,000 a month."}, 1), {"route": "rag", "text": "Starts at Rs 2,000."}, {}) == [], "the expected answer never decides pass or fail: the checks do"
 print("  ok  a case is checked field by field, with a reason in words for the operator")
 
 assert su.MAX_CASES == 40 and su.MAX_TURNS == 3
