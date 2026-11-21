@@ -44,6 +44,15 @@ Repeatability is not quality, so the check is small: **5 diverse questions, each
 - **Escalation:** any case that is not 3 of 3 is repeated 10 more times, alone, to measure it properly (cost about a tenth of a cent each).
 - **Full mode stays available** (`--cases all`, `--times 5`) for after a big change.
 
+## Amendment 2 (owner's decision): the machine gives signals, a person decides
+The sample is small enough to read, so no automatic verdict is trusted and no model judges answers. Changes to the plan above:
+- **Signals instead of verdicts:** `same`, `differs`, `unexpected` (the same failure every time: a quality or out-of-date-case matter, not repeatability), `no answer`.
+- **The real answers are shown** (every different answer, how often, which key) and written to a Markdown review sheet (`--sheet`).
+- **Soft result:** LOOKS CONSISTENT / NEEDS A LOOK (exit 0); UNSTABLE (exit 1) only when a question's answered runs agree in fewer than 60 percent; INCONCLUSIVE (exit 2) when nothing was answered.
+- **No escalation by default** (`--escalate N` on request).
+- **R2 and R3 change:** no automatic make-live gate on repeatability. R2 keeps the review sheet per version on the platform; R3 shows it in Studio for a person to read.
+- **Unchanged:** deterministic checks (route, facts, script), provider refusals never count against the agent, 5 questions times 3 runs.
+
 ## What I need from you before building
 1. **N:** 5 repeats (recommended: 10 cents for the standard suite) or 3 (cheaper, weaker) or 10.
 2. **Which suite first:** the standard suite of `shop` (recommended) and then the central safety suite.

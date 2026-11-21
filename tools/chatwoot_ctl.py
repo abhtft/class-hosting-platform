@@ -663,10 +663,10 @@ def suite_repeat(store, args, out, now, shelves=None):
         for case in cases:
             runs[case["id"]].append(ask_case(case, tenant["tenant_id"], args.name, version, config, ask, pause))
     summaries = {c["id"]: repeat.summarise_case(c, runs[c["id"]]) for c in cases}
-    escalated = [c["id"] for c in cases if summaries[c["id"]]["verdict"] == repeat.FLAKY]  # not an inconclusive one: more questions would only meet the same refusal
-    for case in cases:  # a case that wobbled is asked more times, alone, to measure it properly
+    escalated = [c["id"] for c in cases if summaries[c["id"]]["signal"] == repeat.DIFFERS] if args.escalate else []  # off by default: a person reads the answers; on request a question that differs is asked more times, alone
+    for case in cases:
         if case["id"] in escalated:
-            out(f"{case['id']}: not stable in {args.times} runs, asking {args.escalate} more times")
+            out(f"{case['id']}: the answers differ in {args.times} runs, asking {args.escalate} more times")
             for _ in range(args.escalate):
                 runs[case["id"]].append(ask_case(case, tenant["tenant_id"], args.name, version, config, ask, pause))
             summaries[case["id"]] = repeat.summarise_case(case, runs[case["id"]])
@@ -674,10 +674,14 @@ def suite_repeat(store, args, out, now, shelves=None):
     spent = sum(r["spent_micro"] for rs in runs.values() for r in rs)
     for line in repeat.render(ordered, version, args.times, spent, escalated):
         out(line)
-    ok, code, reasons = repeat.judge(ordered)
-    out("REPEATABLE" if ok else "NOT REPEATABLE" if code == 1 else "INCONCLUSIVE")
-    for reason in reasons:
-        out(f"  - {reason}")
+    label, code, notes = repeat.judge(ordered)
+    out(label)
+    for note in notes:
+        out(f"  - {note}")
+    if args.sheet:
+        with open(args.sheet, "w", encoding="utf8") as handle:
+            handle.write(repeat.sheet(ordered, version, args.times, label))
+        out(f"Review sheet saved to {args.sheet}")
     if args.save:
         with open(args.save, "w", encoding="utf8") as handle:
             json.dump({"agent": args.name, "version": version, "times": args.times, "summaries": ordered, "runs": runs}, handle, ensure_ascii=False, indent=1)
@@ -761,9 +765,10 @@ def parser():
     s.add_argument("--version", type=int, help="the version to ask (the live one by default)")
     s.add_argument("--cases", help="comma-separated case ids, or all (default: five questions of the standard suite)")
     s.add_argument("--times", type=int, default=3, help="how many times each question is asked")
-    s.add_argument("--escalate", type=int, default=10, help="how many more times a question that was not stable is asked, alone")
+    s.add_argument("--escalate", type=int, default=0, help="how many more times a question whose answers differ is asked, alone (0: not at all)")
     s.add_argument("--gap", type=float, default=1.0, help="seconds to wait between two questions (rate limits)")
     s.add_argument("--save", help="write the numbers and every answer to this JSON file")
+    s.add_argument("--sheet", help="write a review sheet (Markdown) for a person to read")
     return p
 
 
