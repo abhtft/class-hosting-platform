@@ -8,6 +8,11 @@ Newest first. Each entry says what was decided, why, and what it costs us.
 - **Cost.** One extra embedding call for a version's extras the first time a container sees them (cached while warm); thresholds (`chatwoot.extrasMinScore`, `extrasTopK`) must be tuned on real embeddings.
 - **Not done on purpose.** An explicit "replaces extra N" link (the later date decides); merging old extras into the books (the owner does it by hand).
 
+## 2026-11-21: Bedrock is parked until AWS lifts the account's restrictions
+- **Measured** (21 text models, four regions, plus Service Quotas, all read-only or a few tokens each): in us-east-1 every call fails with `ValidationException: Operation not allowed`; in us-west-2 and ap-south-1 calls fail with `account is currently being verified` or `Too many tokens`; the account's quotas are 0 for Nova Lite (tokens per day), Nova Micro and Claude Haiku 5.5 (tokens per minute). The account is on the AWS Free Plan, created 2026-07-03, not in an Organization.
+- **Decision.** Gemini stays the live provider (it works and is cheap). The Bedrock provider code stays (a version that names it falls back to Gemini), and Track B (Knowledge Base on S3 Vectors) is waiting: its template is built and off. The owner opens one AWS Support case (Account and billing) for the restriction, the verification and the zero quotas.
+- **When unblocked.** Try Amazon Nova 2 Lite or Nova Lite first (cheap, Amazon's own model, no Anthropic use-case form), then gpt-oss-20b; Claude Haiku 5.5 after its form. Judge Hindi and Hinglish quality with the standard suite before choosing.
+
 ## 2026-11-21: extrasMinScore stays 0.6 (measured on the live worker)
 - **Measured** with 14 questions against the 7 extras of `shop` version 7 (real embeddings): every question that an extra answers scored 0.61 to 0.87; unrelated questions scored nothing, except two that touched an extra by a weak word (0.61 and 0.62: "refund policy", "phone number"). The two ranges overlap slightly, so no threshold separates them perfectly.
 - **Decision.** Keep 0.6. A missed correction is worse than one irrelevant extra in the prompt (the model is told to use an update only when it answers the question). `extrasTopK` stays 3.

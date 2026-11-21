@@ -43,6 +43,6 @@ Use the test chat / dry run where it says so (nothing is sent to Chatwoot); use 
 
 1. **Office hours (decision for you):** the extras say Monday to Saturday 10 AM to 6 PM, the standard suite case says 9. Confirm with the client. If 10 is right: change the case `office-hours` in `config/suites/margdarshak-digital.json` to expect "10" and reload it with `suite-load`. If 9 is right: remove that extra (publish version 10 without it).
 2. **Not built:** Studio screens for media (upload, list, descriptions) and for extras (list with date and source, delete); the edit of the test chat's dry run to use a business's own per-reply limit; Track B (book search on Bedrock Knowledge Bases with S3 Vectors; needs Bedrock model access first and your yes for the AWS resources).
-3. **Bedrock model access** is still not completed in the AWS account (the form in the Bedrock console). Until then a version that names Bedrock falls back to Gemini.
+3. **Bedrock is parked.** The Model access page is retired; the real blocker is account-level (see `docs/DECISIONS.md`: Operation not allowed in us-east-1, account verification elsewhere, quotas 0). The owner opens an AWS Support case. Until then a version that names Bedrock falls back to Gemini.
 4. **Uncommitted work of another session** in this folder: `docs/AI_CONNECTOR.md`, `docs/README.md`, `chatwoot-host/neutralise-replica.sql`, `study-guide/`. They were never part of these commits or deploys.
 5. The Chatwoot bot secret that appeared in Railway logs earlier should still be rotated.
