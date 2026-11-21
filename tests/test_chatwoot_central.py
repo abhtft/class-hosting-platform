@@ -165,4 +165,45 @@ failed = [r["id"] + ": " + "; ".join(f"{c['check']} wanted {c['expected']} got {
 assert run["status"] == "done" and failed == [] and run["ok"] is True and run["passed"] == N, failed
 print("  ok  against a model that obeys, the injection and unsafe cases fail; against one that says it does not know, all pass; the results sit in the central suite's own state")
 
+# ---- Make live and the safety suite: a failed must-case holds the version back unless the owner gives a reason; never-run and stale results do not
+gate = api.MemoryStore()
+gate.claim(reg.tenant_key("acme"), tenant)
+gate.claim(reg.agent_key("shop"), {"tenant_id": "acme", "agent_id": "shop", "account_id": 1, "inbox_ids": [3], "enabled": True, "live_version": 1, "versions": 2, "rev": 1})
+for number in (1, 2):
+    gate.claim(reg.version_key("shop", number), {"agent_id": "shop", "tenant_id": "acme", "version": number, "config": BASE, "published_at": 1})
+gate.put(reg.central_suite_key(), {"version": V, "title": "t", "cases": cases, "updated_at": NOW})
+
+
+def live(number, reason=None, at=NOW + 10, **more):
+    body = {"version": number, **({"override_reason": reason} if reason is not None else {}), **more}
+    return admin.route(gate, tenant, "POST", "/admin/agents/shop/live", {"body": json.dumps(body)}, at)
+
+
+assert live(2)[0] == 200, "never run on the central suite: not held back"
+gate.put(reg.suite_state_key("shop", "central"), {"runs": [], "versions": {"2": {"run_id": "r2", "ok": False, "passed": 49, "total": N, "must_failed": 2, "suite_rev": V, "finished_at": NOW},
+                                                                         "1": {"run_id": "r1", "ok": True, "passed": N, "total": N, "must_failed": 0, "suite_rev": V, "finished_at": NOW}}})
+status, held = live(2)
+assert status == 409 and held["error"] == "safety_failed" and held["must_failed"] == 2 and held["run_id"] == "r2" and "version 2" in held["message"], held
+assert gate.get(reg.agent_key("shop"))["live_version"] == 2 and "overrides" not in gate.get(reg.agent_key("shop")), "nothing changed (it was live already in this test) and no reason is recorded"
+assert live(1)[0] == 200 and gate.get(reg.agent_key("shop"))["live_version"] == 1, "a version that passed goes live"
+assert live(1, "a reason that is long enough")[1].get("overrides") is None, "a reason given for a version that did not need one is not kept"
+for bad in ("short", "x" * 301, 5, ["a reason long enough"]):
+    try:
+        live(2, bad)
+        raise AssertionError(bad)
+    except reg.Invalid as error:
+        assert "override_reason" in str(error)
+try:
+    live(2, None, extra=1)
+    raise AssertionError("an unknown field must be refused")
+except reg.Invalid:
+    pass
+status, made = live(2, "  The two failed cases are about a product we do not sell.  ", at=NOW + 20)
+assert status == 200 and made["live_version"] == 2 and made["overrides"] == {"2": {"reason": "The two failed cases are about a product we do not sell.", "at": NOW + 20, "must_failed": 2, "run_id": "r2"}}
+assert gate.get(reg.agent_key("shop"))["overrides"]["2"]["reason"].startswith("The two failed") and admin.route(gate, tenant, "GET", "/admin/agents/shop", {}, NOW)[1]["overrides"]["2"]["must_failed"] == 2, "the reason is kept with the agent and shown with it"
+gate.put(reg.central_suite_key(), {"version": V + 1, "title": "t", "cases": cases, "updated_at": NOW})
+assert live(1)[0] == 200 and live(2)[0] == 200, "a result from an older version of the suite does not hold a version back"
+assert live(0)[0] == 200 and live(9)[0] == 404, "no live version is always allowed; an unknown version is not found"
+print("  ok  Make live: a version that failed a must-case of the current central suite is held back unless the owner gives a reason (kept with the agent); never-run, older and passing results go through")
+
 print("test_chatwoot_central.py: the central safety suite")

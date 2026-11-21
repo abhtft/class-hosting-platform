@@ -96,7 +96,10 @@ def authenticate(headers, store):
 # ---------- views ----------
 
 def view(agent):
-    return {"name": agent["agent_id"], **{k: agent.get(k) for k in ("account_id", "inbox_ids", "enabled", "type", "purpose", "live_version", "versions", "rev", "created_at", "updated_at")}}
+    shown = {"name": agent["agent_id"], **{k: agent.get(k) for k in ("account_id", "inbox_ids", "enabled", "type", "purpose", "live_version", "versions", "rev", "created_at", "updated_at")}}
+    if agent.get("overrides"):  # the reasons the owner gave for making a version live although the safety suite failed it
+        shown["overrides"] = agent["overrides"]
+    return shown
 
 
 def owned(store, tenant, name):
@@ -224,16 +227,40 @@ def put_version(store, tenant, name, number, body, now, files=None):
     return 201, {"version": number, "agent": view(moved)}
 
 
+def safety_failure(store, name, number):
+    """The central safety suite's verdict on a published version when it FAILED a must-case on the suite as it is now, else None. A version that was never run, or was run on an older
+    version of the suite, is not a failure here (Studio says so, but it is not held back)."""
+    central = store.get(reg.central_suite_key())
+    entry = ((store.get(reg.suite_state_key(name, "central")) or {}).get("versions") or {}).get(str(number))
+    if not central or not entry or entry.get("suite_rev") != central.get("version"):
+        return None
+    return entry if entry.get("ok") is False or int(entry.get("must_failed") or 0) > 0 else None
+
+
 def set_live(store, tenant, name, body, now):
+    """Choose the live version. A version that failed a must-case of the central safety suite is not made live unless the caller gives a reason (10 to 300 characters), which is kept
+    with the agent (`overrides`, the latest 20)."""
     agent = owned(store, tenant, name)
     if agent is None:
         return problem(404, "not_found", "No such agent.")
-    number = body.get("version") if isinstance(body, dict) and set(body) == {"version"} else None
+    number = body.get("version") if isinstance(body, dict) and "version" in body and set(body) <= {"version", "override_reason"} else None
     if not isinstance(number, int) or isinstance(number, bool) or number < 0:
-        raise reg.Invalid('Send {"version": n}: a whole number, 0 for none.')
+        raise reg.Invalid('Send {"version": n} (a whole number, 0 for none) and, when the safety suite failed, "override_reason".')
+    reason = body.get("override_reason")
+    if reason is not None and (not isinstance(reason, str) or not 10 <= len(reason.strip()) <= 300):
+        raise reg.Invalid("override_reason is the owner's reason in 10 to 300 characters.")
     if number and (number > (agent.get("versions") or 0) or store.get(reg.version_key(name, number)) is None):
         return problem(404, "version_not_found", "No such version.")
-    moved = {**agent, "live_version": number, "rev": agent["rev"] + 1, "updated_at": now}
+    blocked = safety_failure(store, name, number) if number else None
+    if blocked and not reason:
+        return problem(409, "safety_failed", f"The platform's safety suite found {int(blocked.get('must_failed') or 0)} must-case(s) failed on version {number}. Fix it, or give a reason to make it live anyway.",
+                       must_failed=int(blocked.get("must_failed") or 0), run_id=blocked.get("run_id"))
+    overrides = dict(agent.get("overrides") or {})
+    if blocked:
+        overrides[str(number)] = {"reason": reason.strip(), "at": now, "must_failed": int(blocked.get("must_failed") or 0), "run_id": blocked.get("run_id")}
+        overrides = dict(sorted(overrides.items(), key=lambda kv: kv[1]["at"])[-20:])
+        log("safety_override", tenant=tenant["tenant_id"], agent=name, version=number, must_failed=overrides[str(number)]["must_failed"])
+    moved = {**agent, "live_version": number, "rev": agent["rev"] + 1, "updated_at": now, **({"overrides": overrides} if overrides else {})}
     if not store.replace_if(reg.agent_key(name), moved, "rev", agent["rev"]):
         return problem(409, "changed", "The agent was changed by another call at the same moment. Read it and try again.")
     log("live_version_set", tenant=tenant["tenant_id"], agent=name, version=number)

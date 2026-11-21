@@ -240,9 +240,9 @@ def publish(store, args, out, now, shelves=None):
     return 0
 
 
-def set_live_version(store, tenant, name, number, out, now):
+def set_live_version(store, tenant, name, number, out, now, reason=None):
     try:
-        status, payload = admin.set_live(store, tenant, name, {"version": number}, now)
+        status, payload = admin.set_live(store, tenant, name, {"version": number, **({"override_reason": reason} if reason else {})}, now)
     except reg.Invalid as error:
         out(str(error))
         return 2
@@ -255,7 +255,7 @@ def set_live(store, args, out, now, shelves=None):
     if not tenant:
         out(f"No tenant {args.tenant}.")
         return 1
-    return set_live_version(store, tenant, args.name, args.version, out, now)
+    return set_live_version(store, tenant, args.name, args.version, out, now, getattr(args, "override_reason", None))
 
 
 def show_agent(store, args, out, now, shelves=None):
@@ -616,6 +616,7 @@ def parser():
     s.add_argument("name")
     s.add_argument("--tenant", required=True)
     s.add_argument("--version", type=int, required=True)
+    s.add_argument("--override-reason", help="when the central safety suite failed this version: why it is made live anyway (10 to 300 characters; kept with the agent)")
     s = sub.add_parser("knowledge-sync", help="a folder of books to a business's shelves")
     s.add_argument("--tenant", required=True)
     s.add_argument("--folder")
