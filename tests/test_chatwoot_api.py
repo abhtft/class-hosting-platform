@@ -1215,4 +1215,39 @@ out = api.worker({"kind": "compare", "tenant_id": "acme", "agent_id": "shop", "v
 assert out["result"]["rows"][0]["a"]["route"] == "handover", "a failed answer is shown as it would be: a hand-over"
 print("  ok  the worker distils notes into sourced facts and instruction lines, and asks the same questions of two versions side by side, counting the cost")
 
+# ---- R2: the worker's repeatability check ----
+import chatwoot_repeat as repeat_rules  # noqa: E402
+import chatwoot_suite as suite_rules  # noqa: E402
+
+repeat_rules.GAP_SECONDS = 0
+f = Fakes()
+f.store.items["suite#shop"] = {"tenant_id": "acme", "agent_id": "shop", "rev": 1, "cases": suite_rules.clean_suite([
+    {"id": "hours", "turns": ["when do you open?"], "checks": {"route": "rag", "contains_all": ["nine"]}},
+    {"id": "ceo", "turns": ["who is the ceo?"], "checks": {"route": "fallback"}}])}
+f.store.items["repeat#shop#v1"] = {"tenant_id": "acme", "agent_id": "shop", "run_id": "aabbccddeeff", "version": 1, "status": "queued", "times": 3, "cases": ["hours", "ceo", "gone"], "total": 9, "done": 0, "started_at": NOW, "ttl": NOW + 9}
+event = {"kind": "repeat", "tenant_id": "acme", "agent_id": "shop", "version": 1, "run_id": "aabbccddeeff"}
+assert api.worker({**event, "run_id": "000000000000"}, None, now=NOW + 30, deps=f.wdeps) == {"error": "bad_event"} and api.worker({**event, "tenant_id": "beta"}, None, now=NOW + 30, deps=f.wdeps).get("error"), "only the check the admin function wrote"
+f.found = {"hits": [HIT], "confident": True, "tokens": 20, "cost_micro": 3, "missing": []}
+out = api.worker(event, None, now=NOW + 30, deps=f.wdeps)
+item = f.store.items["repeat#shop#v1"]
+assert out == {"label": "NEEDS A LOOK"} or out["label"] in ("LOOKS CONSISTENT", "NEEDS A LOOK"), out
+assert item["status"] == "done" and item["done"] == 3 and [s["id"] for s in item["summaries"]] == ["hours", "ceo"], "a question that is not in the suite any more is skipped"
+assert len(f.llm_calls) == 6 and len(f.searches) == 6 and not f.requests and not f.mem.items and not [k for k in f.store.items if k.startswith("msg#")], "two questions three times each; nothing posted, no memory"
+hours = item["summaries"][0]
+assert hours["runs"] == 3 and hours["answered"] == 3 and hours["answers"][0]["count"] == 3 and hours["signal"] == "same" and "We open at nine and close at six." in hours["answers"][0]["text"]
+assert f.store.usage(MONTH) > 0, "the cost is counted against the business's month"
+state = f.store.items["repeatstate#shop"]["versions"]["1"]
+assert state["run_id"] == "aabbccddeeff" and state["label"] == item["label"] and state["times"] == 3 and set(state["signals"]) == {"hours", "ceo"}
+assert "We open at nine" not in json.dumps(state), "the line of the version holds signals only, not answers"
+f.store.items["repeat#shop#v1"] = {**item, "status": "queued", "run_id": "aabbccddeeff"}
+f.llm_error = RuntimeError("model down")
+out = api.worker(event, None, now=NOW + 31, deps=f.wdeps)
+down = f.store.items["repeat#shop#v1"]
+assert down["status"] == "done" and all(s["signal"] == "no answer" for s in down["summaries"]) and out["label"] == "INCONCLUSIVE", "a model that is down is no answer, not a failure of the agent"
+f.llm_error = None
+f.store.items["repeat#shop#v1"] = {**item, "status": "queued", "run_id": "aabbccddeeff"}
+f.store.items[MONTH] = {"micro": 10 ** 9}
+assert api.worker(event, None, now=NOW + 32, deps=f.wdeps) == {"error": "cap_reached"} and f.store.items["repeat#shop#v1"]["status"] == "failed", "a business at its cap is not asked anything more"
+print("  ok  the worker asks the suite's questions several times each, writes the signals and every answer for a person to read, a one-line state per version, counts the cost, and treats a failed model as no answer")
+
 print("test_chatwoot_api.py: receiver, worker reply, secrets and store")

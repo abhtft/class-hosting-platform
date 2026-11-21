@@ -53,6 +53,11 @@ The sample is small enough to read, so no automatic verdict is trusted and no mo
 - **R2 and R3 change:** no automatic make-live gate on repeatability. R2 keeps the review sheet per version on the platform; R3 shows it in Studio for a person to read.
 - **Unchanged:** deterministic checks (route, facts, script), provider refusals never count against the agent, 5 questions times 3 runs.
 
+## Status
+- **R1 done** (`suite-repeat`, local command, commits 5e5f62e and b0e054e).
+- **R2 built:** the check runs on the platform (worker step `repeat`, admin routes `.../repeat`, records `repeat#...` and `repeatstate#...`); the pure rules moved to `lambda/chatwoot_repeat.py`. No gate.
+- **R3 next:** Studio shows the repeatability per version (a button, the signals, the answers, the sheet).
+
 ## What I need from you before building
 1. **N:** 5 repeats (recommended: 10 cents for the standard suite) or 3 (cheaper, weaker) or 10.
 2. **Which suite first:** the standard suite of `shop` (recommended) and then the central safety suite.

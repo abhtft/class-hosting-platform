@@ -43,6 +43,7 @@ import chatwoot_suggest as suggest_rows
 import gemini
 import chatwoot_suite as suite
 import chatwoot_interview as interview_topics
+import chatwoot_repeat as repeat
 import chatwoot_teach as teach
 import platform_settings
 from chatwoot_store import CONDITION_FAILED, DynamoStore, MemoryStore  # noqa: F401  (the table lives in chatwoot_store.py; these names stay importable from here)
@@ -605,6 +606,62 @@ def compare(event, deps, now):
     return {"result": {"rows": rows, "versions": versions}}
 
 
+def repeat_run(event, deps, now):
+    """A repeatability check (started by the admin function with an asynchronous event): a few of the agent's suite questions asked several times each of one published version, every time
+    as a fresh conversation, one round over all the questions at a time with a short pause (so a busy provider is not mistaken for unstable answers). The record of the check (written
+    first by the admin function) gets its progress after every round and, at the end, a signal per question with every different answer, and the version's line in `repeatstate#<agent>`.
+    Nothing is posted to Chatwoot and no message item or memory is written; what it costs counts against the business's month. It judges nothing itself: a person reads the result."""
+    began = time.monotonic()
+    agent_id, number = event.get("agent_id"), event.get("version")
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    key_of = registry.repeat_key(agent_id, number)
+    item = deps.store.get(key_of)
+    if not item or item.get("tenant_id") != event["tenant_id"] or item.get("status") != "queued" or item.get("run_id") != event.get("run_id"):
+        return {"error": "bad_event"}
+    config, used = dry_target(agent_id, tenant, {"version": number}, deps)
+    if used is None:
+        return config
+    stored = deps.store.get(registry.suite_key(agent_id)) or {}
+    by_id = {c["id"]: c for c in stored.get("cases", [])}
+    cases = [by_id[c] for c in item["cases"] if c in by_id]
+    times, key = item["times"], usage_key(event["tenant_id"], now)
+
+    def finish(**fields):
+        item.update(fields, finished_at=now + int(time.monotonic() - began))
+        deps.store.put(key_of, item)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        finish(status="failed", error="cap_reached")
+        return {"error": "cap_reached"}
+    runs, spent = {c["id"]: [] for c in cases}, 0
+    item.update(status="running")
+    for round_number in range(times):
+        for case in cases:
+            if time.monotonic() - began > SUITE_BUDGET_SECONDS:  # the worker has a limit: the questions not yet asked are not asked, and the record says so
+                item["partial"] = True
+                continue
+            context = {"channel": case["channel"], "inbox_id": case.get("inbox_id"), "facts": []}
+
+            def answer(turn, history, case=case, context=context):
+                return dry_turn(config, turn, history, context, event["tenant_id"], deps, key, now)
+            runs[case["id"]].append(repeat.run_once(case, config, answer))
+            time.sleep(repeat.GAP_SECONDS)
+        item.update(done=round_number + 1)
+        deps.store.put(key_of, item)
+    asked = [c for c in cases if runs[c["id"]]]
+    summaries = [repeat.summarise_case(c, runs[c["id"]]) for c in asked]
+    label, code, notes = repeat.judge(summaries)
+    spent = sum(r["spent_micro"] for rs in runs.values() for r in rs)
+    finish(status="done", label=label, exit_code=code, notes=notes, summaries=summaries, spent_micro=spent)
+    state = deps.store.get(registry.repeat_state_key(agent_id)) or {"versions": {}}
+    state["versions"][str(number)] = {"run_id": item["run_id"], "label": label, "at": item["finished_at"], "times": times, "signals": {s["id"]: s["signal"] for s in summaries}}
+    deps.store.put(registry.repeat_state_key(agent_id), state)
+    log("repeat_run", agent=agent_id, version=number, label=label, questions=len(summaries))
+    return {"label": label}
+
+
 def run_case(case, config, tenant, deps, key, now):
     """One test case: its customer messages in order (each answered with the history so far, like a conversation), the last answer judged. A failed case is tried once more: a pass on
     the retry is a pass marked flaky (the model answered differently). Returns the case's record: {"id", "title", "severity", "ok", "flaky", "route", "failed": [...], "answer"}."""
@@ -940,6 +997,8 @@ def worker(event, context=None, now=None, deps=None):
         return test(event, deps, now)
     if event.get("kind") == "suggest":  # from the admin function: test rows written from the agent's books for the owner to review
         return suggest(event, deps, now)
+    if event.get("kind") == "repeat":  # from the admin function: a repeatability check, asynchronous
+        return repeat_run(event, deps, now)
     if event.get("kind") == "distill":  # from the admin function: a teach session's facts, distilled for the owner to review
         return distill(event, deps, now)
     if event.get("kind") == "compare":  # from the admin function: the same questions asked of two versions

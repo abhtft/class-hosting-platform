@@ -1265,13 +1265,13 @@ Resources:
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'suitecentral#*']
+                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'suitecentral#*', 'repeat#*', 'repeatstate#*']
             - Effect: Allow # a suite run writes its progress and verdict (suiterun#...) and what it found (suitestate#...): nothing else
               Action: dynamodb:PutItem
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['suiterun#*', 'suitestate#*']
+                  dynamodb:LeadingKeys: ['suiterun#*', 'suitestate#*', 'repeat#*', 'repeatstate#*']
             - Effect: Allow # the conversation memory's own table: read the turns of a conversation and write them back (mem#...); no other table, no other action
               Action: [dynamodb:GetItem, dynamodb:PutItem]
               Resource: !GetAtt ChatwootMemoryTable.Arn
@@ -1500,7 +1500,7 @@ Resources:
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'teach#*', 'teachidx#*', 'media#*']
+                  dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'teach#*', 'teachidx#*', 'media#*', 'repeat#*', 'repeatstate#*']
             - Effect: Allow # read the platform's central safety suite (suitecentral#...): every business may read it, no business can change it (only the teacher's command writes it)
               Action: dynamodb:GetItem
               Resource: !GetAtt ChatwootTable.Arn

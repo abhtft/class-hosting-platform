@@ -33,6 +33,7 @@ import chatwoot_core as core
 import chatwoot_media as media
 import chatwoot_memory as memory
 import chatwoot_registry as reg
+import chatwoot_repeat as repeat
 import chatwoot_suggest as suggest_rows
 import chatwoot_suite as suite
 import chatwoot_teach as teach
@@ -49,6 +50,8 @@ LIVE = re.compile(rf"/admin/agents/({_NAME})/live")
 TEST = re.compile(rf"/admin/agents/({_NAME})/test")
 MEDIA_UPLOAD = re.compile(rf"/admin/agents/({_NAME})/media/upload-url")
 SUITE = re.compile(rf"/admin/agents/({_NAME})/suite")
+REPEAT = re.compile(rf"/admin/agents/({_NAME})/repeat")
+REPEAT_ONE = re.compile(rf"/admin/agents/({_NAME})/repeat/([0-9]{{1,6}})")
 TEACH = re.compile(rf"/admin/agents/({_NAME})/teach")
 TEACH_ONE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})")
 TEACH_ACT = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(turn|start|finish|revoke|interview|summary|confirm)")
@@ -391,6 +394,74 @@ def suggest_tests(store, tenant, name, body, invoke):
     status, message = test_error(answer.get("error"))
     code = answer.get("error") if status != 502 or answer.get("error") in ("model_unavailable", "bad_answer") else "test_failed"
     return problem(status, str(code), answer.get("message") if code == "bad_config" and isinstance(answer.get("message"), str) else message)
+
+
+def start_repeat(store, tenant, name, body, now, invoke):
+    """Start a repeatability check of one published version (asynchronous): a few of the agent's suite questions, each asked several times, for a person to read. The record is written first so
+    Studio can read it at once. One check at a time per version. About a cent."""
+    unknown = sorted(set(body) - {"version", "times", "cases"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    agent = owned(store, tenant, name)
+    if agent is None:
+        return problem(404, "not_found", "No such agent.")
+    number = body.get("version", agent.get("live_version"))
+    if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= (agent.get("versions") or 0):
+        raise reg.Invalid("version must be a published version number.")
+    times = body.get("times", repeat.TIMES)
+    if not isinstance(times, int) or isinstance(times, bool) or not 2 <= times <= repeat.MAX_TIMES:
+        raise reg.Invalid(f"times must be a whole number from 2 to {repeat.MAX_TIMES}.")
+    wanted = body.get("cases", list(repeat.DEFAULT_CASES))
+    if not isinstance(wanted, list) or not 1 <= len(wanted) <= suite.MAX_CASES or not all(isinstance(c, str) for c in wanted):
+        raise reg.Invalid("cases must be a list of case ids of the agent's suite.")
+    stored = store.get(reg.suite_key(name))
+    if not stored or not stored.get("cases"):
+        return problem(409, "no_suite", "This agent has no test suite yet. Add cases first.")
+    have = {c["id"] for c in stored["cases"]}
+    cases = [c for c in dict.fromkeys(wanted) if c in have]
+    if not cases:
+        return problem(409, "no_such_cases", "None of these questions is in the agent's suite.", have=sorted(have)[:10])
+    key = reg.repeat_key(name, number)
+    other = store.get(key) or {}
+    if other.get("status") in ("queued", "running") and now - int(other.get("started_at") or 0) < 300:
+        return problem(409, "run_in_progress", "A check of this version is still going. Wait for it to finish.", run_id=other.get("run_id"))
+    run_id = secrets.token_hex(6)
+    record = {"tenant_id": tenant["tenant_id"], "agent_id": name, "run_id": run_id, "version": number, "status": "queued", "times": times, "cases": cases, "total": times * len(cases),
+              "done": 0, "started_at": now, "ttl": now + suite_run_seconds()}
+    store.put(key, record)
+    try:
+        (invoke or invoke_worker_async)({"kind": "repeat", "tenant_id": tenant["tenant_id"], "agent_id": name, "version": number, "run_id": run_id})
+    except Exception as error:
+        store.put(key, {**record, "status": "failed", "error": "not_started"})
+        log("repeat_not_started", tenant=tenant["tenant_id"], agent=name, error=type(error).__name__)
+        return problem(502, "run_not_started", "The check could not be started. Try again.")
+    log("repeat_started", tenant=tenant["tenant_id"], agent=name, run=run_id)
+    return 202, {"run_id": run_id, "version": number, "total": record["total"], "cases": cases}
+
+
+def suite_run_seconds():
+    """How long the record of a check is kept (the same days as a suite run's)."""
+    return platform_settings.value("chatwoot.suiteRunDays") * 86400
+
+
+def get_repeat_state(store, tenant, name):
+    """The latest check of every version that has one: {"versions": {"<n>": {"run_id", "label", "at", "times", "signals"}}}."""
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    return 200, {"versions": (store.get(reg.repeat_state_key(name)) or {}).get("versions", {})}
+
+
+def get_repeat(store, tenant, name, number):
+    """The latest check of one version: its progress, and when done the signal per question with every different answer, and the review sheet as Markdown."""
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    item = store.get(reg.repeat_key(name, number))
+    if not item or item.get("tenant_id") != tenant["tenant_id"]:
+        return problem(404, "not_found", "No check of this version yet.")
+    out = {k: item.get(k) for k in ("run_id", "version", "status", "times", "cases", "total", "done", "started_at", "finished_at", "label", "notes", "summaries", "spent_micro", "partial", "error")}
+    if item.get("status") == "done":
+        out["sheet"] = repeat.sheet(item["summaries"], number, item["times"], item["label"])
+    return 200, out
 
 
 def get_suite(store, tenant, name):
@@ -796,6 +867,14 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None):
         if method != "POST":
             return problem(405, "method_not_allowed", "Use POST.")
         return set_live(store, tenant, found.group(1), parse_body(event), now)
+    found = REPEAT_ONE.fullmatch(path)
+    if found:
+        return get_repeat(store, tenant, found.group(1), int(found.group(2))) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = REPEAT.fullmatch(path)
+    if found:
+        if method == "POST":
+            return start_repeat(store, tenant, found.group(1), parse_body(event), now, invoke)
+        return get_repeat_state(store, tenant, found.group(1)) if method == "GET" else problem(405, "method_not_allowed", "Use GET or POST.")
     found = TEACH_PROPOSAL.fullmatch(path)
     if found:
         return save_teach_proposal(store, tenant, found.group(1), found.group(2), parse_body(event), now) if method == "PUT" else problem(405, "method_not_allowed", "Use PUT.")

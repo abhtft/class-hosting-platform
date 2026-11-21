@@ -1,4 +1,4 @@
-"""Repeatability (tools/chatwoot_repeat.py and the command `suite-repeat`): a few questions are asked a few times each and the machine only gives clear signals (same, differs,
+"""Repeatability (lambda/chatwoot_repeat.py and the command `suite-repeat`): a few questions are asked a few times each and the machine only gives clear signals (same, differs,
 unexpected, no answer) next to the real answers, for a person to read. No model judges anything. An answer that could not be made never counts against the agent."""
 import json
 import os
@@ -7,7 +7,7 @@ import tempfile
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(root, "lambda"))
-sys.path.insert(0, os.path.join(root, "tools"))
+sys.path.insert(0, os.path.join(root, "tools"))  # the command lives in tools/
 
 import chatwoot_admin as admin  # noqa: E402
 import chatwoot_ctl as ctl  # noqa: E402

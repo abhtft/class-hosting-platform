@@ -1,4 +1,4 @@
-"""Repeatability of an agent's answers: pure rules (no AWS, no model judge), used by `chatwoot_ctl.py suite-repeat`.
+"""Repeatability of an agent's answers: pure rules (no AWS, no model judge), used by the worker (a check started from Studio) and by `tools/chatwoot_ctl.py suite-repeat`.
 
 Repeatability = the same question, asked of the same version, gets the same kind of answer every time. A few questions are asked a few times each, every time as its own
 conversation. The machine only gives clear signals and puts the real answers in front of a person, who decides: the set is small enough to read in a minute.
@@ -13,10 +13,17 @@ A run is {"answered": bool, "passed": bool, "route": str | None, "text": str, "v
 import collections
 import re
 
+import chatwoot_suite as suite
+import platform_settings
+
 SAME, DIFFERS, UNEXPECTED, NO_ANSWER = "same", "differs", "unexpected", "no answer"
-MIN_ANSWERED_SHARE = 0.5  # fewer answered runs than this share of the runs: no answer
-MAJORITY_MIN = 0.6        # when fewer than this share of a question's answered runs agree (route and result), the check says plainly that it is unstable (exit code 1)
+MIN_ANSWERED_SHARE = platform_settings.value("chatwoot.repeatMinAnswered")  # fewer answered runs than this share of the runs: no answer
+MAJORITY_MIN = platform_settings.value("chatwoot.repeatMajorityMin")  # when fewer than this share of a question's answered runs agree (route and result), the check says plainly that it is unstable
+TIMES = platform_settings.value("chatwoot.repeatTimes")
+MAX_TIMES = platform_settings.maximum("chatwoot.repeatTimes")
+GAP_SECONDS = platform_settings.value("chatwoot.repeatGapSeconds")
 SHOWN_CHARS = 220         # how much of an answer the printed table shows
+DEFAULT_CASES = ("price-social-media", "office-hours", "unknown-ceo", "handover-person", "language-hindi")  # five kinds of variation: a number, an extra against the books, the fallback, a hand-over, a script
 
 
 def normalise(text):
@@ -35,6 +42,27 @@ def answers_of(runs):
         if r.get("via"):
             group["via"].add(r["via"])
     return [{**g, "via": sorted(g["via"])} for g in sorted(groups.values(), key=lambda g: -g["count"])]
+
+
+def run_once(case, config, answer):
+    """One run of a case: its customer messages in order as ONE fresh conversation (no memory from another run), judged by the case's own checks. `answer(turn, history)` returns the
+    worker's dry-run result for one message (or None / an error / a result with `failure`, or raises). A run whose answer could not be made is `no_answer`: it says nothing about the agent."""
+    history, result, spent, via = [], None, 0, None
+    for turn in case["turns"]:
+        try:
+            result = answer(turn, list(history))
+        except Exception as error:  # the worker or the model could not be reached: not the agent's answer
+            return {"answered": False, "passed": False, "route": None, "text": "", "via": None, "failed": [], "spent_micro": spent, "error": type(error).__name__}
+        if not isinstance(result, dict) or result.get("failure") or "text" not in result:
+            return {"answered": False, "passed": False, "route": None, "text": "", "via": (result or {}).get("via") if isinstance(result, dict) else None, "failed": [], "spent_micro": spent,
+                    "error": (result or {}).get("reason") if isinstance(result, dict) else None}
+        spent += int(result.get("spent_micro") or 0)
+        via = result.get("via") or via
+        history.append({"c": turn, "b": result["text"], **({"f": 1} if result["route"] == "fallback" else {}), **({"h": 1} if result["route"] == "handover" else {})})
+        if result["route"] == "handover":  # in real life the bot goes quiet after a hand-over
+            break
+    failed = suite.evaluate(case, result, config)
+    return {"answered": True, "passed": not failed, "route": result["route"], "text": str(result["text"]), "via": via, "failed": failed, "spent_micro": spent}
 
 
 def summarise_case(case, runs):

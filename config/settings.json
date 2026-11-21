@@ -2766,6 +2766,66 @@
       ]
     },
     {
+      "key": "chatwoot.repeatTimes",
+      "group": "chatwoot",
+      "title": "Times a question is asked in a repeatability check",
+      "help": "How many times each of the few questions of a repeatability check is asked (each time as a fresh conversation). Three shows clear instability; more costs more and takes longer than a request.",
+      "unit": "times",
+      "default": 3,
+      "min": 2,
+      "max": 5,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_repeat.TIMES"
+      ]
+    },
+    {
+      "key": "chatwoot.repeatGapSeconds",
+      "group": "chatwoot",
+      "title": "Pause between two questions of a repeatability check",
+      "help": "How long the check waits between two model calls, so a provider's rate limit is not mistaken for unstable answers.",
+      "unit": "seconds",
+      "default": 1,
+      "min": 0,
+      "max": 5,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_repeat.GAP_SECONDS"
+      ]
+    },
+    {
+      "key": "chatwoot.repeatMajorityMin",
+      "group": "chatwoot",
+      "title": "Share of runs that must agree in a repeatability check",
+      "help": "When fewer than this share of a question's answered runs agree (same route, same result), the check says plainly that the question is unstable. Between this and all of them it only asks a person to look.",
+      "unit": "share",
+      "default": 0.6,
+      "min": 0.3,
+      "max": 1,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_repeat.MAJORITY_MIN"
+      ]
+    },
+    {
+      "key": "chatwoot.repeatMinAnswered",
+      "group": "chatwoot",
+      "title": "Share of runs that must get an answer in a check",
+      "help": "A question with fewer answered runs than this share (a refused model, a busy provider) is reported as having no answer, not as unstable.",
+      "unit": "share",
+      "default": 0.5,
+      "min": 0.1,
+      "max": 1,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_repeat.MIN_ANSWERED_SHARE"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
@@ -4167,6 +4227,10 @@
     }
   ],
   "fixed": [
+    {
+      "code": "chatwoot_repeat.SHOWN_CHARS",
+      "reason": "How much of an answer the printed table of a repeatability check shows: a detail of the layout."
+    },
     {
       "code": "chatwoot_suggest.REFUSE_SHARE",
       "reason": "One question in five written from the books is one the books do not answer (a floor of two): a proportion of the method, not a limit anyone needs to tune."

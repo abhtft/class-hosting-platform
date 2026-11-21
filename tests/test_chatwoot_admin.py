@@ -526,6 +526,55 @@ status, body = teach_call("POST", f"/admin/agents/shop/teach/{tiny['sid']}/propo
 assert status == 502 and body["error"] == "bad_answer"
 print("  ok  T-C: the model's proposal (each fact with what the client said), the owner's decisions, a new version that is not live with the accepted facts and lines, a test for each corrected answer, and the same questions asked of two versions")
 
+# ---- R2: a repeatability check of one version ----
+started_repeats = []
+
+
+def repeat_call(method, path, body=None, key="acme", invoke=None):
+    event = {"rawPath": path, "requestContext": {"http": {"method": method}}, "headers": {"Authorization": "Bearer " + store.keys[key]}, "body": json.dumps(body) if body is not None else "",
+             "isBase64Encoded": False}
+    out = admin.handler(event, None, now=NOW + 500, store=store, invoke=invoke or started_repeats.append)
+    return out["statusCode"], json.loads(out["body"])
+
+
+assert repeat_call("GET", "/admin/agents/shop/repeat") == (200, {"versions": {}}) and repeat_call("GET", "/admin/agents/shop/repeat/1")[0] == 404
+assert repeat_call("POST", "/admin/agents/shop/repeat", {"version": 1})[1]["error"] == "no_such_cases", "the five standard questions are not in this suite: nothing to ask"
+status, begun = repeat_call("POST", "/admin/agents/shop/repeat", {"version": 1, "cases": ["price", "hours", "price", "nope"], "times": 3})
+assert status == 202 and begun["version"] == 1 and begun["cases"] == ["price", "hours"] and begun["total"] == 6 and re.fullmatch(r"[0-9a-f]{12}", begun["run_id"]), begun
+assert started_repeats[-1] == {"kind": "repeat", "tenant_id": "acme", "agent_id": "shop", "version": 1, "run_id": begun["run_id"]}, "the tenant is the key's"
+record = store.items["repeat#shop#v1"]
+assert record["status"] == "queued" and record["times"] == 3 and record["tenant_id"] == "acme" and record["ttl"] > NOW + 500
+assert repeat_call("POST", "/admin/agents/shop/repeat", {"version": 1, "cases": ["price"]})[1]["error"] == "run_in_progress", "one check at a time per version"
+status, shown = repeat_call("GET", "/admin/agents/shop/repeat/1")
+assert status == 200 and shown["status"] == "queued" and shown["done"] == 0 and "sheet" not in shown
+store.items["repeat#shop#v1"] = {**record, "status": "done", "label": "LOOKS CONSISTENT", "notes": [], "done": 3, "finished_at": NOW + 520, "spent_micro": 40,
+                                 "summaries": [{"id": "price", "severity": "must", "runs": 3, "answered": 3, "no_answer": 0, "signal": "same", "agree": 1.0, "vias": [], "failures": [],
+                                                "answers": [{"text": "Rs 2,000", "route": "rag", "passed": True, "count": 3, "via": []}]}]}
+status, shown = repeat_call("GET", "/admin/agents/shop/repeat/1")
+assert status == 200 and shown["label"] == "LOOKS CONSISTENT" and shown["sheet"].startswith("# Repeatability review: version 1") and "> Rs 2,000" in shown["sheet"]
+store.items["repeatstate#shop"] = {"versions": {"1": {"run_id": begun["run_id"], "label": "LOOKS CONSISTENT", "at": NOW + 520, "times": 3, "signals": {"price": "same"}}}}
+assert repeat_call("GET", "/admin/agents/shop/repeat")[1]["versions"]["1"]["label"] == "LOOKS CONSISTENT"
+status, again = repeat_call("POST", "/admin/agents/shop/repeat", {"version": 1, "cases": ["price"], "times": 2})
+assert status == 202 and again["total"] == 2, "a finished check may be repeated"
+for bad, why in (({"version": 0}, "version"), ({"version": 99}, "version"), ({"version": 1, "times": 1}, "times"), ({"version": 1, "times": 99}, "times"), ({"version": 1, "cases": []}, "cases"), ({"version": 1, "cases": [5]}, "cases"), ({"version": 1, "extra": 1}, "Unknown field")):
+    status, answer = repeat_call("POST", "/admin/agents/shop/repeat", bad)
+    assert status == 400 and why.lower() in answer["message"].lower(), (bad, status, answer)
+assert repeat_call("POST", "/admin/agents/nobody/repeat", {})[0] == 404 and repeat_call("GET", "/admin/agents/shop/repeat/1", key="beta")[0] == 404 and repeat_call("GET", "/admin/agents/shop/repeat", key="beta")[0] == 404, "another business sees nothing"
+store.items["repeat#shop#v2"] = {**record, "tenant_id": "beta", "version": 2}
+assert repeat_call("GET", "/admin/agents/shop/repeat/2")[0] == 404, "a check of another business is not shown"
+store.items["repeat#shop#v1"]["status"] = "done"
+
+
+def refuses_repeat(payload):
+    raise RuntimeError("could not start 4111 Asha")
+
+
+status, body = repeat_call("POST", "/admin/agents/shop/repeat", {"version": 1, "cases": ["price"]}, invoke=refuses_repeat)
+assert status == 502 and body["error"] == "run_not_started" and "4111" not in json.dumps(body) and store.items["repeat#shop#v1"]["status"] == "failed", "a check that could not be started is marked failed, nothing leaks"
+for method, path in (("PUT", "/admin/agents/shop/repeat"), ("DELETE", "/admin/agents/shop/repeat/1"), ("POST", "/admin/agents/shop/repeat/1")):
+    assert repeat_call(method, path)[0] == 405, (method, path)
+print("  ok  R2: a repeatability check of a version is started asynchronously with the tenant of the key, one at a time, its record and review sheet are read, other businesses see nothing, and a check that cannot start leaves a failed record")
+
 # ---- nothing secret is returned or logged ----
 everything = json.dumps([call(store, "GET", "/admin/agents"), call(store, "GET", "/admin/agents/shop"), refusals]) + "\n".join(LOGS)
 for key in ALL_KEYS:
@@ -534,7 +583,7 @@ for key in ALL_KEYS:
 for item in store.items.values():
     assert not any(key.split(".", 1)[1] in json.dumps(item) for key in ALL_KEYS), "only hashes are in the table"
 assert "key_hash" not in everything and not re.search(r"cs_[a-z0-9-]+\.[A-Za-z0-9_-]{32,}", everything), "no key, hash or key-shaped text in a response or a log"
-assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable", "suite_saved", "teach_created", "teach_propose", "teach_draft", "suite_started", "suite_not_started") for line in LOGS)
+assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "agent_updated", "version_published", "live_version_set", "failed", "store_unavailable", "suite_saved", "teach_created", "teach_propose", "teach_draft", "suite_started", "suite_not_started", "repeat_started", "repeat_not_started") for line in LOGS)
 print("  ok  no service key, its hash or a bearer header is in any response or log line, and the table holds only hashes")
 
 print("test_chatwoot_admin.py: service-key access, agents, versions, tenant isolation, concurrency and secrecy")

@@ -38,7 +38,6 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lambda"))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # chatwoot_repeat.py, next to this file
 
 import chatwoot_admin as admin  # noqa: E402
 import chatwoot_media as media  # noqa: E402
@@ -583,7 +582,6 @@ def suite_run(store, args, out, now, shelves=None):
 
 # ---------- repeatability: the same few questions, asked several times ----------
 
-REPEAT_CASES = ("price-social-media", "office-hours", "unknown-ceo", "handover-person", "language-hindi")  # five kinds of variation: a number, an extra against the books, the fallback, a hand-over, a script
 
 
 def real_ask(args):
@@ -602,28 +600,14 @@ def real_ask(args):
 
 
 def ask_case(case, tenant_id, name, version, config, ask, pause):
-    """One run of a case: its customer messages in order as ONE fresh conversation (no memory from another run), judged like a suite run. A run whose answer could not be made
-    (the worker answered with an error, or with a hand-over because the model was refused) is `no_answer`: it says nothing about the agent."""
-    history, result, spent, via = [], None, 0, None
-    for turn in case["turns"]:
-        payload = {"kind": "test", "tenant_id": tenant_id, "agent_id": name, "version": version, "text": turn, "history": list(history), "channel": case["channel"],
+    """One run of a case through the worker's dry run (see chatwoot_repeat.run_once)."""
+    def answer(turn, history):
+        payload = {"kind": "test", "tenant_id": tenant_id, "agent_id": name, "version": version, "text": turn, "history": history, "channel": case["channel"],
                    **({"inbox_id": case["inbox_id"]} if case.get("inbox_id") else {})}
-        try:
-            answer = ask(payload)
-        except Exception as error:  # the worker could not be reached or failed: not the agent's answer
-            return {"answered": False, "passed": False, "route": None, "text": "", "via": None, "failed": [], "spent_micro": spent, "error": type(error).__name__}
+        reply = ask(payload)
         pause()
-        result = answer.get("result") if isinstance(answer, dict) else None
-        if not isinstance(result, dict) or result.get("failure"):
-            return {"answered": False, "passed": False, "route": None, "text": "", "via": (result or {}).get("via"), "failed": [], "spent_micro": spent,
-                    "error": (answer or {}).get("error") if isinstance(answer, dict) else None or (result or {}).get("reason")}
-        spent += int(result.get("spent_micro") or 0)
-        via = result.get("via") or via
-        history.append({"c": turn, "b": result["text"], **({"f": 1} if result["route"] == "fallback" else {}), **({"h": 1} if result["route"] == "handover" else {})})
-        if result["route"] == "handover":  # in real life the bot goes quiet after a hand-over
-            break
-    failed = suite.evaluate(case, result, config)
-    return {"answered": True, "passed": not failed, "route": result["route"], "text": str(result["text"]), "via": via, "failed": failed, "spent_micro": spent}
+        return reply.get("result") if isinstance(reply, dict) else None
+    return repeat.run_once(case, config, answer)
 
 
 def suite_repeat(store, args, out, now, shelves=None):
@@ -645,7 +629,7 @@ def suite_repeat(store, args, out, now, shelves=None):
         return 2
     suite_item = store.get(reg.suite_key(args.name)) or {}
     by_id = {c["id"]: c for c in suite_item.get("cases", [])}
-    wanted = list(by_id) if args.cases == "all" else [c.strip() for c in (args.cases or ",".join(REPEAT_CASES)).split(",") if c.strip()]
+    wanted = list(by_id) if args.cases == "all" else [c.strip() for c in (args.cases or ",".join(repeat.DEFAULT_CASES)).split(",") if c.strip()]
     missing = [c for c in wanted if c not in by_id]
     cases = [by_id[c] for c in wanted if c in by_id]
     if missing:
@@ -764,9 +748,9 @@ def parser():
     s.add_argument("--tenant", required=True)
     s.add_argument("--version", type=int, help="the version to ask (the live one by default)")
     s.add_argument("--cases", help="comma-separated case ids, or all (default: five questions of the standard suite)")
-    s.add_argument("--times", type=int, default=3, help="how many times each question is asked")
+    s.add_argument("--times", type=int, default=repeat.TIMES, help="how many times each question is asked")
     s.add_argument("--escalate", type=int, default=0, help="how many more times a question whose answers differ is asked, alone (0: not at all)")
-    s.add_argument("--gap", type=float, default=1.0, help="seconds to wait between two questions (rate limits)")
+    s.add_argument("--gap", type=float, default=repeat.GAP_SECONDS, help="seconds to wait between two questions (rate limits)")
     s.add_argument("--save", help="write the numbers and every answer to this JSON file")
     s.add_argument("--sheet", help="write a review sheet (Markdown) for a person to read")
     return p

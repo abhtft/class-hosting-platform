@@ -49,6 +49,14 @@ def teach_index_key(agent):
     return f"teachidx#{agent}"
 
 
+def repeat_key(agent, version):
+    return f"repeat#{agent}#v{version}"
+
+
+def repeat_state_key(agent):
+    return f"repeatstate#{agent}"
+
+
 def suite_key(agent):
     """The test suite of an agent (its cases and their revision)."""
     return f"suite#{agent}"
