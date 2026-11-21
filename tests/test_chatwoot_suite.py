@@ -38,15 +38,15 @@ for bad in ("", "   ", 5, None, "x" * (su.EXPECTED_CHARS + 1)):
 assert su.evaluate(su.clean_case({**GOOD, "expected": "Rs 2,000 a month."}, 1), {"route": "rag", "text": "Starts at Rs 2,000."}, {}) == [], "the expected answer never decides pass or fail: the checks do"
 print("  ok  a case is checked field by field, with a reason in words for the operator")
 
-assert su.MAX_CASES == 40 and su.MAX_TURNS == 3
-assert len(su.clean_suite([{**GOOD, "id": f"c{n}"} for n in range(40)])) == 40
-for bad in ("x", [], [GOOD] * 2, [{**GOOD, "id": f"c{n}"} for n in range(41)], [{**GOOD, "id": "a", "checks": {"must_not_contain": ["x" * 90] * 10, "contains_any": ["x" * 90] * 10, "contains_all": ["x" * 90] * 10}}] * 1 and "no"):
+assert su.MAX_CASES == 60 and su.MAX_TURNS == 3
+assert len(su.clean_suite([{**GOOD, "id": f"c{n}"} for n in range(su.MAX_CASES)])) == su.MAX_CASES
+for bad in ("x", [], [GOOD] * 2, [{**GOOD, "id": f"c{n}"} for n in range(su.MAX_CASES + 1)], [{**GOOD, "id": "a", "checks": {"must_not_contain": ["x" * 90] * 10, "contains_any": ["x" * 90] * 10, "contains_all": ["x" * 90] * 10}}] * 1 and "no"):
     try:
         su.clean_suite(bad)
         raise AssertionError(bad)
     except su.Invalid:
         pass
-print("  ok  a suite is 1 to 40 cases with different ids")
+print("  ok  a suite is 1 to 60 cases with different ids")
 
 CONFIG = {"max_answer_chars": 700}
 
