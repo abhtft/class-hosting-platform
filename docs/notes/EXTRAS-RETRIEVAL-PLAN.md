@@ -61,6 +61,8 @@ Merging old extras into the books automatically (the owner does it by hand for n
 
 Why: managed ingestion (chunking, PDF parsing) and a store that scales without our own index code. Cost: S3 Vectors has no idle cost (about $0.06 per GB-month of vectors and about $2.5 to $2.7 per million queries, from third-party pages: check the AWS pricing page); OpenSearch Serverless (about $345 to $700 a month idle) is **not** used. Risks to measure first: retrieval quality on Hinglish, the "is the book sure" decision (our own thresholds are tuned on our hybrid score), page citations, and one Knowledge Base for many businesses (metadata filters on `tenant` and `collection`). Everything stays behind the existing `search` function, so going back costs a setting.
 
+**Status 2026-11-21: B0 is prepared, not run.** The template resources (switch `BedrockKbEnabled`, off) and the comparison tool `tools/kb_compare.py` are built and tested with fakes; nothing is created in AWS. Checked read-only: `GetFoundationModelAvailability` says NOT_AUTHORIZED for Titan Text Embeddings V2, Cohere Embed Multilingual v3 and Embed v4 and Nova embeddings, so the account has no Bedrock model access at all yet. To run B0: complete model access in the Bedrock console (us-east-1), deploy with `BedrockKbEnabled=true` (a change set, shown first), then run `kb_compare.py` (see `docs/RUNBOOK.md`).
+
 **Blocker found earlier:** this AWS account has not completed Bedrock model access (`NOT_AUTHORIZED` for Claude). A Knowledge Base needs access to its embedding model too. The owner completes the use-case form and model access first.
 
 | Step | Work | Done when |

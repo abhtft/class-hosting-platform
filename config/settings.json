@@ -3736,6 +3736,21 @@
       "template": "Parameter:WorkerEnabled"
     },
     {
+      "key": "features.bedrockKb",
+      "group": "features",
+      "title": "Bedrock Knowledge Base trial for the Chatwoot books",
+      "help": "Creates an Amazon Bedrock Knowledge Base on S3 Vectors next to the current book search, only to compare the two (it does not answer customers). Needs the Chatwoot adapter and Bedrock model access for Amazon Titan Text Embeddings V2. No idle charge; ingestion pays for embeddings.",
+      "unit": "true or false",
+      "default": "false",
+      "scope": "deploy",
+      "risk": "careful",
+      "choices": [
+        "false",
+        "true"
+      ],
+      "template": "Parameter:BedrockKbEnabled"
+    },
+    {
       "key": "features.chatwoot",
       "group": "features",
       "title": "Chatwoot Agent Bot adapter",

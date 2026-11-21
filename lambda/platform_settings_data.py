@@ -240,6 +240,7 @@ SETTINGS = {
     "features.knowledge": {"type": "text", "default": "false", "min": None, "max": None, "env": None},
     "features.traces": {"type": "text", "default": "false", "min": None, "max": None, "env": None},
     "features.worker": {"type": "text", "default": "false", "min": None, "max": None, "env": None},
+    "features.bedrockKb": {"type": "text", "default": "false", "min": None, "max": None, "env": None},
     "features.chatwoot": {"type": "text", "default": "false", "min": None, "max": None, "env": None},
     "install.rootDomain": {"type": "text", "default": "", "min": None, "max": None, "env": None},
     "install.certificateArn": {"type": "text", "default": "", "min": None, "max": None, "env": None},

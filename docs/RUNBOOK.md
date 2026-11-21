@@ -43,3 +43,18 @@ python tools/chatwoot_ctl.py --table <ChatwootTableName> --worker <ChatwootWorke
 
 - A bad version: `set-live` an earlier version number (versions never change). Retire a version only when it is not live and not the last one.
 - A stuck message: the sweeper hands it to a person every 10 minutes.
+
+## Bedrock Knowledge Base trial (track B, step B0)
+
+Off by default. Not used to answer customers: it exists to compare the books on S3 Vectors with the current search.
+
+1. In the Bedrock console (us-east-1) complete model access; `GetFoundationModelAvailability` for `amazon.titan-embed-text-v2:0` must say `AUTHORIZED`.
+2. Checkov, cfn-lint, then a change set with `BedrockKbEnabled=true` (it adds the S3 Vectors bucket and index, a Knowledge Base, a data source and a role); execute only on the owner's yes. Note the outputs `BooksKnowledgeBaseId` and `BooksDataSourceId`.
+3. Write a cases file like the one `chatwoot_ctl.py eval` reads (questions the books answer with an `expect` text, and questions they must refuse with `"refuse": true`; include Hinglish questions).
+4. Run:
+
+```powershell
+python tools/kb_compare.py --tenant poc --folder knowledge/poc --collections <shelf> --cases cases.json --bucket <sites bucket> --secret-name <AiSecretName> --knowledge-base <BooksKnowledgeBaseId> --data-source <BooksDataSourceId>
+```
+
+5. Read the table: answerable and refused questions for both searches, best scores and times. Record the go or no-go in `docs/DECISIONS.md`. To remove the trial set `BedrockKbEnabled=false` (the data source deletes its vectors; confirm before deleting).

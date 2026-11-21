@@ -116,6 +116,14 @@ Parameters:
       Traces: a step-by-step record of every answer (the question, which book passages were found, what the AI was asked and answered, the cost),
       stored per student in its own table and deleted automatically after 30, 60 or 90 days. The teacher sets how much text is stored (nothing by
       default). Needs BackendEnabled='true'. Off by default; with it off nothing changes. See docs/TRACE_SCHEMA.md.
+  BedrockKbEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: >
+      Trial of an Amazon Bedrock Knowledge Base on S3 Vectors for the Chatwoot agents' books (track B, step B0 of docs/notes/EXTRAS-RETRIEVAL-PLAN.md). It is NOT used to answer
+      customers: it only exists so the books can be compared with the current search. Needs ChatwootEnabled and Bedrock model access to Amazon Titan Text Embeddings V2 in the account.
+      S3 Vectors has no idle charge; ingestion pays for embedding tokens (cents for a few books).
   ChatwootEnabled:
     Type: String
     Default: 'false'
@@ -262,6 +270,7 @@ Conditions:
   UseKnowledge: !And [!Condition UseBackend, !Equals [!Ref KnowledgeEnabled, 'true']]
   UseTraces: !And [!Condition UseBackend, !Equals [!Ref TracesEnabled, 'true']]
   UseChatwoot: !Equals [!Ref ChatwootEnabled, 'true']
+  UseBedrockKb: !And [!Condition UseChatwoot, !Equals [!Ref BedrockKbEnabled, 'true']]
   UseWorker: !Equals [!Ref WorkerEnabled, 'true']
   UseAlerts: !Not [!Equals [!Ref AlertEmailParameter, '']]
   UseAlertsAndBackend: !And [!Condition UseAlerts, !Condition UseBackend]
@@ -1332,6 +1341,101 @@ Resources:
           Properties:
             Schedule: rate(10 minutes)
 
+  # ---------- Bedrock Knowledge Base trial (track B, step B0): the books on S3 Vectors, next to the current search, not used for answers ----------
+  # The sources are copied by the teacher's tool (tools/kb_compare.py) to kb-sources/<business>/<shelf>/ with a metadata file each; the Knowledge Base reads only that prefix.
+  BooksVectorBucket:
+    Type: AWS::S3Vectors::VectorBucket
+    Condition: UseBedrockKb
+    Properties:
+      EncryptionConfiguration:
+        SseType: AES256
+
+  BooksVectorIndex:
+    Type: AWS::S3Vectors::Index
+    Condition: UseBedrockKb
+    Properties:
+      VectorBucketArn: !Ref BooksVectorBucket
+      IndexName: chatwoot-books
+      DataType: float32
+      Dimension: 1024 # Titan Text Embeddings V2 at its default size; the Knowledge Base needs the same number
+      DistanceMetric: cosine
+      MetadataConfiguration:
+        NonFilterableMetadataKeys: [AMAZON_BEDROCK_TEXT, AMAZON_BEDROCK_METADATA] # the passage text and its metadata are returned, never filtered on
+
+  BooksKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Condition: UseBedrockKb
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: bedrock.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: {'aws:SourceAccount': !Ref 'AWS::AccountId'}
+              ArnLike: {'aws:SourceArn': !Sub 'arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*'}
+      Policies:
+        - PolicyName: books-knowledge-base
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow # embed the passages and the questions with this one model
+                Action: bedrock:InvokeModel
+                Resource: !Sub 'arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+              - Effect: Allow # read and write the vectors of this one index
+                Action: [s3vectors:PutVectors, s3vectors:GetVectors, s3vectors:DeleteVectors, s3vectors:QueryVectors, s3vectors:ListVectors, s3vectors:GetIndex]
+                Resource: !Ref BooksVectorIndex
+              - Effect: Allow # read the sources: kb-sources/ and nothing else in the sites bucket
+                Action: s3:GetObject
+                Resource: !Sub '${SitesBucket.Arn}/kb-sources/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt SitesBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix: ['kb-sources/*']
+
+  BooksKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Condition: UseBedrockKb
+    Properties:
+      Name: !Sub '${AWS::StackName}-books'
+      Description: The Chatwoot agents' books on S3 Vectors (a trial next to the current book search).
+      RoleArn: !GetAtt BooksKnowledgeBaseRole.Arn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub 'arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+          EmbeddingModelConfiguration:
+            BedrockEmbeddingModelConfiguration:
+              Dimensions: 1024
+              EmbeddingDataType: FLOAT32
+      StorageConfiguration:
+        Type: S3_VECTORS
+        S3VectorsConfiguration:
+          IndexArn: !Ref BooksVectorIndex
+
+  BooksDataSource:
+    Type: AWS::Bedrock::DataSource
+    Condition: UseBedrockKb
+    Properties:
+      Name: kb-sources
+      KnowledgeBaseId: !GetAtt BooksKnowledgeBase.KnowledgeBaseId
+      DataDeletionPolicy: DELETE
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !GetAtt SitesBucket.Arn
+          BucketOwnerAccountId: !Ref 'AWS::AccountId'
+          InclusionPrefixes: [kb-sources/]
+      VectorIngestionConfiguration:
+        ChunkingConfiguration:
+          ChunkingStrategy: FIXED_SIZE
+          FixedSizeChunkingConfiguration:
+            MaxTokens: 300
+            OverlapPercentage: 20
+
   # Chatwoot media janitor (chatwoot_janitor.py): once a day it removes the media files that no published version lists any more (a file nobody used within chatwoot.mediaPendingHours, or one of
   # a retired version). It reads the adapter's table (a scan for the media ledgers, then single reads of agents and versions), writes only ledgers and may delete objects under chatwoot-media/ and
   # nothing else in the bucket. It reads no secret, calls neither Chatwoot nor Google and never sees a customer's words.
@@ -2029,6 +2133,14 @@ Outputs:
     Condition: UseChatwoot
     Description: The Chatwoot adapter's table. Give it to tools/chatwoot_ctl.py as --table to create businesses (tenants), their service keys and agents
     Value: !Ref ChatwootTable
+  BooksKnowledgeBaseId:
+    Condition: UseBedrockKb
+    Description: The Bedrock Knowledge Base of the books trial. Give it to tools/kb_compare.py as --knowledge-base
+    Value: !GetAtt BooksKnowledgeBase.KnowledgeBaseId
+  BooksDataSourceId:
+    Condition: UseBedrockKb
+    Description: The data source of the books trial (the kb-sources/ prefix). Give it to tools/kb_compare.py as --data-source
+    Value: !GetAtt BooksDataSource.DataSourceId
   StudentDataTableName:
     Condition: UseStorage
     Value: !Ref StudentDataTable

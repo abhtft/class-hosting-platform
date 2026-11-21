@@ -91,7 +91,22 @@ assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}
 for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:*", "s3:PutObject", "s3:DeleteObject", "s3:*", "TokensTable", "kms:", "iam:", "ssm:", "cloudfront",
                   "StudentDataTable", "TracesTable", "Resource: '*'", "Action: '*'", "knowledge/student", "knowledge/class", "sites/", "portal/"):
     assert forbidden not in code, f"the worker must not have {forbidden}"
-assert template.count("bedrock:InvokeModel") == 2, "only the worker and the AI proxy may ask Bedrock: no student role, no other function"
+assert template.count("bedrock:InvokeModel") == 3, "only the worker, the AI proxy and the Knowledge Base trial's own role (off by default, below) may ask Bedrock: no student role, no other function"
+
+# ---- the Bedrock Knowledge Base trial (track B, step B0): off by default, its own role, one model, one index, one source prefix ----
+switch = re.search(r"  BedrockKbEnabled:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
+assert "Default: 'false'" in switch and "AllowedValues: ['false', 'true']" in switch, "off by default"
+assert re.search(r"UseBedrockKb: !And \[!Condition UseChatwoot, !Equals \[!Ref BedrockKbEnabled, 'true'\]\]", template), "it needs the adapter and its own switch"
+for name in ("BooksVectorBucket", "BooksVectorIndex", "BooksKnowledgeBaseRole", "BooksKnowledgeBase", "BooksDataSource"):
+    assert "Condition: UseBedrockKb" in block(name), f"{name} exists only when the trial is switched on"
+kb_role = re.sub(r"#[^\n]*", "", block("BooksKnowledgeBaseRole"))
+assert "Service: bedrock.amazonaws.com" in kb_role and "aws:SourceAccount" in kb_role and "knowledge-base/*" in kb_role, "only Bedrock, for this account's knowledge bases, may use the role"
+assert sorted(re.findall(r"Action: (\[[^\]]*\]|[\w:]+)", kb_role)) == ["[s3vectors:PutVectors, s3vectors:GetVectors, s3vectors:DeleteVectors, s3vectors:QueryVectors, s3vectors:ListVectors, s3vectors:GetIndex]", "bedrock:InvokeModel", "s3:GetObject", "s3:ListBucket", "sts:AssumeRole"], "exactly these permissions"
+assert re.findall(r"foundation-model/[\w.:-]+", kb_role) == ["foundation-model/amazon.titan-embed-text-v2:0"], "one embedding model"
+assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", kb_role) == ["${SitesBucket.Arn}/kb-sources/*"] and "s3:prefix: ['kb-sources/*']" in kb_role, "the sources prefix only"
+assert "Resource: !Ref BooksVectorIndex" in kb_role and "s3:Put" not in kb_role and "s3:Delete" not in kb_role and "Resource: '*'" not in kb_role, "one index, no writes to the sites bucket"
+assert "InclusionPrefixes: [kb-sources/]" in block("BooksDataSource") and "Type: S3_VECTORS" in block("BooksKnowledgeBase") and "Dimension: 1024" in block("BooksVectorIndex"), "the trial reads only kb-sources/ and stores on S3 Vectors"
+assert "BooksKnowledgeBase" not in block("ChatwootWorkerFunction") and "BooksKnowledgeBase" not in block("ChatwootAdminFunction"), "nothing answers from it yet"
 base_url_parameter = re.search(r"  ChatwootBaseUrl:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
 assert "Default: ''" in base_url_parameter and "AllowedPattern: '^(https://" in base_url_parameter, "https only, empty until the teacher sets it"
 auth_style_parameter = re.search(r"  ChatwootAuthStyle:\n((?:    [^\n]*\n|      [^\n]*\n)*)", params).group(1)
