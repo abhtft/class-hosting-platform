@@ -193,6 +193,8 @@ for change, why in (({"message_type": "outgoing"}, "not_incoming"), ({"private":
     assert (status, body) == (200, {"ok": True, "ignored": why}) and not f.invoked and not messages(f), (change, status, body)
 f = Fakes()
 assert call(f, event(None, body=b"not json"))[1] == {"ok": True, "ignored": "not_json"}, "a signed body that is not JSON is ignored, not a crash"
+served = [line for line in LOGS if '"not_served"' in line]
+assert sorted(json.loads(line)["reason"] for line in served) == ["bad_payload", "not_json", "not_pending"] and all(set(json.loads(line)) == {"chatwoot", "agent", "reason"} for line in served), "a conversation a person already has, or a payload we cannot read, is logged by reason only; the bot's own replies and other events are not"
 print("  ok  the bot's own replies, agents' replies, private notes, other events and taken-over conversations are acknowledged and ignored")
 
 # ---- only a registered agent is served: its tenant, account and inbox are checked before anything is stored ----

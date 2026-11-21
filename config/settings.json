@@ -2676,6 +2676,21 @@
       ]
     },
     {
+      "key": "chatwoot.mediaCaptionMaxChars",
+      "group": "chatwoot",
+      "title": "Longest answer sent together with a file",
+      "help": "The agent sends its answer and the first file as ONE message (the answer is the file's caption), so the customer gets both at once. WhatsApp takes captions of about 1,000 characters; a longer answer is sent first as text and the file after it.",
+      "unit": "characters",
+      "default": 1000,
+      "min": 100,
+      "max": 4000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.MEDIA_CAPTION_CHARS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",

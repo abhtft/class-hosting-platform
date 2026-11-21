@@ -167,6 +167,7 @@ SETTINGS = {
     "chatwoot.mediaPendingHours": {"type": "int", "default": 24, "min": 1, "max": 168, "env": None},
     "chatwoot.extrasMinScore": {"type": "float", "default": 0.6, "min": 0.3, "max": 0.95, "env": None},
     "chatwoot.extrasTopK": {"type": "int", "default": 3, "min": 1, "max": 10, "env": None},
+    "chatwoot.mediaCaptionMaxChars": {"type": "int", "default": 1000, "min": 100, "max": 4000, "env": None},
     "chatwoot.llmRetryPauseSeconds": {"type": "int", "default": 3, "min": 0, "max": 10, "env": None},
     "chatwoot.maxCollections": {"type": "int", "default": 5, "min": 1, "max": 10, "env": None},
     "chatwoot.maxInstructionChars": {"type": "int", "default": 4000, "min": 100, "max": 20000, "env": None},

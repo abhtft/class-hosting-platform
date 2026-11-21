@@ -57,6 +57,7 @@ SUITE_PARALLEL = platform_settings.value("chatwoot.suiteParallel")  # test cases
 SUITE_RUN_DAYS = platform_settings.value("chatwoot.suiteRunDays")  # how long the record of a suite run is kept
 SUITE_BUDGET_SECONDS = platform_settings.value("chatwoot.suiteBudgetSeconds")  # no new case is started after this long: the worker has 120 seconds
 MEDIA_TIMEOUT_SECONDS = platform_settings.value("chatwoot.mediaSendTimeoutSeconds")  # one file uploaded into the chat
+MEDIA_CAPTION_CHARS = platform_settings.value("chatwoot.mediaCaptionMaxChars")  # the answer travels as the file's caption up to this long (WhatsApp takes about 1,000)
 AUTH_STYLE = platform_settings.value("chatwoot.authStyle")  # bearer, or api_access_token for a Chatwoot older than 4.19
 SECRET_PREFIX = "chatwoot/"  # the secret of agent <id> is named chatwoot/<id>; the template lets the functions read exactly this prefix
 ROUTE = re.compile(r"/hooks/chatwoot/([^/]+)")
@@ -243,6 +244,8 @@ def handler(event, context=None, now=None, deps=None):
     payload = core.parse(body)
     fields, ignored = core.classify(payload)
     if ignored:
+        if ignored in ("not_pending", "bad_payload", "not_json"):  # the ones worth knowing about (a conversation a person already has, a payload we cannot read); the bot's own replies and other events are far too many to log
+            log("not_served", agent=agent_id, reason=ignored)
         return reply(200, ok=True, ignored=ignored)
     try:
         unmapped = deps.registry.allows(agent_id, fields["account_id"], fields["inbox_id"])
@@ -770,6 +773,25 @@ def send_media(event, deps, ready, items):
     return sent
 
 
+def combined_message(event, deps, ready, text, items):
+    """The answer and the first file in ONE Chatwoot message (the text is the file's caption; links and places are added to the text), or None when that cannot be done: no file,
+    no file store, a file of another agent or that is not what its name says, or a text too long for a caption. Nothing is sent here."""
+    first = next((i for i in items if i["kind"] in media.FILE_KINDS), None)
+    prefix = f"{media.PREFIX}{ready['tenant']['tenant_id']}/{event['agent_id']}/"
+    if first is None or deps.files is None or not first["key"].startswith(prefix):
+        return None
+    inline = [i for i in items if i["kind"] in ("link", "location")]
+    caption = text + ("\n\n" + "\n".join(media.link_text(i) for i in inline) if inline else "")
+    if len(caption) > MEDIA_CAPTION_CHARS:
+        return None
+    data = deps.files.get(first["key"], media.max_bytes(first["kind"], media.limits_of(ready["tenant"])))
+    if data is None or not media.looks_like(first["key"], data):
+        return None
+    request = core.attachment_request(ready["base"], AUTH_STYLE, ready["credentials"]["api_token"], event["account_id"], event["conversation_id"], media.file_name(first),
+                                      media.mime_of(first["key"]), data, caption)
+    return {"request": request, "first": first, "inline": inline}
+
+
 def answer(event, deps, now=None):
     """What the worker does with an accepted message: answer from the books and post the reply, or hand the conversation to a person. Returns {"status": "replied",
     "reply_id": n or None, "metrics": {...}} or {"status": "failed", "reason": code, "metrics": {...}}. Every refusal before the answer is made happens before anything is
@@ -789,6 +811,32 @@ def answer(event, deps, now=None):
     items = metrics.pop("media_items", None) or []
     if reason:
         return hand_over_outcome(event, deps, ready, reason, text, history, metrics, now)
+    combo = None
+    if items:  # the answer and the first file as ONE message: the customer gets both at once, not the text and then, much later, the file
+        try:
+            combo = combined_message(event, deps, ready, text, items)
+        except Exception as error:  # a file that cannot be read: the text-first way below handles it
+            log("media_error", agent=event["agent_id"], error=type(error).__name__)
+    if combo:
+        started = time.monotonic()
+        try:
+            status, raw = deps.http(*combo["request"], MEDIA_TIMEOUT_SECONDS)
+        except TimeoutFailure:  # it may have arrived: nothing is sent twice
+            return failed("timeout", {**metrics, "media": [[combo["first"]["id"], "unknown"]]})
+        except NetworkFailure:
+            return failed("network", metrics)
+        kind, detail = core.reply_result(status, raw)
+        if kind == "replied":
+            remember(event, deps, text, metrics, now)
+            rest = [i for i in items if i is not combo["first"] and i not in combo["inline"]]
+            sent = [[combo["first"]["id"], "attached"]] + [[i["id"], "link"] for i in combo["inline"]]
+            metrics = {**metrics, "media": sent + (send_media(event, deps, ready, rest) if rest else []), "media_ms": int((time.monotonic() - started) * 1000), "media_together": 1}
+            return {"status": "replied", "reply_id": detail, "metrics": metrics}
+        log("media_together_refused", agent=event["agent_id"], reason=detail)  # Chatwoot refused it (a definite answer): the text-first way below
+    linked = []
+    if items and all(i["kind"] in ("link", "location") for i in items):  # links and places only: they go in the same text message, not in messages of their own
+        text += "\n\n" + "\n".join(media.link_text(i) for i in items)
+        linked, items = [[i["id"], "link"] for i in items], []
     url, headers, body = core.reply_request(ready["base"], AUTH_STYLE, ready["credentials"]["api_token"], event["account_id"], event["conversation_id"], text)
     try:
         status, raw = deps.http(url, headers, body, HTTP_TIMEOUT_SECONDS)
@@ -800,8 +848,11 @@ def answer(event, deps, now=None):
     if kind != "replied":
         return failed(detail, metrics)
     remember(event, deps, text, metrics, now)
+    if linked:
+        metrics = {**metrics, "media": linked}
     if items:
-        metrics = {**metrics, "media": send_media(event, deps, ready, items)}
+        started = time.monotonic()
+        metrics = {**metrics, "media": send_media(event, deps, ready, items), "media_ms": int((time.monotonic() - started) * 1000)}
     return {"status": "replied", "reply_id": detail, "metrics": metrics}
 
 

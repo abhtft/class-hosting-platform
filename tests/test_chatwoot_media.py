@@ -153,25 +153,41 @@ def sent_text(request):
 
 f = Fakes("We are at Nehru Place.\nMEDIA: office_map, offer")
 out = api.answer(asked(), f.deps, NOW)
-assert out["status"] == "replied" and out["metrics"]["media"] == [["office_map", "link"], ["offer", "attached"]], out["metrics"]
-assert len(f.requests) == 3 and sent_text(f.requests[0]) == "We are at Nehru Place." and "MEDIA" not in sent_text(f.requests[0]), "the text goes first and never shows the MEDIA line"
-assert sent_text(f.requests[1]) == "Our office: https://maps.google.com/?q=office"
-assert f.requests[2][1]["Content-Type"].startswith("multipart/form-data") and JPEG in f.requests[2][2] and f.requests[2][3] == api.MEDIA_TIMEOUT_SECONDS and b'filename="Diwali_offer.jpg"' in f.requests[2][2]
+assert out["status"] == "replied" and out["metrics"]["media"] == [["offer", "attached"], ["office_map", "link"]] and out["metrics"]["media_together"] == 1, out["metrics"]
+assert len(f.requests) == 1, "the answer and the first file are ONE message: the customer gets both at once"
+url, headers, body, timeout = f.requests[0]
+assert headers["Content-Type"].startswith("multipart/form-data") and JPEG in body and timeout == api.MEDIA_TIMEOUT_SECONDS and b'filename="Diwali_offer.jpg"' in body
+assert b'name="content"\r\n\r\nWe are at Nehru Place.\n\nOur office: https://maps.google.com/?q=office\r\n' in body and b"MEDIA" not in body, "the text is the caption, the place is added to it, the MEDIA line is never shown"
 assert "media_items" not in out["metrics"] and "https://maps" not in json.dumps(out["metrics"]), "the stored metrics hold ids and outcomes, not addresses"
 
-f = Fakes("Here you go.\nMEDIA: price_list")
-f.answers = [(200, b'{"id": 1}'), (500, b"{}")]
-out = api.answer(asked("send prices"), f.deps, NOW)
-assert out["metrics"]["media"] == [["price_list", "link"]] and len(f.requests) == 3 and "files.example/" + KEY_PDF in sent_text(f.requests[2]), "a refused attachment becomes a short-lived link"
+f = Fakes("Where we are.\nMEDIA: office_map")
+out = api.answer(asked(), f.deps, NOW)
+assert out["metrics"]["media"] == [["office_map", "link"]] and len(f.requests) == 1 and sent_text(f.requests[0]) == "Where we are.\n\nOur office: https://maps.google.com/?q=office", "links and places only: one text message"
 
+f = Fakes("Here you go.\nMEDIA: price_list")
+f.answers = [(500, b"{}"), (200, b'{"id": 1}'), (500, b"{}"), (200, b'{"id": 2}')]
+out = api.answer(asked("send prices"), f.deps, NOW)
+assert out["status"] == "replied" and out["metrics"]["media"] == [["price_list", "link"]] and len(f.requests) == 4 and "media_together" not in out["metrics"]
+assert sent_text(f.requests[1]) == "Here you go." and "files.example/" + KEY_PDF in sent_text(f.requests[3]), "Chatwoot refuses the combined message: the text first, then the file, then a short-lived link"
+
+f = Fakes("Here you go.\nMEDIA: offer")
+f.answers = [api.TimeoutFailure("timeout")]
+out = api.answer(asked(), f.deps, NOW)
+assert out["status"] == "failed" and out["reason"] == "timeout" and out["metrics"]["media"] == [["offer", "unknown"]] and len(f.requests) == 1, "after a timeout it may have arrived: nothing is sent twice"
+
+api.MEDIA_CAPTION_CHARS = 10  # a text longer than a caption can be: the text first, as before
+f = Fakes("Here you go.\nMEDIA: offer")
+out = api.answer(asked(), f.deps, NOW)
+assert out["metrics"]["media"] == [["offer", "attached"]] and len(f.requests) == 2 and sent_text(f.requests[0]) == "Here you go." and "media_together" not in out["metrics"]
 f = Fakes("Here you go.\nMEDIA: offer")
 f.answers = [(200, b'{"id": 1}'), api.TimeoutFailure("timeout")]
 out = api.answer(asked(), f.deps, NOW)
-assert out["status"] == "replied" and out["metrics"]["media"] == [["offer", "unknown"]] and len(f.requests) == 2, "after a timeout it may have arrived: not sent again"
+assert out["status"] == "replied" and out["metrics"]["media"] == [["offer", "unknown"]] and len(f.requests) == 2, "in the text-first way a timeout of the file is not repeated either"
+api.MEDIA_CAPTION_CHARS = rt.platform_settings.value("chatwoot.mediaCaptionMaxChars")
 
 f = Fakes("Here you go.\nMEDIA: offer", files={KEY_IMG: b"MZ a program renamed"})
 out = api.answer(asked(), f.deps, NOW)
-assert out["metrics"]["media"] == [["offer", "failed"]] and len(f.requests) == 1, "a file that is not what its name says is never sent"
+assert out["metrics"]["media"] == [["offer", "failed"]] and len(f.requests) == 1 and sent_text(f.requests[0]) == "Here you go.", "a file that is not what its name says is never sent; the answer still arrives"
 
 f = Fakes("Here you go.\nMEDIA: offer", media_items=({**OFFER, "key": KEY_OTHER},))
 f.files.put(KEY_OTHER, JPEG)
@@ -183,6 +199,10 @@ f.deps.files = None
 out = api.answer(asked(), f.deps, NOW)
 assert out["status"] == "replied" and out["metrics"]["media"] == [["offer", "failed"]] and len(f.requests) == 1, "no file store: the text still arrives"
 
+f = Fakes("Both.\nMEDIA: offer, price_list")
+out = api.answer(asked(), f.deps, NOW)
+assert out["metrics"]["media"] == [["offer", "attached"], ["price_list", "attached"]] and len(f.requests) == 2 and b'name="content"\r\n\r\nBoth.' in f.requests[0][2], "a second file follows the first message"
+
 f = Fakes("We are in Delhi.")
 out = api.answer(asked(), f.deps, NOW)
 assert out["status"] == "replied" and "media" not in out["metrics"] and len(f.requests) == 1, "no MEDIA line, no media"
@@ -193,7 +213,7 @@ assert out["status"] == "replied" and out["metrics"]["handover"] == "customer_me
 assert json.loads(f.requests[1][2])["private"] is True and "photo, voice note, file or location" in sent_text(f.requests[1]) and f.requests[2][0].endswith("/toggle_status")
 assert api.context_of({"attachments": ["image", "Bad!", 5], "channel": "web_widget"})["attachments"] == ["image"] and api.context_of({})["attachments"] == []
 assert not any("https://maps" in line or KEY_IMG in line for line in LOGS), "addresses and file names never reach the log"
-print("  ok  the worker sends the text first, then each item: attachment, link when refused, nothing twice after a timeout, nothing that is not a real file, and a customer's photo goes to a person")
+print("  ok  the answer and the first file go as ONE message (the text is the caption, places and links are added to it); Chatwoot refusing it falls back to text first; a timeout is not repeated; nothing that is not a real file is sent; a customer's photo goes to a person")
 
 # ---- a dry run says what it would send
 f = Fakes("We are in Delhi.\nMEDIA: offer")
@@ -217,7 +237,7 @@ print("  ok  a dry run lists the media it would send and sends none; the suite c
 # ---- per-reply limit of a business
 f = Fakes("We are at Nehru Place.\nMEDIA: office_map, offer", limits={"media_per_reply": 1})
 out = api.answer(asked(), f.deps, NOW)
-assert out["metrics"]["media"] == [["office_map", "link"]] and len(f.requests) == 2, "a business limited to one media item per reply gets one, in the order the model chose"
+assert out["metrics"]["media"] == [["office_map", "link"]] and len(f.requests) == 1, "a business limited to one media item per reply gets one, in the order the model chose"
 assert "at most 1," in rt.build_messages(rt.clean_config({**BASE_CONFIG, "media": [OFFER]}), "x", [HIT], None, {"media_per_reply": 1})[0][0]["content"]
 print("  ok  the business's own limit of media per reply reaches the prompt and the sending")
 
