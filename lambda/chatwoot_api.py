@@ -617,8 +617,9 @@ def suite_run(event, deps, now):
     if not item or item.get("tenant_id") != event["tenant_id"] or item.get("status") != "queued":
         return {"error": "bad_event"}
     config, used = dry_target(agent_id, tenant, event, deps)
-    stored = deps.store.get(registry.suite_key(agent_id))
-    state_key = registry.suite_state_key(agent_id)
+    which = "central" if event.get("suite") == "central" else None  # the platform's central safety suite instead of the agent's own table
+    stored = deps.store.get(registry.central_suite_key() if which else registry.suite_key(agent_id))
+    state_key = registry.suite_state_key(agent_id, which)
 
     def finish(**fields):
         item.update(fields, finished_at=now + int(time.monotonic() - began))
@@ -638,7 +639,7 @@ def suite_run(event, deps, now):
     if not stored or not stored.get("cases"):
         return finish(status="failed", error="no_suite")
     cases = stored["cases"]
-    item.update(status="running", started_at=now, total=len(cases), done=0, results=[], suite_rev=stored.get("rev"), target=used)
+    item.update(status="running", started_at=now, total=len(cases), done=0, results=[], suite_rev=stored.get("rev") or stored.get("version"), target=used)
     deps.store.put(run_key, item)
     key = usage_key(event["tenant_id"], now)
     lock = threading.Lock()

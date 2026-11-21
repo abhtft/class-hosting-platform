@@ -13,6 +13,9 @@ or a book), writes the adapter's table and a business's book shelves directly, a
   python tools/chatwoot_ctl.py --table <...> publish shop --tenant acme --config shop.json [--live]      publish the next version (checked as the worker will use it)
   python tools/chatwoot_ctl.py --table <...> set-live shop --tenant acme --version 2                     choose the live version (0 = none)
   python tools/chatwoot_ctl.py --table <...> suite-load shop --tenant acme --file config/suites/margdarshak-digital.json     save an agent's test suite (a file with "cases")
+  python tools/chatwoot_ctl.py --table <...> central-load --file config/suites/standard-safety.json     load the platform's central safety suite (every business may read it, none may change it)
+  python tools/chatwoot_ctl.py --table <...> central-show                                              its version and its cases by risk group
+  python tools/chatwoot_ctl.py --table <...> --worker <...> suite-run shop --tenant acme --central [--version N | --config file.json] [--wait]     run the central suite on an agent
   python tools/chatwoot_ctl.py --table <...> suite-show shop --tenant acme                              the suite and what its latest runs found, per published version
   python tools/chatwoot_ctl.py --table <...> --worker <ChatwootWorkerFunction name> suite-run shop --tenant acme [--version N | --config file.json] [--wait]
   python tools/chatwoot_ctl.py --table <...> --worker <...> suite-run --all-live [--tenant acme]       run the suite of every agent that has a live version and a suite, wait, exit 1 on a failure
@@ -39,6 +42,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import chatwoot_admin as admin  # noqa: E402
 import chatwoot_media as media  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
+import chatwoot_suite as suite  # noqa: E402
 
 SUPPORTED = (".pdf", ".txt", ".text", ".md", ".markdown", ".html", ".htm")
 
@@ -428,6 +432,49 @@ def suite_load(store, args, out, now, shelves=None):
     return 1
 
 
+def central_load(store, args, out, now, shelves=None):
+    """Load the central safety suite from a file {"version", "title", "cases"}. A new load needs a higher version number, or the same one with the same cases (nothing changes)."""
+    try:
+        with open(args.file, encoding="utf8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as error:
+        out(f"Cannot read {args.file} as JSON ({type(error).__name__}).")
+        return 2
+    version = data.get("version") if isinstance(data, dict) else None
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        out('The file is {"version": a whole number from 1, "title": "...", "cases": [...]}.')
+        return 2
+    try:
+        cases = suite.clean_suite(data.get("cases"))
+    except suite.Invalid as error:
+        out(str(error))
+        return 2
+    current = store.get(reg.central_suite_key()) or {}
+    if version < current.get("version", 0) or (version == current.get("version", 0) and cases != current.get("cases")):
+        out(f"The loaded central suite is version {current.get('version')}: raise the version number in the file to load changed cases.")
+        return 1
+    if version == current.get("version", 0):
+        out(f"Central suite version {version} is already loaded with these {len(cases)} cases.")
+        return 0
+    store.put(reg.central_suite_key(), {"version": version, "title": str(data.get("title") or "")[:200], "cases": cases, "updated_at": now})
+    out(f"Loaded the central safety suite: version {version}, {len(cases)} cases.")
+    return 0
+
+
+def central_show(store, args, out, now, shelves=None):
+    item = store.get(reg.central_suite_key())
+    if not item:
+        out("No central safety suite is loaded.")
+        return 1
+    groups = {}
+    for case in item["cases"]:
+        groups.setdefault(case.get("group", "other"), []).append(case)
+    out(f"Central safety suite version {item['version']}: {len(item['cases'])} cases. {item.get('title') or ''}".rstrip())
+    for group, cases in groups.items():
+        out(f"  {group:18} {len(cases):2} cases ({sum(1 for c in cases if c['severity'] == 'must')} must)  {', '.join(sorted({c['ref'] for c in cases if c.get('ref')}))}")
+    return 0
+
+
 def suite_show(store, args, out, now, shelves=None):
     tenant = tenant_or_none(store, args.tenant)
     agent = admin.owned(store, tenant, args.name) if tenant else None
@@ -498,11 +545,11 @@ def suite_run(store, args, out, now, shelves=None):
             if item["pk"].count("#") != 1 or not item.get("live_version") or (args.tenant and item.get("tenant_id") != args.tenant):
                 continue
             tenant = tenant_or_none(store, item["tenant_id"])
-            if not tenant or not store.get(reg.suite_key(item["agent_id"])):
+            if not tenant or (not getattr(args, "central", False) and not store.get(reg.suite_key(item["agent_id"]))):
                 out(f"{item['agent_id']}: no suite, skipped")
                 continue
             args.wait = True
-            code = max(code, suite_run_one(store, tenant, item["agent_id"], {"version": item["live_version"]}, args, out, now, pause))
+            code = max(code, suite_run_one(store, tenant, item["agent_id"], {"version": item["live_version"], **({"suite": "central"} if getattr(args, "central", False) else {})}, args, out, now, pause))
         return code
     if not args.name or not args.tenant:
         out("Give an agent name and --tenant, or --all-live.")
@@ -526,6 +573,8 @@ def suite_run(store, args, out, now, shelves=None):
     else:
         out(f"{args.name} has no live version: name one with --version or a draft with --config.")
         return 1
+    if getattr(args, "central", False):
+        body["suite"] = "central"
     return suite_run_one(store, tenant, args.name, body, args, out, now, pause)
 
 
@@ -586,7 +635,11 @@ def parser():
     s = sub.add_parser("suite-show", help="an agent's suite and what its latest runs found")
     s.add_argument("name")
     s.add_argument("--tenant", required=True)
+    s = sub.add_parser("central-load", help="load the platform's central safety suite from a JSON file with version, title and cases")
+    s.add_argument("--file", required=True)
+    sub.add_parser("central-show", help="the central safety suite's version and its cases by risk group")
     s = sub.add_parser("suite-run", help="run an agent's test suite on a published version or a draft (about 2 cents)")
+    s.add_argument("--central", action="store_true", help="run the platform's central safety suite instead of the agent's own table")
     s.add_argument("name", nargs="?")
     s.add_argument("--tenant")
     s.add_argument("--version", type=int)
@@ -597,7 +650,7 @@ def parser():
     return p
 
 
-NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "set-limits", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run"}
+NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "set-limits", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run", "central-load", "central-show"}
 
 
 def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, pause=None):
@@ -612,7 +665,7 @@ def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, 
     if shelves is None and args.command in ("knowledge-sync", "eval"):
         shelves = real_shelves(args)
     commands = {"create-tenant": create_tenant, "rotate-key": rotate_key, "disable-tenant": lambda *a: set_enabled(*a[:4], False), "enable-tenant": lambda *a: set_enabled(*a[:4], True),
-                "set-cap": set_cap, "set-limits": set_limits, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run}
+                "set-cap": set_cap, "set-limits": set_limits, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run, "central-load": central_load, "central-show": central_show}
     code = commands[args.command](store, args, out, now, shelves)
     if args.command == "knowledge-sync" and args.then_suite and not args.dry_run and code == 0:  # a new book can change an answer: ask the suite
         args.all_live, args.name, args.wait, args.version, args.config = True, None, True, None, None

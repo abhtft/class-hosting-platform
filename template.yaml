@@ -1265,7 +1265,7 @@ Resources:
               Resource: !GetAtt ChatwootTable.Arn
               Condition:
                 ForAllValues:StringLike:
-                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*', 'suite#*', 'suitestate#*', 'suiterun#*']
+                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*', 'usage#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'suitecentral#*']
             - Effect: Allow # a suite run writes its progress and verdict (suiterun#...) and what it found (suitestate#...): nothing else
               Action: dynamodb:PutItem
               Resource: !GetAtt ChatwootTable.Arn
@@ -1501,6 +1501,12 @@ Resources:
               Condition:
                 ForAllValues:StringLike:
                   dynamodb:LeadingKeys: ['tenant#*', 'agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'teach#*', 'teachidx#*', 'media#*']
+            - Effect: Allow # read the platform's central safety suite (suitecentral#...): every business may read it, no business can change it (only the teacher's command writes it)
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['suitecentral#*']
             - Effect: Allow # take back an agent that could not be added to its business (an agent item only)
               Action: dynamodb:DeleteItem
               Resource: !GetAtt ChatwootTable.Arn

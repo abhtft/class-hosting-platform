@@ -54,6 +54,7 @@ TEACH_ACT = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(turn|s
 TEACH_PROPOSAL = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/proposal")
 TEACH_IMPROVE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(propose|draft|compare)")
 TEACH_TEST = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/turns/([0-9]{{1,4}})/test")
+CENTRAL = re.compile(r"/admin/central-suite")
 SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
 SUITE_RUN = re.compile(rf"/admin/agents/({_NAME})/suite/runs/([0-9a-f]{{12}})")
@@ -352,25 +353,35 @@ def put_suite(store, tenant, name, body, now):
     return (200 if existing else 201), {"rev": item["rev"], "cases": cases, "updated_at": now}
 
 
-def get_suite_state(store, tenant, name):
+def get_central_suite(store):
+    """The platform's central safety suite: the same for every business, read only (the teacher loads it with the local command)."""
+    item = store.get(reg.central_suite_key()) or {}
+    return 200, {"version": item.get("version", 0), "title": item.get("title"), "cases": item.get("cases", []), "updated_at": item.get("updated_at")}
+
+
+def get_suite_state(store, tenant, name, which=None):
     if owned(store, tenant, name) is None:
         return problem(404, "not_found", "No such agent.")
-    state = store.get(reg.suite_state_key(name)) or {}
-    stored = store.get(reg.suite_key(name)) or {}
-    return 200, {"runs": state.get("runs", []), "versions": state.get("versions", {}), "latest": state.get("latest"), "suite_rev": stored.get("rev", 0), "cases": len(stored.get("cases", []))}
+    state = store.get(reg.suite_state_key(name, which)) or {}
+    stored = store.get(reg.central_suite_key() if which == "central" else reg.suite_key(name)) or {}
+    return 200, {"runs": state.get("runs", []), "versions": state.get("versions", {}), "latest": state.get("latest"), "suite_rev": stored.get("rev", stored.get("version", 0)), "cases": len(stored.get("cases", []))}
 
 
 def start_suite_run(store, tenant, name, body, now, invoke):
     """Start a run of the agent's suite on a published version or a draft: the run's item is written first (so Studio can read it at once), then the worker is started and not waited for.
     One run at a time per agent. Cost: about a tenth of a cent a case, counted against the business's month."""
-    unknown = sorted(set(body) - {"version", "config"})
+    unknown = sorted(set(body) - {"version", "config", "suite"})
     if unknown:
         raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if body.get("suite", "agent") not in ("agent", "central"):
+        raise reg.Invalid("suite must be agent (the agent's own table) or central (the platform's safety suite).")
+    which = "central" if body.get("suite") == "central" else None
+    body = {k: v for k, v in body.items() if k != "suite"}
     if owned(store, tenant, name) is None:
         return problem(404, "not_found", "No such agent.")
     if ("version" in body) == ("config" in body):
         raise reg.Invalid("Send either version (a published version) or config (a draft), not both and not neither.")
-    payload = {"kind": "suite", "tenant_id": tenant["tenant_id"], "agent_id": name}
+    payload = {"kind": "suite", "tenant_id": tenant["tenant_id"], "agent_id": name, **({"suite": "central"} if which else {})}
     if "config" in body:
         if not isinstance(body["config"], dict) or len(json.dumps(body["config"]).encode("utf8")) > reg.MAX_VERSION_BYTES:
             raise reg.Invalid(f"config must be a JSON object of at most {reg.MAX_VERSION_BYTES // 1024} KB.")
@@ -380,24 +391,25 @@ def start_suite_run(store, tenant, name, body, now, invoke):
         if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= reg.MAX_VERSIONS:
             raise reg.Invalid("version must be a published version number.")
         payload["version"], label, version = number, f"version {number}", number
-    stored = store.get(reg.suite_key(name))
+    stored = store.get(reg.central_suite_key() if which else reg.suite_key(name))
     if not stored or not stored.get("cases"):
-        return problem(409, "no_suite", "This agent has no test suite yet. Add cases first.")
-    state = store.get(reg.suite_state_key(name)) or {"runs": [], "versions": {}}
-    latest = state.get("latest") or {}
-    if latest.get("status") in ("queued", "running") and now - int(latest.get("started_at") or 0) < 300:
-        return problem(409, "run_in_progress", "A run of this suite is still going. Wait for it to finish.", run_id=latest.get("run_id"))
+        return problem(409, "no_suite", "The platform has no central safety suite yet." if which else "This agent has no test suite yet. Add cases first.")
+    state = store.get(reg.suite_state_key(name, which)) or {"runs": [], "versions": {}}
+    for other in (state, store.get(reg.suite_state_key(name, None if which else "central")) or {}):  # one run at a time for an agent, whichever suite it is
+        latest = other.get("latest") or {}
+        if latest.get("status") in ("queued", "running") and now - int(latest.get("started_at") or 0) < 300:
+            return problem(409, "run_in_progress", "A run of this suite is still going. Wait for it to finish.", run_id=latest.get("run_id"))
     run_id = secrets.token_hex(6)
     run = {"tenant_id": tenant["tenant_id"], "agent_id": name, "run_id": run_id, "status": "queued", "target": label, "version": version, "total": len(stored["cases"]), "done": 0, "results": [],
-           "suite_rev": stored.get("rev"), "started_at": now, "ttl": now + 86400}
+           "suite_rev": stored.get("rev") or stored.get("version"), "started_at": now, "ttl": now + 86400, **({"suite": "central"} if which else {})}
     store.put(reg.suite_run_key(name, run_id), run)
-    store.put(reg.suite_state_key(name), {**state, "latest": {"run_id": run_id, "status": "queued", "started_at": now}})
+    store.put(reg.suite_state_key(name, which), {**state, "latest": {"run_id": run_id, "status": "queued", "started_at": now}})
     payload["run_id"] = run_id
     try:
         (invoke or invoke_worker_async)(payload)
     except Exception as error:
         store.forget(reg.suite_run_key(name, run_id))
-        store.put(reg.suite_state_key(name), state)
+        store.put(reg.suite_state_key(name, which), state)
         log("suite_not_started", tenant=tenant["tenant_id"], agent=name, error=type(error).__name__)
         return problem(502, "run_not_started", "The run could not be started. Try again.")
     log("suite_started", tenant=tenant["tenant_id"], agent=name, run=run_id)
@@ -747,9 +759,12 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None):
     found = SUITE_RUNS.fullmatch(path)
     if found:
         return start_suite_run(store, tenant, found.group(1), parse_body(event), now, invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    if CENTRAL.fullmatch(path):
+        return get_central_suite(store) if method == "GET" else problem(405, "method_not_allowed", "Use GET: only the teacher changes the central suite.")
     found = SUITE_STATE.fullmatch(path)
     if found:
-        return get_suite_state(store, tenant, found.group(1)) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+        which = "central" if (event.get("queryStringParameters") or {}).get("which") == "central" else None
+        return get_suite_state(store, tenant, found.group(1), which) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
     found = SUITE.fullmatch(path)
     if found:
         if method == "GET":

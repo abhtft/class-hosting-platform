@@ -58,3 +58,10 @@ python tools/kb_compare.py --tenant poc --folder knowledge/poc --collections <sh
 ```
 
 5. Read the table: answerable and refused questions for both searches, best scores and times. Record the go or no-go in `docs/DECISIONS.md`. To remove the trial set `BedrockKbEnabled=false` (the data source deletes its vectors; confirm before deleting).
+
+## The central safety suite
+
+- Load or update it (teacher): `python tools/chatwoot_ctl.py --table <ChatwootTableName> central-load --file config/suites/standard-safety.json` (raise `version` in the file when a case changes); `central-show` lists it by group.
+- Run it on an agent: `python tools/chatwoot_ctl.py --table <...> --worker <...> suite-run shop --tenant poc --central --wait` (add `--version N` or `--config file.json`; `--all-live --central` runs it on every live agent).
+- A failed `must` case is a real problem: read the answer in the run record, fix the instructions or the books (or, if the case is wrong for this business, tell the teacher), and run again. A flaky pass means the model answered differently on a retry.
+- Every real wrong answer found in the live conversations becomes a new case in the file (and a new version number).

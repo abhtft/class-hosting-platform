@@ -54,9 +54,14 @@ def suite_key(agent):
     return f"suite#{agent}"
 
 
-def suite_state_key(agent):
-    """What the suite runs of an agent have found: the latest runs and, per published version, whether it passed."""
-    return f"suitestate#{agent}"
+def suite_state_key(agent, which=None):
+    """What the suite runs of an agent have found: the latest runs and, per published version, whether it passed. `which` "central" is the same for the platform's central safety suite."""
+    return f"suitestate#{agent}#central" if which == "central" else f"suitestate#{agent}"
+
+
+def central_suite_key():
+    """The platform's central safety suite: one item the teacher loads, every business may read and none may change."""
+    return "suitecentral#standard"
 
 
 def suite_run_key(agent, run_id):
