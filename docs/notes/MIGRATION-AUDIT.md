@@ -54,3 +54,6 @@ When a feature adds a table, a bucket prefix, a secret, an SSM parameter, a URL 
 
 ## Not verified in this audit
 No transfer or import was run; Cognito `sub` behaviour for visitors; whether `authpool#platform` is in TokensTable (read from the code comment, not from data); a full line-by-line search for account-specific values; the `docs/future/MIGRATION_PLAN.md` scanner (a separate feature).
+
+## Strategy decided 2026-11-21
+Real move about 40 days later, as a repeatable scripted path (a long written plan would go stale). A mid migration is a throwaway rehearsal only: no real client traffic, destroyed afterwards, books and config copies only. Steps: (1) now: G1 installer learns Chatwoot, G4 stable webhook domain; (2) after Sprint 1 settles: G2, G3, G5, G6, G9, G10, then rehearsal 1; (3) about a week before the real move: rehearsal 2 with a copy of real data; (4) the real move. Test account: AWS profile `new` = 805751386990 (CloudFront verified, Lambda concurrency 1000 on 2026-11-20). Open: is the real destination this same account? If yes, destroy the rehearsal completely first.
