@@ -38,11 +38,14 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lambda"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # chatwoot_repeat.py, next to this file
 
 import chatwoot_admin as admin  # noqa: E402
 import chatwoot_media as media  # noqa: E402
 import chatwoot_registry as reg  # noqa: E402
+import chatwoot_runtime as engine  # noqa: E402
 import chatwoot_suite as suite  # noqa: E402
+import chatwoot_repeat as repeat  # noqa: E402
 
 SUPPORTED = (".pdf", ".txt", ".text", ".md", ".markdown", ".html", ".htm")
 
@@ -578,6 +581,110 @@ def suite_run(store, args, out, now, shelves=None):
     return suite_run_one(store, tenant, args.name, body, args, out, now, pause)
 
 
+# ---------- repeatability: the same few questions, asked several times ----------
+
+REPEAT_CASES = ("price-social-media", "office-hours", "unknown-ceo", "handover-person", "language-hindi")  # five kinds of variation: a number, an extra against the books, the fallback, a hand-over, a script
+
+
+def real_ask(args):
+    """The function that asks the worker for ONE dry-run answer and waits for it, or None when no worker is named."""
+    name = args.worker or os.environ.get("CHATWOOT_WORKER_FUNCTION")
+    if not name:
+        return None
+
+    def ask(payload):
+        import boto3
+        response = boto3.client("lambda").invoke(FunctionName=name, InvocationType="RequestResponse", Payload=json.dumps(payload).encode("utf8"))
+        if response.get("FunctionError"):
+            raise RuntimeError("the worker failed")
+        return json.loads(response["Payload"].read())
+    return ask
+
+
+def ask_case(case, tenant_id, name, version, config, ask, pause):
+    """One run of a case: its customer messages in order as ONE fresh conversation (no memory from another run), judged like a suite run. A run whose answer could not be made
+    (the worker answered with an error, or with a hand-over because the model was refused) is `no_answer`: it says nothing about the agent."""
+    history, result, spent, via = [], None, 0, None
+    for turn in case["turns"]:
+        payload = {"kind": "test", "tenant_id": tenant_id, "agent_id": name, "version": version, "text": turn, "history": list(history), "channel": case["channel"],
+                   **({"inbox_id": case["inbox_id"]} if case.get("inbox_id") else {})}
+        try:
+            answer = ask(payload)
+        except Exception as error:  # the worker could not be reached or failed: not the agent's answer
+            return {"answered": False, "passed": False, "route": None, "text": "", "via": None, "failed": [], "spent_micro": spent, "error": type(error).__name__}
+        pause()
+        result = answer.get("result") if isinstance(answer, dict) else None
+        if not isinstance(result, dict) or result.get("failure"):
+            return {"answered": False, "passed": False, "route": None, "text": "", "via": (result or {}).get("via"), "failed": [], "spent_micro": spent,
+                    "error": (answer or {}).get("error") if isinstance(answer, dict) else None or (result or {}).get("reason")}
+        spent += int(result.get("spent_micro") or 0)
+        via = result.get("via") or via
+        history.append({"c": turn, "b": result["text"], **({"f": 1} if result["route"] == "fallback" else {}), **({"h": 1} if result["route"] == "handover" else {})})
+        if result["route"] == "handover":  # in real life the bot goes quiet after a hand-over
+            break
+    failed = suite.evaluate(case, result, config)
+    return {"answered": True, "passed": not failed, "route": result["route"], "text": str(result["text"]), "via": via, "failed": failed, "spent_micro": spent}
+
+
+def suite_repeat(store, args, out, now, shelves=None):
+    """Ask a few of an agent's suite questions several times each and report how stable the answers are (see chatwoot_repeat.py). Nothing is posted or stored."""
+    tenant = tenant_or_none(store, args.tenant)
+    agent = admin.owned(store, tenant, args.name) if tenant else None
+    if not agent:
+        out(f"No agent {args.name} for tenant {args.tenant}.")
+        return 1
+    version = args.version or agent.get("live_version")
+    stored = store.get(reg.version_key(args.name, version)) if version else None
+    if not stored:
+        out(f"{args.name} has no version to ask: name one with --version (or make one live).")
+        return 1
+    try:
+        config = engine.clean_config(stored["config"])
+    except engine.ConfigError as error:
+        out(f"Version {version} cannot be used: {error}")
+        return 2
+    suite_item = store.get(reg.suite_key(args.name)) or {}
+    by_id = {c["id"]: c for c in suite_item.get("cases", [])}
+    wanted = list(by_id) if args.cases == "all" else [c.strip() for c in (args.cases or ",".join(REPEAT_CASES)).split(",") if c.strip()]
+    missing = [c for c in wanted if c not in by_id]
+    cases = [by_id[c] for c in wanted if c in by_id]
+    if missing:
+        out(f"Not in the suite of {args.name}, skipped: {', '.join(missing)}")
+    if not cases:
+        out("There is nothing to ask: load the suite first (suite-load) or name cases that exist.")
+        return 2
+    ask = getattr(args, "ask", None) or real_ask(args)
+    if ask is None:
+        out("Name the worker with --worker (the stack's ChatwootWorkerFunction) or the environment variable CHATWOOT_WORKER_FUNCTION.")
+        return 2
+    pause = getattr(args, "pause", None) or (lambda: time.sleep(args.gap))
+    runs = {c["id"]: [] for c in cases}
+    for _ in range(args.times):  # one round over all the questions, then the next: a provider that is busy for a moment spoils one run of several cases, not all runs of one
+        for case in cases:
+            runs[case["id"]].append(ask_case(case, tenant["tenant_id"], args.name, version, config, ask, pause))
+    summaries = {c["id"]: repeat.summarise_case(c, runs[c["id"]]) for c in cases}
+    escalated = [c["id"] for c in cases if summaries[c["id"]]["verdict"] == repeat.FLAKY]  # not an inconclusive one: more questions would only meet the same refusal
+    for case in cases:  # a case that wobbled is asked more times, alone, to measure it properly
+        if case["id"] in escalated:
+            out(f"{case['id']}: not stable in {args.times} runs, asking {args.escalate} more times")
+            for _ in range(args.escalate):
+                runs[case["id"]].append(ask_case(case, tenant["tenant_id"], args.name, version, config, ask, pause))
+            summaries[case["id"]] = repeat.summarise_case(case, runs[case["id"]])
+    ordered = [summaries[c["id"]] for c in cases]
+    spent = sum(r["spent_micro"] for rs in runs.values() for r in rs)
+    for line in repeat.render(ordered, version, args.times, spent, escalated):
+        out(line)
+    ok, code, reasons = repeat.judge(ordered)
+    out("REPEATABLE" if ok else "NOT REPEATABLE" if code == 1 else "INCONCLUSIVE")
+    for reason in reasons:
+        out(f"  - {reason}")
+    if args.save:
+        with open(args.save, "w", encoding="utf8") as handle:
+            json.dump({"agent": args.name, "version": version, "times": args.times, "summaries": ordered, "runs": runs}, handle, ensure_ascii=False, indent=1)
+        out(f"Saved to {args.save}")
+    return code
+
+
 def parser():
     p = argparse.ArgumentParser(prog="chatwoot_ctl.py", description="The teacher's command for the Chatwoot adapter's tenants, service keys, agents and books.")
     p.add_argument("--table", default=os.environ.get("CHATWOOT_TABLE"), help="the stack output ChatwootTableName (or the environment variable CHATWOOT_TABLE)")
@@ -648,15 +755,24 @@ def parser():
     s.add_argument("--wait", action="store_true", help="wait for the run and print the result; exit 1 when a must-case failed")
     s.add_argument("--all-live", action="store_true", help="every agent with a live version and a suite (waits; for after a deployment)")
     s.add_argument("--timeout", type=int, default=300, help="seconds to wait for a run")
+    s = sub.add_parser("suite-repeat", help="ask a few suite questions several times each and report how repeatable the answers are (about a cent)")
+    s.add_argument("name")
+    s.add_argument("--tenant", required=True)
+    s.add_argument("--version", type=int, help="the version to ask (the live one by default)")
+    s.add_argument("--cases", help="comma-separated case ids, or all (default: five questions of the standard suite)")
+    s.add_argument("--times", type=int, default=3, help="how many times each question is asked")
+    s.add_argument("--escalate", type=int, default=10, help="how many more times a question that was not stable is asked, alone")
+    s.add_argument("--gap", type=float, default=1.0, help="seconds to wait between two questions (rate limits)")
+    s.add_argument("--save", help="write the numbers and every answer to this JSON file")
     return p
 
 
-NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "set-limits", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run", "central-load", "central-show"}
+NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "set-limits", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run", "suite-repeat", "central-load", "central-show"}
 
 
-def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, pause=None):
+def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, pause=None, ask=None):
     args = parser().parse_args(argv)
-    args.invoke, args.pause = invoke, pause  # tests start the worker in-process and do not wait
+    args.invoke, args.pause, args.ask = invoke, pause, ask  # tests start the worker in-process and do not wait
     now = int(now if now is not None else time.time())
     if store is None and args.command in NEEDS_TABLE:
         if not args.table:
@@ -666,7 +782,7 @@ def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, 
     if shelves is None and args.command in ("knowledge-sync", "eval"):
         shelves = real_shelves(args)
     commands = {"create-tenant": create_tenant, "rotate-key": rotate_key, "disable-tenant": lambda *a: set_enabled(*a[:4], False), "enable-tenant": lambda *a: set_enabled(*a[:4], True),
-                "set-cap": set_cap, "set-limits": set_limits, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run, "central-load": central_load, "central-show": central_show}
+                "set-cap": set_cap, "set-limits": set_limits, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run, "suite-repeat": suite_repeat, "central-load": central_load, "central-show": central_show}
     code = commands[args.command](store, args, out, now, shelves)
     if args.command == "knowledge-sync" and args.then_suite and not args.dry_run and code == 0:  # a new book can change an answer: ask the suite
         args.all_live, args.name, args.wait, args.version, args.config = True, None, True, None, None
