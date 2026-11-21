@@ -1,0 +1,7 @@
+title = "Class hosting platform gitleaks rules"
+
+[extend]
+useDefault = true
+
+# The findings of the first full scan (2026-11-21) are listed by fingerprint in .gitleaksignore: test fixtures with made-up values and an old CloudFront config that is
+# no longer tracked. Nothing is allowlisted by path, so a new real secret anywhere is still caught.

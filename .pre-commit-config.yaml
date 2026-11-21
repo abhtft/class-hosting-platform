@@ -1,0 +1,23 @@
+# Checks that run before every commit (installed once with `pre-commit install`; see docs/README.md and the runbook in Studio's docs/RUNBOOK.md).
+# Local hooks only: nothing is downloaded when a hook runs. The tools come from %USERPROFILE%\tools\bin; scripts/hooks/run_tool.py finds them even when the shell's PATH is old.
+repos:
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (no secrets in the staged changes)
+        entry: python scripts/hooks/run_tool.py gitleaks protect --staged --redact --no-banner
+        language: system
+        pass_filenames: false
+      # The two template checks run only when template.yaml is part of the commit (the same commands CI runs; any exception belongs in .checkov.yaml with a reason).
+      - id: cfn-lint
+        name: cfn-lint (template.yaml)
+        entry: python scripts/hooks/run_tool.py cfn-lint -i W1030 W2506 -t template.yaml
+        language: system
+        files: ^template\.yaml$
+        pass_filenames: false
+      - id: checkov
+        name: checkov (template.yaml)
+        entry: python scripts/hooks/run_tool.py checkov -f template.yaml --config-file .checkov.yaml --compact --quiet
+        language: system
+        files: ^template\.yaml$
+        pass_filenames: false

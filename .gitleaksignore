@@ -1,0 +1,8 @@
+# Reviewed on 2026-11-21: made-up test values and an old CloudFront config that is no longer tracked. No real secret.
+fa20fa2eba6e8daaa1bee63bbe67414bdcc9007c:tests/test_chatwoot_handover.py:generic-api-key:58
+ebb0ff8ac40b6003e491953b7f62f6537c77257f:tests/test_chatwoot_core.py:generic-api-key:131
+fea08c9f9627d1961b9e808eb5e09fd04a7bb528:.temp/cf-bs-disabled.json:generic-api-key:1
+fea08c9f9627d1961b9e808eb5e09fd04a7bb528:.temp/cf-bs.json:generic-api-key:31
+fea08c9f9627d1961b9e808eb5e09fd04a7bb528:.temp/aws-deep-dive/06-connectors-ai-storage-backends.md:curl-auth-header:199
+39a659bfafa4016a96a6741b584eeed3a78df261:tests/test_credentials.mjs:generic-api-key:14
+949a05d6e7c07f61d20d96688a2b1e2c6712d9b0:tests/test_credentials.mjs:generic-api-key:14
