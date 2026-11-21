@@ -615,7 +615,7 @@ def teach_improve(store, tenant, name, sid, action, body, now, invoke):
             raise reg.Invalid("There is no proposal yet.")
         if proposal.get("version"):
             return problem(409, "already_made", f"Version {proposal['version']} was already made from this session.")
-        config, facts, lines = teach.draft_config(base_config(store, name, session), session, engine.MAX_EXTRAS, engine.MAX_INSTRUCTION_CHARS)
+        config, facts, lines = teach.draft_config(base_config(store, name, session), session, engine.MAX_EXTRAS, engine.MAX_INSTRUCTION_CHARS, now)
         try:
             engine.clean_config(config)
         except engine.ConfigError as error:

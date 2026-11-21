@@ -343,7 +343,7 @@ def decide(session, body, now):
     return {**session, "proposal": {**proposal, "items": list(items.values()), "instructions": lines}, "rev": session["rev"] + 1}
 
 
-def draft_config(base_config, session, max_extras, max_instruction_chars):
+def draft_config(base_config, session, max_extras, max_instruction_chars, now=0):
     """The configuration of the version to make: the base with the accepted facts added to its `extras` and the accepted lines added to its instructions. Raises Invalid when
     nothing is accepted or the result would be too big. Returns (config, how many facts, whether lines were added)."""
     proposal = session.get("proposal") or {}
@@ -354,7 +354,8 @@ def draft_config(base_config, session, max_extras, max_instruction_chars):
         raise Invalid("Accept at least one fact or the instruction lines first.")
     config = dict(base_config)
     extras = list(config.get("extras") or [])
-    extras += [t for t in accepted if t not in extras]
+    known = {e["text"] if isinstance(e, dict) else e for e in extras}
+    extras += [{"text": t, "at": int(now), "source": {"session": session["sid"]}} for t in accepted if t not in known]  # dated, with the session that taught it: the later one wins
     if len(extras) > max_extras:
         raise Invalid(f"A version holds at most {max_extras} extra facts and this would make {len(extras)}: reject some.")
     config["extras"] = extras

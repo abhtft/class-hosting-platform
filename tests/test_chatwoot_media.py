@@ -55,7 +55,7 @@ assert "at most" in invalid([{**OFFER, "size": media.IMAGE_MAX_BYTES + 1}]) and 
 assert "description is required" in invalid([{**OFFER, "description": ""}]) and "name must be" in invalid([{**OFFER, "name": "x" * (media.NAME_CHARS + 1)}])
 assert "id must be" in invalid([OFFER, OFFER]) and "id must be" in invalid([{**OFFER, "id": "Bad Id"}]) and "unknown field" in invalid([{**OFFER, "extra": 1}])
 assert "kind must be" in invalid([{**OFFER, "kind": "audio"}]) and "a web address, not a file" in invalid([{**OFFICE, "key": KEY_IMG}]) and "is a file" in invalid([{**OFFER, "url": "https://x.example"}])
-for bad in ("http://maps.example/x", "https://127.0.0.1/x", "https://localhost/x", "https://user:pw@maps.example/x", "https://maps example.com", "javascript:alert(1)", "https://x", None, 5):
+for bad in ("http://maps.example/x", "https://127.0.0.1/x", "https://localhost/x", "https://user:pw" + chr(64) + "maps.example/x", "https://maps example.com", "javascript:alert(1)", "https://x", None, 5):
     invalid([{**OFFICE, "url": bad}])
 assert len(invalid([OFFER] * 2)) > 0 and "at most" in invalid([{**OFFER, "id": f"m{i}"} for i in range(media.MAX_ITEMS + 1)])
 print("  ok  the media list of a version: kinds, sizes, own files only, https addresses, different ids, nothing unknown")

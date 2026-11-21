@@ -210,7 +210,7 @@ try:
 except teach.Invalid:
     pass
 config, facts_added, lines_added = teach.draft_config({"instructions": "Be brief.", "extras": ["old fact"], "collections": ["faq"]}, decided, 40, 4000)
-assert config["extras"] == ["old fact", "Social media management starts at Rs 2,500 a month (edited)."] and config["instructions"] == "Be brief.\nNever promise a discount." and (facts_added, lines_added) == (1, True) and config["collections"] == ["faq"]
+assert config["extras"] == ["old fact", {"text": "Social media management starts at Rs 2,500 a month (edited).", "at": 0, "source": {"session": decided["sid"]}}] and config["instructions"] == "Be brief.\nNever promise a discount." and (facts_added, lines_added) == (1, True) and config["collections"] == ["faq"]
 assert teach.draft_config({}, decided, 40, 4000)[0]["instructions"] == "Never promise a discount."
 for session, limit_extras, limit_chars in ((p, 40, 4000), (decided, 1, 4000), (decided, 40, 10)):
     try:

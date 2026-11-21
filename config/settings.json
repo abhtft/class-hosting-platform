@@ -2646,6 +2646,36 @@
       ]
     },
     {
+      "key": "chatwoot.extrasMinScore",
+      "group": "chatwoot",
+      "title": "Meaning match needed to use an extra",
+      "help": "How close in meaning an extra (a correction the client taught) must be to the customer's question for the agent to use it. Lower uses more extras and may bring in unrelated ones; the books' own rule is knowledge.minSimilarity.",
+      "unit": "0 to 1",
+      "default": 0.6,
+      "min": 0.3,
+      "max": 0.95,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.EXTRAS_MIN_SCORE"
+      ]
+    },
+    {
+      "key": "chatwoot.extrasTopK",
+      "group": "chatwoot",
+      "title": "Most extras used for one answer",
+      "help": "How many of the best-matching extras are shown to the model with one answer (newest first).",
+      "unit": "extras",
+      "default": 3,
+      "min": 1,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.EXTRAS_TOP_K"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",

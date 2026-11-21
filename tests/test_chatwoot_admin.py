@@ -500,7 +500,7 @@ versions_before = store.items["agent#shop"]["versions"]
 status, drafted = teach_call("POST", pbase + "/draft")
 assert status == 200 and drafted["version"] == versions_before + 1 and drafted["facts_added"] == 1 and drafted["instruction_lines_added"] is True and drafted["tests_added"] == 1
 new_config = store.items[f"agent#shop#v{drafted['version']}"]["config"]
-assert new_config["extras"] == ["Social media costs Rs 2,500 a month."] and new_config["instructions"].endswith("Never promise a discount to anyone.") and store.items["agent#shop"]["live_version"] != drafted["version"], "published but not live"
+assert [(e["text"], e["source"]) for e in new_config["extras"]] == [("Social media costs Rs 2,500 a month.", {"session": psid})] and new_config["extras"][0]["at"] > 0 and new_config["instructions"].endswith("Never promise a discount to anyone.") and store.items["agent#shop"]["live_version"] != drafted["version"], "published but not live"
 assert any(c["id"] == f"teach-{psid}-2" for c in teach_call("GET", "/admin/agents/shop/suite")[1]["cases"]), "the corrected answer is now a test of the agent"
 assert teach_call("POST", pbase + "/draft")[1]["error"] == "already_made" and teach_call("POST", pbase + "/propose", invoke=distiller)[1]["error"] == "already_made" and teach_call("PUT", pbase + "/proposal", {"items": {}})[0] == 400
 compared = []
