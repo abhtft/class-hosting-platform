@@ -290,7 +290,11 @@ def clean_answer(text, limit):
 
 
 def not_sure(text):
-    return str(text or "").strip().rstrip(".").strip().lower() == NOT_SURE.rstrip(".").lower()
+    """True when the model answered with the agreed "not sure" sentence and nothing else of substance. A friendly emoji or other punctuation after it (the real model sometimes
+    adds one) must not turn it into an answer, so the comparison ignores everything that is not a letter or a digit."""
+    def bare(value):
+        return re.sub(r"[\W_]+", "", str(value or "").lower())
+    return bare(text) == bare(NOT_SURE)
 
 
 # ---------- the LLM ----------

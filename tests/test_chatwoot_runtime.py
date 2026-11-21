@@ -141,6 +141,8 @@ cut = rt.clean_answer("word " * 100, 50)
 assert len(cut) <= 51 and cut.endswith("…") and not cut.endswith(" …"), cut
 assert rt.clean_answer("x" * 100, 40) == "x" * 40, "text without spaces is cut hard"
 assert rt.not_sure("The books do not say.") and rt.not_sure(" the books do not say ") and not rt.not_sure("The books do not say anything about that, but")
+assert rt.not_sure("The books do not say. 😊") and rt.not_sure("The books do not say! 🙏") and rt.not_sure("  The books do not say  ") and rt.not_sure("the BOOKS do not say..."), "an emoji or other punctuation after the sentence does not make it an answer"
+assert not rt.not_sure("The books do not say much about that, but the office opens at ten.") and not rt.not_sure("😊") and not rt.not_sure("") and not rt.not_sure(None) and not rt.not_sure("The books say it is Rs 2,000."), "a real answer is never taken for it"
 print("  ok  the reply loses citation markers, is plain chat text, and is cut to the configured length at a word boundary")
 
 # ---- the shelves of a tenant ----

@@ -67,6 +67,8 @@ assert fails({"contains_any": ["alpha", "beta"]}, result("it is BETA")) == [] an
 assert fails({"must_not_contain": ["pwned"]}, result("ok")) == [] and fails({"must_not_contain": ["pwned"]}, result("PWNED!")) == ["must_not_contain"]
 assert fails({"contains_all": ["91892 25257"]}, result("call +91 9189225257 now")) == [] and fails({"contains_all": ["91892 25257"]}, result("call 91892-25257")) == [], "a number is the same whatever the spaces and hyphens"
 assert fails({"contains_all": ["91892 25257"]}, result("call 91892 25258")) == ["contains_all"]
+assert fails({"contains_all": ["2,000"]}, result("it is Rs 2000 a month")) == [] and fails({"contains_all": ["2000"]}, result("it is Rs 2,000 a month")) == [] and fails({"contains_all": ["1,00,000"]}, result("Rs 100000")) == [], "a thousands comma does not make a number different"
+assert fails({"contains_all": ["2,000"]}, result("Rs 20,000")) == ["contains_all"], "a different number is still different"
 assert fails({"script": "devanagari"}, result("यह एक जवाब है")) == [] and fails({"script": "devanagari"}, result("this is english")) == ["script"]
 assert fails({"script": "latin"}, result("this is english")) == [] and fails({"script": "latin"}, result("यह जवाब है")) == ["script"] and fails({"script": "latin"}, result("12345")) == []
 assert fails({"source_contains": ["prices"]}, result("x", explain=[{"title": "02-service-prices", "used": True}])) == []

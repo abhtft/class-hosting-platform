@@ -151,8 +151,20 @@ def _flat(text):
     return re.sub(r"[\s\- ]+", "", str(text).lower())
 
 
+def _no_commas(text):
+    """The text without the comma of a thousands group (the one between two digits): "2,000" and "1,00,000" become "2000" and "100000"."""
+    return re.sub(r"(?<=\d),(?=\d)", "", text)
+
+
 def has(text, needle):
-    return needle.lower() in str(text).lower() or _flat(needle) in _flat(text)
+    """Does the answer contain the needle? Case, spaces and hyphens do not matter. A needle that is a plain number also matches the same number written with or without thousands
+    commas ("2,000" and "2000"), as a whole number: 2000 is not found inside 20000."""
+    low_text, low_needle = str(text).lower(), str(needle).lower()
+    if low_needle in low_text or _flat(needle) in _flat(text):
+        return True
+    if re.fullmatch(r"[\d,]+", low_needle.strip()):
+        return re.search(rf"(?<!\d){re.escape(_no_commas(low_needle.strip()))}(?!\d)", _no_commas(_flat(text))) is not None
+    return False
 
 
 def script_share(text):
