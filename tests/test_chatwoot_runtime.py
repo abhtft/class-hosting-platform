@@ -134,6 +134,7 @@ print("  ok  the prompt puts the fixed rules first, the agent's instructions aft
 
 # ---- the reply ----
 assert rt.clean_answer("We open at nine [1]. Closed on Sunday [2, 3].", 300) == "We open at nine. Closed on Sunday."
+assert rt.clean_answer("Ek brochure [1]uplabdh hai[2]. Bhej dein[1,2]ji.", 300) == "Ek brochure uplabdh hai. Bhej dein ji.", "a marker glued to the next word does not join two words"
 assert rt.clean_answer("  Line one  \n\n\n\n  Line   two  ", 300) == "Line one\n\nLine two"
 assert rt.clean_answer("", 300) == "" and rt.clean_answer(None, 300) == ""
 cut = rt.clean_answer("word " * 100, 50)

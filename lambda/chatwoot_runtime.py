@@ -48,6 +48,7 @@ NOT_SURE = "The books do not say."
 LANGUAGES = {"en": "English", "hi": "Hindi (Devanagari script)", "hinglish": "Hinglish (Hindi written in Roman letters)"}
 MODES = ("rag", "auto")
 _MARKERS = re.compile(r"\s*\[\d+(?:\s*,\s*\d+)*\]")
+_GLUED_MARKERS = re.compile(r"\[\d+(?:\s*,\s*\d+)*\](?=\w)")  # a marker written straight against the next word stands for a space, or the two words would run together
 _SPACES = re.compile(r"[ \t]+")
 _BLANKS = re.compile(r"\n{3,}")
 _cache = em.MemoryCache()  # query vectors only (never text), kept while the container is warm; nothing is written to the portal's table
@@ -281,7 +282,7 @@ def build_messages(config, text, hits, history=None, context=None, updates=None)
 
 def clean_answer(text, limit):
     """Plain chat text: citation markers removed, runs of blanks collapsed, cut at a word boundary to `limit` characters."""
-    text = _MARKERS.sub("", str(text or "")).replace("\r", "")
+    text = _MARKERS.sub("", _GLUED_MARKERS.sub(" ", str(text or ""))).replace("\r", "")
     text = _BLANKS.sub("\n\n", "\n".join(_SPACES.sub(" ", line).strip() for line in text.split("\n"))).strip()
     if len(text) > limit:
         text = text[:limit].rsplit(None, 1)[0].rstrip(",;:- ") + "…" if " " in text[:limit] else text[:limit]
