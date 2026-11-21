@@ -69,7 +69,7 @@ About 40 cases, each with a clear expected behaviour, grouped by risk (names fro
 | T2 | Studio "Tests" tab: the table (Add, Delete, edit, paste/CSV import, key facts auto-filled, should-refuse toggle, must-not-say), run all and run one, results beside rows; practice mode. | The owner can build a 20-row table, run it and read each result; Studio tests and a browser check pass. |
 | T3 | Central suite: the ~40 cases in `standard-safety.json`, loader command, the worker runs it as a second suite with its own run records; tests with a fake model that obeys and a fake that refuses. | The central suite runs on a draft and on the live version; a deliberately weak configuration fails the right cases. |
 | T4 | Studio "Safety" tab (cases by group, read-only, run, last result) and the Make live gate with the typed reason. | A failing `must` blocks Make live until a reason is typed; the reason is recorded. |
-| T5 | "Fill from the books" (model-proposed questions and expected answers, cost shown first). | 25 sensible rows appear from a shelf and the owner keeps or edits them; the cost is within the stated estimate. |
+| T5 (done, deployed 2026-11-21; first live run still to be checked by the owner) | "Fill from the books" (model-proposed questions and expected answers, cost shown first). | 25 sensible rows appear from a shelf and the owner keeps or edits them; the cost is within the stated estimate. |
 | T6 | Nightly drift run for live agents and an alert when a `must` case fails. | A deliberately broken live agent raises the alert within a day. |
 
 Each phase updates `docs/ARCHITECTURE.md`, `DECISIONS.md`, `RUNBOOK.md` and gets a smoke check; one live test is run after T4 and again after T6.

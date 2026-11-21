@@ -59,6 +59,10 @@ python tools/kb_compare.py --tenant poc --folder knowledge/poc --collections <sh
 
 5. Read the table: answerable and refused questions for both searches, best scores and times. Record the go or no-go in `docs/DECISIONS.md`. To remove the trial set `BedrockKbEnabled=false` (the data source deletes its vectors; confirm before deleting).
 
+## Test rows from the books (T5)
+
+`POST /admin/agents/{name}/suite/suggest` with `{"version": n}` or `{"config": {...}}`, `"count"` and optionally `"dry": true` (the cost estimate only). Debug: the worker logs `suggest_failed` with the error class when the shelves or the model fail; `no_books` means the agent's collections hold no passage of 40 characters or more. The call counts against the business's monthly spend (`usage#<tenant>#<month>`). Settings: `chatwoot.suggestMaxCount`, `suggestPassages`, `suggestPassageChars`, `suggestMaxTokens`.
+
 ## The central safety suite
 
 - Load or update it (teacher): `python tools/chatwoot_ctl.py --table <ChatwootTableName> central-load --file config/suites/standard-safety.json` (raise `version` in the file when a case changes); `central-show` lists it by group.
