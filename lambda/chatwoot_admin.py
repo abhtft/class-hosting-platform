@@ -33,6 +33,7 @@ import chatwoot_core as core
 import chatwoot_media as media
 import chatwoot_memory as memory
 import chatwoot_registry as reg
+import chatwoot_suggest as suggest_rows
 import chatwoot_suite as suite
 import chatwoot_teach as teach
 import chatwoot_runtime as engine
@@ -56,6 +57,7 @@ TEACH_IMPROVE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(pr
 TEACH_TEST = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/turns/([0-9]{{1,4}})/test")
 CENTRAL = re.compile(r"/admin/central-suite")
 SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
+SUITE_SUGGEST = re.compile(rf"/admin/agents/({_NAME})/suite/suggest")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
 SUITE_RUN = re.compile(rf"/admin/agents/({_NAME})/suite/runs/([0-9a-f]{{12}})")
 
@@ -303,7 +305,8 @@ def invoke_worker(payload):
 def test_error(code):
     """(HTTP status, plain message) for a worker's dry-run error code; anything unknown is a 502."""
     known = {"bad_config": (400, "The configuration cannot be used."), "version_not_found": (404, "No such version."), "not_found": (404, "No such agent."),
-             "cap_reached": (429, "This business has used its spend limit for the month."), "bad_event": (400, "Send some text."), "registry_unavailable": (503, "Try again in a moment.")}
+             "cap_reached": (429, "This business has used its spend limit for the month."), "bad_event": (400, "Send some text."), "registry_unavailable": (503, "Try again in a moment."),
+             "no_books": (409, "This agent has no books to write questions from."), "model_unavailable": (502, "The model could not be reached. Try again."), "bad_answer": (502, "The model did not give usable rows. Try again.")}
     return known.get(code, (502, "The test could not be run. Try again."))
 
 
@@ -348,6 +351,45 @@ def run_test(store, tenant, name, body, invoke):
         return 200, answer["result"]
     status, message = test_error(answer.get("error"))
     code = answer.get("error") if status != 502 else "test_failed"
+    return problem(status, str(code), answer.get("message") if code == "bad_config" and isinstance(answer.get("message"), str) else message)
+
+
+def suggest_tests(store, tenant, name, body, invoke):
+    """Test rows written from the agent's books (plan T5): the worker reads passages of the shelves of a version or the draft and writes questions with expected answers for the owner to review.
+    `dry` true answers with the cost estimate only. Nothing is saved here."""
+    unknown = sorted(set(body) - {"version", "config", "count", "dry"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    if ("version" in body) == ("config" in body):
+        raise reg.Invalid("Send either version (a published version) or config (a draft), not both and not neither.")
+    count = body.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or not 3 <= count <= suggest_rows.MAX_COUNT:
+        raise reg.Invalid(f"count is how many rows to write: a whole number from 3 to {suggest_rows.MAX_COUNT}.")
+    if "dry" in body and not isinstance(body["dry"], bool):
+        raise reg.Invalid("dry is true or false.")
+    payload = {"kind": "suggest", "tenant_id": tenant["tenant_id"], "agent_id": name, "count": count, "dry": body.get("dry") is True}
+    if "config" in body:
+        if not isinstance(body["config"], dict) or len(json.dumps(body["config"]).encode("utf8")) > reg.MAX_VERSION_BYTES:
+            raise reg.Invalid(f"config must be a JSON object of at most {reg.MAX_VERSION_BYTES // 1024} KB.")
+        payload["config"] = body["config"]
+    else:
+        number = body["version"]
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= reg.MAX_VERSIONS:
+            raise reg.Invalid("version must be a published version number.")
+        payload["version"] = number
+    try:
+        answer = (invoke or invoke_worker)(payload)
+    except Exception as error:
+        log("suggest_unavailable", error=type(error).__name__)
+        return problem(502, "test_failed", "The rows could not be written. Try again.")
+    if not isinstance(answer, dict):
+        return problem(502, "test_failed", "The rows could not be written. Try again.")
+    if isinstance(answer.get("result"), dict):
+        return 200, answer["result"]
+    status, message = test_error(answer.get("error"))
+    code = answer.get("error") if status != 502 or answer.get("error") in ("model_unavailable", "bad_answer") else "test_failed"
     return problem(status, str(code), answer.get("message") if code == "bad_config" and isinstance(answer.get("message"), str) else message)
 
 
@@ -783,6 +825,9 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None):
     found = SUITE_RUN.fullmatch(path)
     if found:
         return get_suite_run(store, tenant, found.group(1), found.group(2)) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = SUITE_SUGGEST.fullmatch(path)
+    if found:
+        return suggest_tests(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
     found = SUITE_RUNS.fullmatch(path)
     if found:
         return start_suite_run(store, tenant, found.group(1), parse_body(event), now, invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")

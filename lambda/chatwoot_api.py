@@ -39,6 +39,8 @@ import chatwoot_media as media
 import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
+import chatwoot_suggest as suggest_rows
+import gemini
 import chatwoot_suite as suite
 import chatwoot_interview as interview_topics
 import chatwoot_teach as teach
@@ -524,6 +526,46 @@ def distill(event, deps, now):
     return {"result": {**proposal, "spent_micro": int(answer.get("cost_micro") or 0)}} if proposal else {"error": "bad_answer"}
 
 
+def suggest(event, deps, now):
+    """Test rows written from the books (started by the admin function and nobody else): passages of the agent's shelves are spread over everything the books hold, and the model writes
+    diverse customer questions with the answer a good agent gives, only from those passages. With `dry` nothing is asked: the answer is what it would cost. One model call; nothing is stored
+    here (the owner reviews the rows in Studio); the cost counts against the business's month. Returns {"result": {...}} or {"error": code}."""
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    config, used = dry_target(event["agent_id"], tenant, event, deps)
+    if used is None:
+        return config
+    count = event.get("count")
+    if not isinstance(count, int) or isinstance(count, bool) or not 3 <= count <= suggest_rows.MAX_COUNT:
+        return {"error": "bad_event"}
+    if getattr(deps.runtime, "sample", None) is None:
+        return {"error": "model_unavailable"}
+    try:
+        chosen = suggest_rows.sample(deps.runtime.sample(event["tenant_id"], config["collections"]))
+    except Exception as error:
+        log("suggest_failed", error=type(error).__name__)
+        return {"error": "model_unavailable"}
+    if not chosen:
+        return {"error": "no_books"}
+    tokens_in, tokens_out = suggest_rows.estimate_tokens(chosen, count)
+    estimate = gemini.cost_micro(gemini.DEFAULT_MODEL, {"prompt_tokens": tokens_in, "completion_tokens": tokens_out})
+    if event.get("dry") is True:
+        return {"result": {"estimate_micro": estimate, "passages": len(chosen), "count": count}}
+    key = usage_key(event["tenant_id"], now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+    try:
+        answer = deps.runtime.llm(suggest_rows.messages(engine.LANGUAGES[config["language"]], chosen, count), suggest_rows.MAX_TOKENS, **{k: config[k] for k in ("provider", "model") if config.get(k)})
+    except Exception as error:
+        log("suggest_failed", error=type(error).__name__)
+        return {"error": "model_unavailable"}
+    spend(deps, key, {"cost_micro": answer.get("cost_micro")}, now)
+    rows = suggest_rows.parse(answer.get("text"), count, core.MAX_QUESTION_CHARS, suite.EXPECTED_CHARS)
+    return {"result": {"rows": rows, "passages": len(chosen), "spent_micro": int(answer.get("cost_micro") or 0)}} if rows else {"error": "bad_answer"}
+
+
 def compare(event, deps, now):
     """Ask the same few questions of two published versions, side by side (the owner's before and after of a teach session). The questions come from the admin function; every answer is a dry
     turn (nothing posted, nothing stored) whose cost is counted against the business's month. Returns {"result": {"rows": [{"q", "a", "b"}], "spent_micro"}} or {"error": code}."""
@@ -896,6 +938,8 @@ def worker(event, context=None, now=None, deps=None):
         return sweep(event, deps, now)
     if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
         return test(event, deps, now)
+    if event.get("kind") == "suggest":  # from the admin function: test rows written from the agent's books for the owner to review
+        return suggest(event, deps, now)
     if event.get("kind") == "distill":  # from the admin function: a teach session's facts, distilled for the owner to review
         return distill(event, deps, now)
     if event.get("kind") == "compare":  # from the admin function: the same questions asked of two versions

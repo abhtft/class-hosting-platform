@@ -538,3 +538,24 @@ assert LOGS and all(json.loads(line)["chatwoot_admin"] in ("agent_created", "age
 print("  ok  no service key, its hash or a bearer header is in any response or log line, and the table holds only hashes")
 
 print("test_chatwoot_admin.py: service-key access, agents, versions, tenant isolation, concurrency and secrecy")
+
+# ---- T5: the Tests table's "Fill from the books" ----
+def suggester(payload):
+    asked.append(payload)
+    return {"result": {"rows": [{"question": "Q one?", "expected": "A one.", "keys": ["one"], "refuse": False}], "passages": 3, "spent_micro": 9}}
+
+
+SUGGEST_PATH = "/admin/agents/shop/suite/suggest"
+status, rows = teach_call("POST", SUGGEST_PATH, {"version": 1, "count": 5}, invoke=suggester)
+assert status == 200 and rows["rows"][0]["question"] == "Q one?" and asked[-1] == {"kind": "suggest", "tenant_id": "acme", "agent_id": "shop", "count": 5, "dry": False, "version": 1}
+status, _ = teach_call("POST", SUGGEST_PATH, {"config": {"collections": ["faq"]}, "count": 5, "dry": True}, invoke=suggester)
+assert status == 200 and asked[-1]["dry"] is True and asked[-1]["config"] == {"collections": ["faq"]} and "version" not in asked[-1]
+for bad in ({"count": 5}, {"version": 1, "config": {}, "count": 5}, {"version": 1}, {"version": 1, "count": 2}, {"version": 1, "count": 999}, {"version": 1, "count": True}, {"version": 0, "count": 5}, {"version": 1, "count": 5, "dry": "yes"}, {"version": 1, "count": 5, "tenant_id": "x"}):
+    assert teach_call("POST", SUGGEST_PATH, bad, invoke=suggester)[0] == 400, bad
+assert teach_call("POST", "/admin/agents/nope/suite/suggest", {"version": 1, "count": 5}, invoke=suggester)[0] == 404
+assert teach_call("GET", SUGGEST_PATH)[0] == 405
+for code, http in (("no_books", 409), ("model_unavailable", 502), ("bad_answer", 502), ("cap_reached", 429), ("version_not_found", 404)):
+    status, body = teach_call("POST", SUGGEST_PATH, {"version": 1, "count": 5}, invoke=lambda payload, code=code: {"error": code})
+    assert status == http and body["error"] == code, (code, status, body)
+assert teach_call("POST", SUGGEST_PATH, {"version": 1, "count": 5}, invoke=lambda payload: (_ for _ in ()).throw(RuntimeError("down")))[0] == 502
+print("  ok  fill from the books: a version or a draft, a count of 3 to the limit, a dry run for the cost, odd fields refused, the worker's errors mapped to plain statuses")

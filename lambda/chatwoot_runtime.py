@@ -337,8 +337,8 @@ class Runtime:
     """What the answer needs from outside: a search, a model, the agent route and the scoring of a version's extras (texts, question -> {"scores", "tokens", "cost_micro"}). The real ones
     are built by real_runtime(); tests pass stubs."""
 
-    def __init__(self, search, llm, agent=None, extras=None):
-        self.search, self.llm, self.agent, self.extras = search, llm, agent, extras
+    def __init__(self, search, llm, agent=None, extras=None, sample=None):
+        self.search, self.llm, self.agent, self.extras, self.sample = search, llm, agent, extras, sample  # sample(tenant_id, collections) -> every passage of the shelves (for "Fill from the books")
 
 
 def score_extras(texts, query):
@@ -349,17 +349,31 @@ def score_extras(texts, query):
     return {"scores": [sum(a * b for a, b in zip(asked, vector)) for vector in got["vectors"][1:]], "tokens": got["tokens"], "cost_micro": got["cost_micro"]}
 
 
-def make_runtime(search, llm, extras=None):
+def sample_shelves(store, tenant_id, collections):
+    """Every passage of the tenant's shelves as [{"title", "page", "section", "text"}], in book order; a shelf that does not exist is skipped. Raises ks.StoreError."""
+    found = []
+    for name in collections:
+        try:
+            loaded = store.load(ks.base_of("tenant", tenant_id, name))
+        except ks.StoreError as error:
+            if error.code == "no_collection":
+                continue
+            raise
+        found += [{"title": p.get("title"), "page": p.get("page"), "section": p.get("section") or "", "text": p.get("text")} for p in loaded.passages]
+    return found
+
+
+def make_runtime(search, llm, extras=None, sample=None):
     """A Runtime with the agent route wired in: the loop of chatwoot_agent.py over the same search and model."""
     def agent(config, text, tenant_id, metrics, result):
         import chatwoot_agent  # imported here because chatwoot_agent imports this module
         return chatwoot_agent.answer(config, text, tenant_id, metrics, result, search, llm)
-    return Runtime(search, llm, agent, extras)
+    return Runtime(search, llm, agent, extras, sample)
 
 
 def real_runtime():
     store = ks.Store(ks.S3Bucket())
-    return make_runtime(lambda tenant_id, collections, query: search_shelves(store, tenant_id, collections, query), llm_gemini, score_extras)
+    return make_runtime(lambda tenant_id, collections, query: search_shelves(store, tenant_id, collections, query), llm_gemini, score_extras, lambda tenant_id, collections: sample_shelves(store, tenant_id, collections))
 
 
 # ---------- the answer ----------

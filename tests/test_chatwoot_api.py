@@ -1156,6 +1156,39 @@ f.store.items[MONTH] = {"micro": 10 ** 9}
 assert api.worker(interview_event(), None, now=NOW + 12, deps=f.wdeps) == {"error": "cap_reached"}, "a business at its cap is not asked anything more"
 print("  ok  the interviewer asks the model one question about a topic or writes the summary, from the agent's own instructions and the session's facts only, counts the cost, and refuses odd events and a business at its cap")
 
+# ---- T5: the worker writes test rows from the books ----
+PASSAGES = [{"title": "Prices", "page": n, "section": "", "text": f"Social media posts cost Rs {2000 + n} a month, billed on the first day. Passage {n}."} for n in range(1, 61)]
+f = Fakes()
+sampled = []
+f.runtime.sample = lambda tenant_id, collections: (sampled.append((tenant_id, collections)), PASSAGES)[1]
+f.llm_answer = {"text": 'Here: [{"question": "What do posts cost?", "expected": "Posts cost Rs 2001 a month.", "keys": ["Rs 2001", "invented"], "refuse": false}, {"question": "Do you sell cars?", "expected": "", "keys": [], "refuse": true}]', "model": "m", "tokens": 9, "cost_micro": 70}
+SUGGEST = {"kind": "suggest", "tenant_id": "acme", "agent_id": "shop", "version": 1, "count": 5}
+dry_out = api.worker({**SUGGEST, "dry": True}, None, now=NOW + 30, deps=f.wdeps)["result"]
+assert dry_out["passages"] == 40 and dry_out["count"] == 5 and dry_out["estimate_micro"] >= 0 and not f.llm_calls and f.store.usage(MONTH) == 0 and sampled[-1] == ("acme", ["faq"]), "a dry run asks nothing and costs nothing"
+out = api.worker(SUGGEST, None, now=NOW + 31, deps=f.wdeps)
+assert out == {"result": {"rows": [{"question": "What do posts cost?", "expected": "Posts cost Rs 2001 a month.", "keys": ["Rs 2001"], "refuse": False}, {"question": "Do you sell cars?", "expected": "", "keys": [], "refuse": True}], "passages": 40, "spent_micro": 70}}, out
+assert len(f.llm_calls) == 1 and f.llm_calls[-1][1] == api.suggest_rows.MAX_TOKENS and "<books>" in f.llm_calls[-1][0][1]["content"] and f.store.usage(MONTH) == 70, "one model call, counted against the month"
+for bad in ({"count": 2}, {"count": 41}, {"count": True}, {"count": "5"}, {"tenant_id": "other"}, {"agent_id": "nope!"}):
+    assert api.worker({**SUGGEST, **bad}, None, now=NOW + 32, deps=f.wdeps).get("error") in ("bad_event", "not_found"), bad
+assert api.worker({**SUGGEST, "version": 9}, None, now=NOW + 32, deps=f.wdeps) == {"error": "version_not_found"}
+f.llm_answer = {"text": "no json", "tokens": 1, "cost_micro": 1}
+assert api.worker(SUGGEST, None, now=NOW + 33, deps=f.wdeps) == {"error": "bad_answer"}
+f.llm_error = RuntimeError("down")
+assert api.worker(SUGGEST, None, now=NOW + 34, deps=f.wdeps) == {"error": "model_unavailable"}
+f.llm_error = None
+f.runtime.sample = lambda tenant_id, collections: []
+assert api.worker(SUGGEST, None, now=NOW + 35, deps=f.wdeps) == {"error": "no_books"}
+def broken_shelf(tenant_id, collections):
+    raise RuntimeError("s3 down")
+f.runtime.sample = broken_shelf
+assert api.worker(SUGGEST, None, now=NOW + 36, deps=f.wdeps) == {"error": "model_unavailable"}
+f.runtime.sample = None
+assert api.worker(SUGGEST, None, now=NOW + 37, deps=f.wdeps) == {"error": "model_unavailable"}
+f.runtime.sample = lambda tenant_id, collections: PASSAGES
+f.store.items[MONTH] = {"micro": 10 ** 9}
+assert api.worker(SUGGEST, None, now=NOW + 38, deps=f.wdeps) == {"error": "cap_reached"}
+print("  ok  the worker spreads the books into a prompt, asks the model once, keeps only keys that are in the answer, counts the cost, and refuses a dry run's cost, odd events, no books and a business at its cap")
+
 # ---- T-C: the worker distils a session's notes and compares two versions ----
 f = Fakes()
 register(f.store) if False else None

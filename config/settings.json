@@ -2706,6 +2706,66 @@
       ]
     },
     {
+      "key": "chatwoot.suggestMaxCount",
+      "group": "chatwoot",
+      "title": "Most test rows written from the books at once",
+      "help": "How many questions with expected answers the Tests table's \"Fill from the books\" asks the model for in one go. More rows take longer and cost more.",
+      "unit": "rows",
+      "default": 30,
+      "min": 5,
+      "max": 40,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_suggest.MAX_COUNT"
+      ]
+    },
+    {
+      "key": "chatwoot.suggestPassages",
+      "group": "chatwoot",
+      "title": "Passages shown to the model for \"Fill from the books\"",
+      "help": "How many passages, spread over all the agent's books, the model reads to write the test rows.",
+      "unit": "passages",
+      "default": 40,
+      "min": 5,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_suggest.PASSAGES"
+      ]
+    },
+    {
+      "key": "chatwoot.suggestPassageChars",
+      "group": "chatwoot",
+      "title": "Longest passage shown for \"Fill from the books\"",
+      "help": "Each passage is cut to this many characters before the model reads it.",
+      "unit": "characters",
+      "default": 700,
+      "min": 200,
+      "max": 2000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_suggest.PASSAGE_CHARS"
+      ]
+    },
+    {
+      "key": "chatwoot.suggestMaxTokens",
+      "group": "chatwoot",
+      "title": "Longest answer of \"Fill from the books\"",
+      "help": "The most the model may write when it makes the test rows (about 110 tokens a row).",
+      "unit": "tokens",
+      "default": 3500,
+      "min": 500,
+      "max": 8000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_suggest.MAX_TOKENS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
@@ -4107,6 +4167,10 @@
     }
   ],
   "fixed": [
+    {
+      "code": "chatwoot_suggest.REFUSE_SHARE",
+      "reason": "One question in five written from the books is one the books do not answer (a floor of two): a proportion of the method, not a limit anyone needs to tune."
+    },
     {
       "code": "chatwoot_teach.MICRO",
       "reason": "Unit conversion (one US dollar is a million micro-dollars), not a choice."
