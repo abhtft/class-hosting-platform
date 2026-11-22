@@ -6,11 +6,11 @@
 
 | | |
 |---|---|
-| Release | first baseline 1.0 (MVP), 2026-10-23; the current release is in the `VERSION` file (2.11.0). Sections still say "Release 1.0" where they describe what the baseline contained; what changed since is in `CHANGELOG.md` |
+| Release | first baseline 1.0 (MVP), 2026-10-23; the current release is in the `VERSION` file (2.12.0). Sections still say "Release 1.0" where they describe what the baseline contained; what changed since is in `CHANGELOG.md` |
 | Product | Class Hosting Platform: a controlled place where a teacher gives students expiring tokens, and students publish a website, a small backend and (optionally) an AI key, mostly by pushing to GitHub |
 | Code base | this repository, branch `main` (releases are tags `vX.Y.Z`; the baseline was the commit that first added this document) |
 | Production | AWS account of the owner, region `us-east-1`, CloudFormation stack `student-hosting` (status `UPDATE_COMPLETE`), portal `https://deploy.example.edu`, student sites `https://<name>.example.edu` |
-| Student kit | version `2.11.0` in the repository (one number for the platform, the kit and the editor package: `VERSION`) (`starter/template/platform.json`); the portal serves what `node admin.mjs portal-publish` last published (the kit zip and `kit-version.json`, the MCP package `class-platform-mcp-<version>.tgz`, the alias `class-platform-mcp.tgz` and `mcp-version.json`). MCP package version `2.10.0` (`starter/mcp/package.json`). The portal serves the kit and package of the last `publish` (`upgrade` or `publish`) |
+| Student kit | version `2.12.0` in the repository (one number for the platform, the kit and the editor package: `VERSION`) (`starter/template/platform.json`); the portal serves what `node admin.mjs portal-publish` last published (the kit zip and `kit-version.json`, the MCP package `class-platform-mcp-<version>.tgz`, the alias `class-platform-mcp.tgz` and `mcp-version.json`). MCP package version `2.10.0` (`starter/mcp/package.json`). The portal serves the kit and package of the last `publish` (`upgrade` or `publish`) |
 | Audience | the owner/operator, future maintainers, anyone reviewing the design or the security |
 | Change rule | any change to behaviour, limits, resources or flows updates this document **in the same commit**; the machine-checked block (section 14) fails the test run if a number drifts |
 | Changes since the baseline | See `CHANGELOG.md` (every release), the feature table in 1.5 (F1 to F25). Added after the baseline: the student kit and editor tools, class AI (OpenRouter and Gemini), class storage, background jobs, class knowledge, the agent and quality helpers, traces, the optional compute worker, project sync, add-ons, the settings registry, installable sites, sign in with Google for student apps, and the kit's signed self-sync |
@@ -1157,8 +1157,8 @@ The open items are the register in [FUTURE.md](FUTURE.md) (one list, with what e
   "sweeperCron": "cron(0 3 * * ? *)",
   "s3Lifecycle": { "uploadsExpireDays": 1, "noncurrentVersionDays": 30 },
   "reservedSlugs": ["sites", "uploads", "archive", "deploy", "www", "api", "admin", "mail", "ftp", "app", "apps", "static", "assets", "bs", "lenden"],
-  "kitVersion": "2.11.0",
-  "mcpPackage": { "version": "2.11.0" },
+  "kitVersion": "2.12.0",
+  "mcpPackage": { "version": "2.12.0" },
   "testSteps": 62,
   "teacherTools": 11,
   "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors"]

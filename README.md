@@ -4,7 +4,7 @@
 
 You run it in **your own AWS account** with one command. Students get a token, not AWS access. You decide, per student, which features are on and how much they may spend.
 
-> **Status: public beta (2.11.0).** Install, update, student deploy, custom domains, backup and restore, sign-in for student apps and the editor tools were tested end to end on real AWS by the author. **Not yet proven:** use by anyone but the author, classes of more than a few dozen students, regions other than `us-east-1`, a clean install of this version on a new account, and moving a class to another account. Read [Known limitations](#known-limitations), [docs/STATUS.md](docs/STATUS.md) (what is built) and [docs/FUTURE.md](docs/FUTURE.md) (what is not), and tell us what breaks.
+> **Status: public beta (2.12.0).** Install, update, student deploy, custom domains, backup and restore, sign-in for student apps and the editor tools were tested end to end on real AWS by the author. **Not yet proven:** use by anyone but the author, classes of more than a few dozen students, regions other than `us-east-1`, a clean install of this version on a new account, and moving a class to another account. Read [Known limitations](#known-limitations), [docs/STATUS.md](docs/STATUS.md) (what is built) and [docs/FUTURE.md](docs/FUTURE.md) (what is not), and tell us what breaks.
 
 ## What you get
 
