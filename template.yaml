@@ -1528,6 +1528,24 @@ Resources:
             - Effect: Allow # media upload forms and the check that a file arrived: only chatwoot-media/ (the form is signed with this role, so it can write nowhere else, and only up to the announced size)
               Action: [s3:PutObject, s3:GetObject]
               Resource: !Sub '${SitesBucket.Arn}/chatwoot-media/*'
+            - !If # traces: the owner's Activity list reads a business's own traces (t#cw:... and the by-app index for cw:...), read only
+              - UseTraces
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:Query]
+                Resource: !GetAtt TracesTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: ['t#cw:*']
+              - !Ref AWS::NoValue
+            - !If
+              - UseTraces
+              - Effect: Allow
+                Action: dynamodb:Query
+                Resource: !Sub '${TracesTable.Arn}/index/by-app'
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: ['cw:*']
+              - !Ref AWS::NoValue
       Events:
         Admin:
           Type: HttpApi

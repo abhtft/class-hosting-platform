@@ -185,6 +185,12 @@ assert len(older) == 2
 assert call("GET", f"/api/admin/traces/{slug}/tr_0000000000000000", session=admin)[0] == 404
 assert call("GET", f"/api/admin/traces/{slug}/bad", session=admin)[0] == 404, "not even a route"
 assert call("GET", "/api/admin/traces")[0] == 401
+bot_pk = "t#cw:acme#tr_0123456789abcdef"  # a Chatwoot business's trace: the teacher can read it like a student's
+traces.store().upsert_summary(bot_pk, {"slug": "cw:acme", "app": "cw:acme", "day": traces.day_id(NOW), "started": NOW * 1000, "level": "masked", "ttl": NOW + 99}, {"spans": 1})
+traces.store().put(bot_pk, "0000000000001#platform#aaaa", {"name": "answer", "kind": "guard", "source": "platform", "ts": NOW * 1000, "dur_ms": 0, "status": "ok", "attrs": {}, "slug": "cw:acme", "ttl": NOW + 99})
+assert call("GET", "/api/admin/traces/cw:acme/tr_0123456789abcdef", session=admin)[0] == 200 and call("GET", "/api/admin/traces", session=admin, query={"slug": "cw:acme"})[1]["traces"][0]["slug"] == "cw:acme"
+assert call("GET", "/api/admin/traces/cw:/tr_0123456789abcdef", session=admin)[0] == 404 and call("GET", "/api/student/traces/cw:acme/tr_0123456789abcdef", session=student)[0] in (404, 403, 405), "a student cannot reach a business's trace"
+traces.store().delete_trace(bot_pk)
 assert call("DELETE", f"/api/admin/traces/{slug}/{t3}", session=admin)[1] == {"removed": 2}
 assert call("GET", f"/api/admin/traces/{slug}/{t3}", session=admin)[0] == 404
 print("  ok  listing by student and day, paging, 404s, teacher login needed, delete removes every step")

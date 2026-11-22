@@ -14,6 +14,7 @@ or a book), writes the adapter's table and a business's book shelves directly, a
   python tools/chatwoot_ctl.py --table <...> set-live shop --tenant acme --version 2                     choose the live version (0 = none)
   python tools/chatwoot_ctl.py --table <...> suite-load shop --tenant acme --file config/suites/margdarshak-digital.json     save an agent's test suite (a file with "cases")
   python tools/chatwoot_ctl.py --table <...> central-load --file config/suites/standard-safety.json     load the platform's central safety suite (every business may read it, none may change it)
+  python tools/chatwoot_ctl.py --traces-table <TracesTableName> delete-traces acme [--agent shop] [--yes]   remove a business's traces (without --yes it only counts them)
   python tools/chatwoot_ctl.py --table <...> central-show                                              its version and its cases by risk group
   python tools/chatwoot_ctl.py --table <...> --worker <...> suite-run shop --tenant acme --central [--version N | --config file.json] [--wait]     run the central suite on an agent
   python tools/chatwoot_ctl.py --table <...> suite-show shop --tenant acme                              the suite and what its latest runs found, per published version
@@ -678,6 +679,7 @@ def parser():
     p.add_argument("--table", default=os.environ.get("CHATWOOT_TABLE"), help="the stack output ChatwootTableName (or the environment variable CHATWOOT_TABLE)")
     p.add_argument("--bucket", default=None, help="the sites bucket, for the book commands (or the environment variable BUCKET)")
     p.add_argument("--secret-name", default=None, help="the AI secret's name (the stack's AiSecretName), for the book commands")
+    p.add_argument("--traces-table", default=os.environ.get("TRACES_TABLE"), help="the stack output TracesTableName (or the environment variable TRACES_TABLE), for delete-traces")
     p.add_argument("--worker", default=None, help="the stack's ChatwootWorkerFunction name (or the environment variable CHATWOOT_WORKER_FUNCTION), for suite-run")
     sub = p.add_subparsers(dest="command", required=True)
     s = sub.add_parser("create-tenant", help="create a business and print its service key once")
@@ -731,6 +733,10 @@ def parser():
     s = sub.add_parser("suite-show", help="an agent's suite and what its latest runs found")
     s.add_argument("name")
     s.add_argument("--tenant", required=True)
+    s = sub.add_parser("delete-traces", help="remove the traces of a business (or one of its agents); without --yes it only counts them")
+    s.add_argument("tenant")
+    s.add_argument("--agent", default=None)
+    s.add_argument("--yes", action="store_true", help="really delete")
     s = sub.add_parser("central-load", help="load the platform's central safety suite from a JSON file with version, title and cases")
     s.add_argument("--file", required=True)
     sub.add_parser("central-show", help="the central safety suite's version and its cases by risk group")
@@ -759,9 +765,25 @@ def parser():
 NEEDS_TABLE = {"create-tenant", "rotate-key", "disable-tenant", "enable-tenant", "set-cap", "set-limits", "list", "agent-set", "show-agent", "publish", "set-live", "knowledge-sync", "suite-load", "suite-show", "suite-run", "suite-repeat", "central-load", "central-show"}
 
 
-def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, pause=None, ask=None):
+def delete_traces(store, args, out, now, shelves):
+    """Count (and with --yes remove) a business's traces. They live in the traces table, not in the Chatwoot table."""
+    import chatwoot_trace
+    traces_store = getattr(args, "traces_store", None)
+    if traces_store is None:
+        if not args.traces_table:
+            out("Give the table with --traces-table (the stack output TracesTableName) or the environment variable TRACES_TABLE.")
+            return 2
+        import traces
+        traces_store = traces.DynamoTraces(args.traces_table)
+    count = chatwoot_trace.delete_all(traces_store, args.tenant, args.agent, dry=not args.yes)
+    scope = f"agent {args.agent} of {args.tenant}" if args.agent else f"business {args.tenant}"
+    out(f"Removed {count} trace(s) of {scope}." if args.yes else f"{count} trace(s) of {scope} would be removed. Run again with --yes to remove them.")
+    return 0
+
+
+def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, pause=None, ask=None, traces_store=None):
     args = parser().parse_args(argv)
-    args.invoke, args.pause, args.ask = invoke, pause, ask  # tests start the worker in-process and do not wait
+    args.invoke, args.pause, args.ask, args.traces_store = invoke, pause, ask, traces_store  # tests start the worker in-process and do not wait
     now = int(now if now is not None else time.time())
     if store is None and args.command in NEEDS_TABLE:
         if not args.table:
@@ -771,7 +793,7 @@ def main(argv=None, store=None, out=print, now=None, shelves=None, invoke=None, 
     if shelves is None and args.command in ("knowledge-sync", "eval"):
         shelves = real_shelves(args)
     commands = {"create-tenant": create_tenant, "rotate-key": rotate_key, "disable-tenant": lambda *a: set_enabled(*a[:4], False), "enable-tenant": lambda *a: set_enabled(*a[:4], True),
-                "set-cap": set_cap, "set-limits": set_limits, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run, "suite-repeat": suite_repeat, "central-load": central_load, "central-show": central_show}
+                "set-cap": set_cap, "set-limits": set_limits, "list": list_all, "agent-set": agent_set, "show-agent": show_agent, "publish": publish, "set-live": set_live, "knowledge-sync": knowledge_sync, "eval": eval_cases, "suite-load": suite_load, "suite-show": suite_show, "suite-run": suite_run, "suite-repeat": suite_repeat, "central-load": central_load, "central-show": central_show, "delete-traces": delete_traces}
     code = commands[args.command](store, args, out, now, shelves)
     if args.command == "knowledge-sync" and args.then_suite and not args.dry_run and code == 0:  # a new book can change an answer: ask the suite
         args.all_live, args.name, args.wait, args.version, args.config = True, None, True, None, None

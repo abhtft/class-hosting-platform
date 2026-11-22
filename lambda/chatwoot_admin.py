@@ -35,6 +35,7 @@ import chatwoot_memory as memory
 import chatwoot_registry as reg
 import chatwoot_repeat as repeat
 import chatwoot_suggest as suggest_rows
+import chatwoot_trace
 import chatwoot_suite as suite
 import chatwoot_teach as teach
 import chatwoot_runtime as engine
@@ -60,6 +61,9 @@ TEACH_IMPROVE = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/(pr
 TEACH_TEST = re.compile(rf"/admin/agents/({_NAME})/teach/([0-9a-f]{{12}})/turns/([0-9]{{1,4}})/test")
 CENTRAL = re.compile(r"/admin/central-suite")
 SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
+TRACES = re.compile(rf"/admin/agents/({_NAME})/traces")
+TRACES_SUMMARY = re.compile(rf"/admin/agents/({_NAME})/traces/summary")
+TRACE_ONE = re.compile(rf"/admin/agents/({_NAME})/traces/(tr_[0-9a-f]{{16}})")
 SUITE_SUGGEST = re.compile(rf"/admin/agents/({_NAME})/suite/suggest")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
 SUITE_RUN = re.compile(rf"/admin/agents/({_NAME})/suite/runs/([0-9a-f]{{12}})")
@@ -464,6 +468,64 @@ def get_repeat(store, tenant, name, number):
     return 200, out
 
 
+def query_of(event):
+    """The query string as a dict: API Gateway gives it parsed; the local dev server gives only the raw string."""
+    import urllib.parse
+    return event.get("queryStringParameters") or {k: v[0] for k, v in urllib.parse.parse_qs(event.get("rawQueryString") or "").items()}
+
+
+def traces_off():
+    return problem(503, "traces_off", "Traces are not switched on for this platform.")
+
+
+def list_traces(tenant, name, event, store, trace_store):
+    """One page of an agent's answers (newest first): `day` (YYYY-MM-DD, UTC), `route` (rag, fallback, handover), `limit`, `before` (a started time from the last page)."""
+    if trace_store is None:
+        return traces_off()
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    q = query_of(event)
+    unknown = sorted(set(q) - {"day", "route", "limit", "before"})
+    if unknown:
+        raise reg.Invalid(f"Unknown filter: {unknown[0]}.")
+    day, route = q.get("day") or None, q.get("route") or None
+    if day is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise reg.Invalid("day is a date like 2026-11-22.")
+    if route is not None and route not in ("rag", "agent", "fallback", "handover"):
+        raise reg.Invalid("route is rag, agent, fallback or handover.")
+    numbers = {}
+    for key in ("limit", "before"):
+        if q.get(key):
+            if not str(q[key]).isdigit():
+                raise reg.Invalid(f"{key} is a whole number.")
+            numbers[key] = int(q[key])
+    try:
+        return 200, chatwoot_trace.list_traces(trace_store, tenant["tenant_id"], name, day, route, numbers.get("limit"), numbers.get("before"))
+    except ValueError:
+        raise reg.Invalid("day is a date like 2026-11-22.")
+
+
+def get_trace(tenant, name, trace_id, store, trace_store):
+    if trace_store is None:
+        return traces_off()
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    found = chatwoot_trace.get_trace(trace_store, tenant["tenant_id"], name, trace_id)
+    return (200, found) if found else problem(404, "not_found", "No such trace (it may have expired).")
+
+
+def trace_summary(tenant, name, event, store, trace_store, now):
+    """How the agent's answers looked over the last days (default `chatwoot.traceSummaryDays`): totals, per day, per version, with the share that fell back or went to a person."""
+    if trace_store is None:
+        return traces_off()
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    days = query_of(event).get("days")
+    if days is not None and not str(days).isdigit():
+        raise reg.Invalid("days is a whole number.")
+    return 200, chatwoot_trace.summary(trace_store, tenant["tenant_id"], name, int(days) if days else None, now)
+
+
 def get_suite(store, tenant, name):
     if owned(store, tenant, name) is None:
         return problem(404, "not_found", "No such agent.")
@@ -828,7 +890,7 @@ def save_teach_test(store, tenant, name, sid, number, now):
     return 201, {"case": case, "note": note, "suite_rev": saved["rev"]}
 
 
-def route(store, tenant, method, path, event, now, invoke=None, files=None):
+def route(store, tenant, method, path, event, now, invoke=None, files=None, trace_store=None):
     if LIST.fullmatch(path):
         if method != "GET":
             return problem(405, "method_not_allowed", "Use GET.")
@@ -904,6 +966,15 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None):
     found = SUITE_RUN.fullmatch(path)
     if found:
         return get_suite_run(store, tenant, found.group(1), found.group(2)) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = TRACES_SUMMARY.fullmatch(path)
+    if found:
+        return trace_summary(tenant, found.group(1), event, store, trace_store, now) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = TRACE_ONE.fullmatch(path)
+    if found:
+        return get_trace(tenant, found.group(1), found.group(2), store, trace_store) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = TRACES.fullmatch(path)
+    if found:
+        return list_traces(tenant, found.group(1), event, store, trace_store) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
     found = SUITE_SUGGEST.fullmatch(path)
     if found:
         return suggest_tests(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
@@ -934,7 +1005,7 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None):
     return problem(404, "not_found", "No such route.")
 
 
-def handler(event, context=None, now=None, store=None, invoke=None, files=None):
+def handler(event, context=None, now=None, store=None, invoke=None, files=None, trace_store=None):
     now = int(now if now is not None else time.time())
     store = store or default_store()
     headers = {name.lower(): value for name, value in (event.get("headers") or {}).items()}
@@ -946,7 +1017,7 @@ def handler(event, context=None, now=None, store=None, invoke=None, files=None):
     if tenant is None:
         return reply(401, {"error": "unauthorized", "message": "Send the business's service key as: Authorization: Bearer cs_..."})
     try:
-        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now, invoke, files)
+        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now, invoke, files, trace_store if trace_store is not None else chatwoot_trace.default_store())
     except reg.Invalid as error:
         return reply(400, {"error": "bad_request", "message": str(error)})
     except OverflowError:

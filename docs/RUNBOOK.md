@@ -59,6 +59,10 @@ python tools/kb_compare.py --tenant poc --folder knowledge/poc --collections <sh
 
 5. Read the table: answerable and refused questions for both searches, best scores and times. Record the go or no-go in `docs/DECISIONS.md`. To remove the trial set `BedrockKbEnabled=false` (the data source deletes its vectors; confirm before deleting).
 
+## Testing the Chatwoot traces end to end
+
+Follow docs/CHATWOOT_TRACES_TESTING.md (preconditions, 40 numbered cases, the AWS read-only commands, a result log, clean-up and rollback). The owner-side routes are `GET /admin/agents/{name}/traces`, `.../traces/{id}` and `.../traces/summary`; remove a business's traces with `chatwoot_ctl.py --traces-table <name> delete-traces <tenant> --yes`.
+
 ## Traces of the Chatwoot answers (TR1)
 
 Find a message's trace: read `msg#<agent>#<message_id>` in the Chatwoot table and use its `trace_id`; the trace is `t#cw:<tenant>#<trace_id>` in the traces table (`summary` plus steps). A missing `trace_id` on a replied message means the trace could not be written: look for the log line `trace_not_written` (the reply was still sent). Turn the customer's words off with `chatwoot.traceText` = 0 (only numbers stay); retention is `chatwoot.traceRetentionDays`. Student backend and traces must be on (`TracesEnabled`), otherwise bots write no traces.

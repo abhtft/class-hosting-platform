@@ -2706,6 +2706,51 @@
       ]
     },
     {
+      "key": "chatwoot.traceListMax",
+      "group": "chatwoot",
+      "title": "Traces shown on one page",
+      "help": "How many answers the owner's Activity list returns at once (the owner can ask for the next page).",
+      "unit": "traces",
+      "default": 50,
+      "min": 10,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_trace.LIST_MAX"
+      ]
+    },
+    {
+      "key": "chatwoot.traceScanMax",
+      "group": "chatwoot",
+      "title": "Most traces looked through for one list or summary",
+      "help": "A list with a filter, or the last-days summary, reads at most this many answers of the business and says so when it stopped early. Higher is slower and costs a little more.",
+      "unit": "traces",
+      "default": 2000,
+      "min": 100,
+      "max": 5000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_trace.SCAN_MAX"
+      ]
+    },
+    {
+      "key": "chatwoot.traceSummaryDays",
+      "group": "chatwoot",
+      "title": "Days in the Activity summary",
+      "help": "How many days back the summary of an agent's answers (how many fell back or were handed to a person, the cost) looks by default.",
+      "unit": "days",
+      "default": 7,
+      "min": 1,
+      "max": 30,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_trace.SUMMARY_DAYS"
+      ]
+    },
+    {
       "key": "chatwoot.traceRetentionDays",
       "group": "chatwoot",
       "title": "How long a business's traces are kept",

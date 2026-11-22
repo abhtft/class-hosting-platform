@@ -651,7 +651,7 @@ def dispatch(method, path, body, event, now, site_url):
                 except ValueError:
                     raise PortalError(400, "That cursor is not valid.")
             return reply(200, **traces.export_page(q.get("slug") or None, q.get("shelf") or None, q.get("from") or None, q.get("to") or None, cursor))
-        trace_one = re.fullmatch(r"/api/admin/traces/([a-z0-9][a-z0-9-]{0,29})/(tr_[0-9a-f]{16})", path)
+        trace_one = re.fullmatch(r"/api/admin/traces/([a-z0-9][a-z0-9-]{0,29}|cw:[a-z0-9][a-z0-9-]{0,39})/(tr_[0-9a-f]{16})", path)  # a student slug, or a Chatwoot business (cw:<tenant>)
         if method == "GET" and trace_one:
             import traces
             return reply(200, **traces.get_trace(trace_one.group(1), trace_one.group(2)))
