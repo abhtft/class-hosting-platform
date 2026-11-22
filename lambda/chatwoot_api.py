@@ -33,6 +33,7 @@ import time
 import urllib.error
 import urllib.request
 
+import chatwoot_consistency as consistency
 import chatwoot_core as core
 import chatwoot_handover as handover
 import chatwoot_media as media
@@ -572,6 +573,36 @@ def suggest(event, deps, now):
     return {"result": {"rows": rows, "passages": len(chosen), "spent_micro": int(answer.get("cost_micro") or 0)}} if rows else {"error": "bad_answer"}
 
 
+def consistency_check(event, deps, now):
+    """Look for places of a version that disagree (started by the admin function and nobody else): the instructions, the fixed texts, the inbox notes and the media descriptions against the
+    corrections a client taught and against each other. One model call; nothing is stored or changed (the owner reviews each suggested change in Studio); the cost counts against the business's
+    month. Returns {"result": {"conflicts": [...], "checked": n, "spent_micro": n}} or {"error": code}."""
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    config, used = dry_target(event["agent_id"], tenant, event, deps)
+    if used is None:
+        return config
+    found = consistency.fields(config)
+    facts = consistency.corrections(config)
+    if len(found) < 2 and not facts:  # nothing to compare: one text and no correction
+        return {"result": {"conflicts": [], "checked": len(found), "spent_micro": 0}}
+    key = usage_key(event["tenant_id"], now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+    try:
+        answer = deps.runtime.llm(consistency.messages(engine.LANGUAGES[config["language"]], found, facts), consistency.MAX_TOKENS, **{k: config[k] for k in ("provider", "model") if config.get(k)})
+    except Exception as error:
+        log("consistency_failed", error=type(error).__name__)
+        return {"error": "model_unavailable"}
+    spend(deps, key, {"cost_micro": answer.get("cost_micro")}, now)
+    text = answer.get("text")
+    if not isinstance(text, str) or "[" not in text:
+        return {"error": "bad_answer"}
+    return {"result": {"conflicts": consistency.parse(text, found), "checked": len(found), "spent_micro": int(answer.get("cost_micro") or 0)}}
+
+
 def compare(event, deps, now):
     """Ask the same few questions of two published versions, side by side (the owner's before and after of a teach session). The questions come from the admin function; every answer is a dry
     turn (nothing posted, nothing stored) whose cost is counted against the business's month. Returns {"result": {"rows": [{"q", "a", "b"}], "spent_micro"}} or {"error": code}."""
@@ -1016,6 +1047,8 @@ def worker(event, context=None, now=None, deps=None):
         return sweep(event, deps, now)
     if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
         return test(event, deps, now)
+    if event.get("kind") == "consistency":  # from the admin function: the places of a version that disagree, for the owner to review
+        return consistency_check(event, deps, now)
     if event.get("kind") == "suggest":  # from the admin function: test rows written from the agent's books for the owner to review
         return suggest(event, deps, now)
     if event.get("kind") == "repeat":  # from the admin function: a repeatability check, asynchronous

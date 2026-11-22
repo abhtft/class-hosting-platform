@@ -67,6 +67,10 @@ Follow docs/CHATWOOT_TRACES_TESTING.md (preconditions, 40 numbered cases, the AW
 
 Find a message's trace: read `msg#<agent>#<message_id>` in the Chatwoot table and use its `trace_id`; the trace is `t#cw:<tenant>#<trace_id>` in the traces table (`summary` plus steps). A missing `trace_id` on a replied message means the trace could not be written: look for the log line `trace_not_written` (the reply was still sent). Turn the customer's words off with `chatwoot.traceText` = 0 (only numbers stay); retention is `chatwoot.traceRetentionDays`. Student backend and traces must be on (`TracesEnabled`), otherwise bots write no traces.
 
+## Consistency check
+
+`POST /admin/agents/{name}/consistency` (`version` or `config`). Debug: the worker logs `consistency_failed` with the error class; `bad_answer` means the model's text had no JSON array (run again). A conflict whose quote is not literally in its field is dropped on purpose. Counts against `usage#<tenant>#<month>`.
+
 ## Test rows from the books (T5)
 
 `POST /admin/agents/{name}/suite/suggest` with `{"version": n}` or `{"config": {...}}`, `"count"` and optionally `"dry": true` (the cost estimate only). Debug: the worker logs `suggest_failed` with the error class when the shelves or the model fail; `no_books` means the agent's collections hold no passage of 40 characters or more. The call counts against the business's monthly spend (`usage#<tenant>#<month>`). Settings: `chatwoot.suggestMaxCount`, `suggestPassages`, `suggestPassageChars`, `suggestMaxTokens`.

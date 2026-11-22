@@ -236,6 +236,10 @@ Every message the worker answers (or tried to) leaves one trace in the traces ta
 
 The owner's side is read only and scoped by the key: the partition is built from the caller's business (`t#cw:<tenant>#<id>`), so another business's id and another agent's id are the same 404. `GET /admin/agents/{name}/traces` returns `{"traces": [...], "next_before", "truncated"}` (filters `day` as YYYY-MM-DD in UTC, `route` as rag, agent, fallback or handover, `limit` up to `chatwoot.traceListMax`, `before` as a started time in ms from the last page); `GET .../traces/{id}` returns `{"trace", "spans"}`; `GET .../traces/summary?days=n` returns the totals, the days and the versions with `fallback_rate` and `handover_rate`. A list or a summary looks through at most `chatwoot.traceScanMax` answers and sets `truncated` when it stopped early. When traces are not switched on the routes answer `503 traces_off`. The command `chatwoot_ctl.py --traces-table <TracesTableName> delete-traces <tenant> [--agent a] [--yes]` removes a business's traces. The end-to-end test guide is docs/CHATWOOT_TRACES_TESTING.md.
 
+### Consistency check of a version
+
+`POST /admin/agents/{name}/consistency` takes `{"version": n}` or `{"config": {...}}`. The worker numbers the version's editable texts (`instructions`, `fallback_text`, `followup_fallback_text`, `handover_text`, `inbox_note:<id>`, `media:<id>`), adds the corrections (newest first) and asks the model once for contradictions. Answer: `{"conflicts": [{field, quote, fix, fact, why}], "checked": n, "spent_micro": n}`. The books are not checked. Plan: `docs/notes/CONSISTENCY-PLAN.md`.
+
 ### Fill the tests table from the books (plan T5)
 
 `POST /admin/agents/{name}/suite/suggest` takes `{"version": n}` or `{"config": {...}}`, `"count"` (3 to `chatwoot.suggestMaxCount`) and optionally `"dry": true`. The worker samples the agent's shelves (`chatwoot_suggest.sample`), asks the model once and returns `{"rows": [{question, expected, keys, refuse}], passages, spent_micro}`; with `dry` it returns `{estimate_micro, passages, count}` and asks nothing. Rows are proposals: the owner reviews them in Studio before saving.

@@ -608,3 +608,23 @@ for code, http in (("no_books", 409), ("model_unavailable", 502), ("bad_answer",
     assert status == http and body["error"] == code, (code, status, body)
 assert teach_call("POST", SUGGEST_PATH, {"version": 1, "count": 5}, invoke=lambda payload: (_ for _ in ()).throw(RuntimeError("down")))[0] == 502
 print("  ok  fill from the books: a version or a draft, a count of 3 to the limit, a dry run for the cost, odd fields refused, the worker's errors mapped to plain statuses")
+
+# ---- consistency check of a version ----
+def consistent(payload):
+    asked.append(payload)
+    return {"result": {"conflicts": [{"field": "instructions", "quote": "9 AM", "fix": "10 AM", "fact": "x", "why": "y"}], "checked": 3, "spent_micro": 5}}
+
+
+CONSISTENCY_PATH = "/admin/agents/shop/consistency"
+status, out = teach_call("POST", CONSISTENCY_PATH, {"version": 1}, invoke=consistent)
+assert status == 200 and out["conflicts"][0]["fix"] == "10 AM" and asked[-1] == {"kind": "consistency", "tenant_id": "acme", "agent_id": "shop", "version": 1}
+status, _ = teach_call("POST", CONSISTENCY_PATH, {"config": {"collections": ["faq"]}}, invoke=consistent)
+assert status == 200 and asked[-1]["config"] == {"collections": ["faq"]} and "version" not in asked[-1]
+for bad in ({}, {"version": 1, "config": {}}, {"version": 0}, {"version": True}, {"config": "text"}, {"version": 1, "tenant_id": "x"}):
+    assert teach_call("POST", CONSISTENCY_PATH, bad, invoke=consistent)[0] == 400, bad
+assert teach_call("POST", "/admin/agents/nope/consistency", {"version": 1}, invoke=consistent)[0] == 404
+assert teach_call("GET", CONSISTENCY_PATH)[0] == 405
+for code, http in (("model_unavailable", 502), ("bad_answer", 502), ("cap_reached", 429), ("version_not_found", 404)):
+    status, body = teach_call("POST", CONSISTENCY_PATH, {"version": 1}, invoke=lambda payload, code=code: {"error": code})
+    assert status == http and body["error"] == code, (code, status, body)
+print("  ok  consistency check: a version or a draft, odd fields refused, the worker's errors mapped to plain statuses")

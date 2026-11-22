@@ -1247,6 +1247,30 @@ quiet = tr_mod.check_drift(day, numbers, {"total": {"answers": 100, "refused": 0
 assert quiet is None, "a business's bot with 100 percent refusals sends no email"
 print("  ok  one trace per answered message: owner cw:<tenant> (never a student slug), masked text, numbers only when switched off, one batch, links from the message item, a broken store never stops a reply, bots stay out of the class numbers and the drift email")
 
+# ---- consistency: the worker finds the places of a version that disagree ----
+f = Fakes()
+DRAFT = {**LIVE_CONFIG, "instructions": "We are open Mon-Sat, 9 AM to 6 PM.", "fallback_text": "Sorry, a person will help (9 AM to 6 PM).", "extras": ["Office opens at 10 AM."]}
+CONSIST = {"kind": "consistency", "tenant_id": "acme", "agent_id": "shop", "config": DRAFT}
+f.llm_answer = {"text": '[{"field": "instructions", "quote": "9 AM to 6 PM", "fact": "Office opens at 10 AM.", "fix": "10 AM to 6 PM", "why": "The correction says 10."}, {"field": "instructions", "quote": "not there", "fix": "x"}]', "model": "m", "tokens": 9, "cost_micro": 55}
+out = api.worker(CONSIST, None, now=NOW + 40, deps=f.wdeps)
+assert out == {"result": {"conflicts": [{"field": "instructions", "quote": "9 AM to 6 PM", "fix": "10 AM to 6 PM", "fact": "Office opens at 10 AM.", "why": "The correction says 10."}], "checked": 3, "spent_micro": 55}}, out
+assert len(f.llm_calls) == 1 and f.llm_calls[-1][1] == api.consistency.MAX_TOKENS and "[handover_text]" in f.llm_calls[-1][0][1]["content"] and f.store.usage(MONTH) == 55
+f.llm_answer = {"text": "[]", "tokens": 1, "cost_micro": 5}
+assert api.worker(CONSIST, None, now=NOW + 41, deps=f.wdeps)["result"]["conflicts"] == []
+bare = {**CONSIST, "config": {**LIVE_CONFIG, "handover_text": None}}
+f.llm_calls.clear()
+assert api.worker({**CONSIST, "config": {**LIVE_CONFIG, "instructions": ""}}, None, now=NOW + 42, deps=f.wdeps)["result"]["checked"] >= 1
+f.llm_answer = {"text": "no json", "tokens": 1, "cost_micro": 1}
+assert api.worker(CONSIST, None, now=NOW + 43, deps=f.wdeps) == {"error": "bad_answer"}
+f.llm_error = RuntimeError("down")
+assert api.worker(CONSIST, None, now=NOW + 44, deps=f.wdeps) == {"error": "model_unavailable"}
+f.llm_error = None
+assert api.worker({**CONSIST, "tenant_id": "other"}, None, now=NOW + 45, deps=f.wdeps).get("error") in ("not_found", "bad_event")
+assert api.worker({**CONSIST, "version": 9, "config": None}, None, now=NOW + 46, deps=f.wdeps).get("error") in ("version_not_found", "bad_config")
+f.store.items[MONTH] = {"micro": 10 ** 9}
+assert api.worker(CONSIST, None, now=NOW + 47, deps=f.wdeps) == {"error": "cap_reached"}
+print("  ok  the worker lists the places of a version that disagree with a correction or each other, asks the model once, keeps only real quotes, counts the cost, and reports a model that fails, a business at its cap and odd events")
+
 # ---- T-C: the worker distils a session's notes and compares two versions ----
 f = Fakes()
 register(f.store) if False else None

@@ -2905,6 +2905,36 @@
       ]
     },
     {
+      "key": "chatwoot.consistencyMaxTokens",
+      "group": "chatwoot",
+      "title": "Longest answer of the consistency check",
+      "help": "The most the model may write when it lists the places of a version that disagree with each other or with a correction.",
+      "unit": "tokens",
+      "default": 1500,
+      "min": 300,
+      "max": 4000,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_consistency.MAX_TOKENS"
+      ]
+    },
+    {
+      "key": "chatwoot.consistencyMaxConflicts",
+      "group": "chatwoot",
+      "title": "Most disagreements the consistency check shows",
+      "help": "The check keeps at most this many disagreements, so the owner reviews a short list.",
+      "unit": "disagreements",
+      "default": 10,
+      "min": 1,
+      "max": 30,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_consistency.MAX_CONFLICTS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
@@ -4306,6 +4336,10 @@
     }
   ],
   "fixed": [
+    {
+      "code": "chatwoot_consistency.FIELD_CHARS",
+      "reason": "A text is cut to the longest length the platform accepts for any field (the instructions) before the model reads it: the limit of the fields themselves, not a separate choice."
+    },
     {
       "code": "chatwoot_repeat.SHOWN_CHARS",
       "reason": "How much of an answer the printed table of a repeatability check shows: a detail of the layout."

@@ -64,6 +64,7 @@ SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
 TRACES = re.compile(rf"/admin/agents/({_NAME})/traces")
 TRACES_SUMMARY = re.compile(rf"/admin/agents/({_NAME})/traces/summary")
 TRACE_ONE = re.compile(rf"/admin/agents/({_NAME})/traces/(tr_[0-9a-f]{{16}})")
+CONSISTENCY = re.compile(rf"/admin/agents/({_NAME})/consistency")
 SUITE_SUGGEST = re.compile(rf"/admin/agents/({_NAME})/suite/suggest")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
 SUITE_RUN = re.compile(rf"/admin/agents/({_NAME})/suite/runs/([0-9a-f]{{12}})")
@@ -526,6 +527,39 @@ def trace_summary(tenant, name, event, store, trace_store, now):
     return 200, chatwoot_trace.summary(trace_store, tenant["tenant_id"], name, int(days) if days else None, now)
 
 
+def check_consistency(store, tenant, name, body, invoke):
+    """Ask the worker which places of a version (or of the editor's draft) disagree. Nothing is saved: Studio shows each suggested change and the owner accepts or ignores it."""
+    unknown = sorted(set(body) - {"version", "config"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    if ("version" in body) == ("config" in body):
+        raise reg.Invalid("Send either version (a published version) or config (a draft), not both and not neither.")
+    payload = {"kind": "consistency", "tenant_id": tenant["tenant_id"], "agent_id": name}
+    if "config" in body:
+        if not isinstance(body["config"], dict) or len(json.dumps(body["config"]).encode("utf8")) > reg.MAX_VERSION_BYTES:
+            raise reg.Invalid(f"config must be a JSON object of at most {reg.MAX_VERSION_BYTES // 1024} KB.")
+        payload["config"] = body["config"]
+    else:
+        number = body["version"]
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= reg.MAX_VERSIONS:
+            raise reg.Invalid("version must be a published version number.")
+        payload["version"] = number
+    try:
+        answer = (invoke or invoke_worker)(payload)
+    except Exception as error:
+        log("consistency_unavailable", error=type(error).__name__)
+        return problem(502, "test_failed", "The check could not be run. Try again.")
+    if not isinstance(answer, dict):
+        return problem(502, "test_failed", "The check could not be run. Try again.")
+    if isinstance(answer.get("result"), dict):
+        return 200, answer["result"]
+    status, message = test_error(answer.get("error"))
+    code = answer.get("error") if status != 502 or answer.get("error") in ("model_unavailable", "bad_answer") else "test_failed"
+    return problem(status, str(code), answer.get("message") if code == "bad_config" and isinstance(answer.get("message"), str) else message)
+
+
 def get_suite(store, tenant, name):
     if owned(store, tenant, name) is None:
         return problem(404, "not_found", "No such agent.")
@@ -975,6 +1009,9 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None, trac
     found = TRACES.fullmatch(path)
     if found:
         return list_traces(tenant, found.group(1), event, store, trace_store) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = CONSISTENCY.fullmatch(path)
+    if found:
+        return check_consistency(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
     found = SUITE_SUGGEST.fullmatch(path)
     if found:
         return suggest_tests(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")

@@ -182,6 +182,8 @@ SETTINGS = {
     "chatwoot.repeatGapSeconds": {"type": "int", "default": 1, "min": 0, "max": 5, "env": None},
     "chatwoot.repeatMajorityMin": {"type": "float", "default": 0.6, "min": 0.3, "max": 1, "env": None},
     "chatwoot.repeatMinAnswered": {"type": "float", "default": 0.5, "min": 0.1, "max": 1, "env": None},
+    "chatwoot.consistencyMaxTokens": {"type": "int", "default": 1500, "min": 300, "max": 4000, "env": None},
+    "chatwoot.consistencyMaxConflicts": {"type": "int", "default": 10, "min": 1, "max": 30, "env": None},
     "chatwoot.llmRetryPauseSeconds": {"type": "int", "default": 3, "min": 0, "max": 10, "env": None},
     "chatwoot.maxCollections": {"type": "int", "default": 5, "min": 1, "max": 10, "env": None},
     "chatwoot.maxInstructionChars": {"type": "int", "default": 4000, "min": 100, "max": 20000, "env": None},
