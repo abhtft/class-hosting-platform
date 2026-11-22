@@ -25,6 +25,7 @@ MAX_TEXT_CHARS = platform_settings.value("traces.maxTextChars")        # one tex
 MAX_ITEM_BYTES = platform_settings.value("traces.maxItemBytes")      # a span item stays far below DynamoDB's 400 KB
 MAX_ATTR_KEYS = platform_settings.value("traces.maxAttrKeys")
 TRACE_ID_RE = re.compile(r"^tr_[0-9a-f]{16}$")
+BOT_PREFIX = "cw:"  # the owner key of a Chatwoot business starts with this; a student slug can never contain a colon
 
 _MASKS = (
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[email]"),

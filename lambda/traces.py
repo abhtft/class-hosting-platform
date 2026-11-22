@@ -55,6 +55,10 @@ class MemoryTraces:
         with self.lock:
             self.rows[(pk, sk)] = {"s": pk, "id": sk, **row}
 
+    def put_many(self, pk, rows):
+        for sk, row in rows:
+            self.put(pk, sk, row)
+
     def upsert_summary(self, pk, once, adds):
         """Create the summary with `once` values if absent, then add `adds` to its counters. Returns the item."""
         with self.lock:
@@ -111,6 +115,14 @@ class DynamoTraces:
         from decimal import Decimal
         row = json.loads(json.dumps(row, default=str), parse_float=Decimal)  # DynamoDB has no floats
         self.table.put_item(Item={"s": pk, "id": sk, **row})
+
+    def put_many(self, pk, rows):
+        """Several items of one trace in one batch (one round trip for up to 25)."""
+        import json
+        from decimal import Decimal
+        with self.table.batch_writer() as batch:
+            for sk, row in rows:
+                batch.put_item(Item={"s": pk, "id": sk, **json.loads(json.dumps(row, default=str), parse_float=Decimal)})
 
     def upsert_summary(self, pk, once, adds):
         names, values, sets, add = {}, {}, [], []
@@ -460,7 +472,8 @@ def compute_day(day):
         rows = store().summaries(day=day, limit=100, before=before)
         for row in rows:
             row = portal._plain(row)
-            _add(total, row)
+            if not str(row.get("app") or "").startswith(tc.BOT_PREFIX):  # a business's bot is not part of the class numbers
+                _add(total, row)
             _add(apps.setdefault(row.get("app") or "?", _blank()), row)
             before = int(row.get("started", 0))
         if len(rows) < 100:
@@ -508,6 +521,8 @@ def check_drift(day, data, baseline, publish, now):
 
     judge("The whole class", data, baseline["total"])
     for slug, d in data["apps"].items():
+        if slug.startswith(tc.BOT_PREFIX):  # no alert email for the Chatwoot bots for now (their numbers are still stored)
+            continue
         judge(slug, d, baseline["apps"].get(slug, _blank()))
     if not problems:
         return None

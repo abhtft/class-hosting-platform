@@ -1189,6 +1189,64 @@ f.store.items[MONTH] = {"micro": 10 ** 9}
 assert api.worker(SUGGEST, None, now=NOW + 38, deps=f.wdeps) == {"error": "cap_reached"}
 print("  ok  the worker spreads the books into a prompt, asks the model once, keeps only keys that are in the answer, counts the cost, and refuses a dry run's cost, odd events, no books and a business at its cap")
 
+# ---- TR1: one trace per answered message ----
+import re  # noqa: E402
+import traces as tr_mod  # noqa: E402
+import chatwoot_trace as ctr  # noqa: E402
+from portal import SLUG_RE  # noqa: E402
+
+PHONE = "ABCDE1234F"  # a PAN: masked like a phone number, and it does not trigger a hand-over
+
+
+def traced(level=None, **more):
+    f, job = accepted()
+    f.wdeps.traces = tr_mod.MemoryTraces()
+    run_worker(f, {**job, "text": f"my PAN is {PHONE}, what are the prices", **more})
+    return f, f.store.items["msg#shop#501"]
+
+
+f, item = traced()
+tid = item["trace_id"]
+assert item["status"] == "replied" and re.fullmatch(r"tr_[0-9a-f]{16}", tid) and not any(k in item for k in ("_text", "_tenant", "explain")), "the trace-only fields never reach the message item"
+pk = tr_mod.pk_of("cw:acme", tid)
+rows = f.wdeps.traces.rows
+summary = rows[(pk, "summary")]
+assert pk.startswith("t#cw:acme#tr_") and summary["app"] == "cw:acme" and summary["agent"] == "shop" and summary["route"] == "rag" and summary["version"] == 1 and summary["message_id"] == 501 and summary["status"] == "replied", summary
+assert summary["ttl"] == NOW + 1 + 30 * 86400 and summary["level"] == "masked" and summary["spans"] == 3 and summary["tokens"] > 0
+spans = {r["name"]: r for (p, sk), r in rows.items() if p == pk and sk != "summary"}
+assert set(spans) == {"retrieval", "llm", "answer"}, set(spans)
+assert PHONE not in json.dumps(list(rows.values())) and "[pan]" in spans["retrieval"]["attrs"]["query"], "the PAN is masked"
+assert spans["llm"]["attrs"]["answer"] == "We open at nine and close at six." and spans["retrieval"]["attrs"]["hits"][0]["score"] == 0.9 and spans["retrieval"]["attrs"]["hits"][0]["used"] is True
+assert not SLUG_RE.match("cw:acme"), "no student slug can be a business's trace owner"
+for r in rows.values():
+    assert r["ttl"] == summary["ttl"]
+ctr.LEVEL = "metadata"
+f, item = traced()
+text_in_rows = json.dumps(list(f.wdeps.traces.rows.values()))
+assert "We open at nine" not in text_in_rows and "what are the prices" not in text_in_rows and PHONE not in text_in_rows, "numbers only when the text switch is off"
+ctr.LEVEL = "masked"
+f, job = accepted()
+f.wdeps.traces = tr_mod.MemoryTraces()
+f.wdeps.traces.put_many = lambda pk, rows: (_ for _ in ()).throw(RuntimeError("table down"))
+LOGS.clear()
+run_worker(f, job)
+item = f.store.items["msg#shop#501"]
+assert item["status"] == "replied" and "trace_id" not in item and any("trace_not_written" in line for line in LOGS), "a trace that cannot be written never stops the reply"
+f, job = accepted()
+run_worker(f, job)
+assert "trace_id" not in f.store.items["msg#shop#501"] and f.wdeps.traces is None, "no traces store, no traces"
+# the class numbers and the drift email leave the businesses' bots out
+tr_mod._store[:] = [tr_mod.MemoryTraces()]
+day = tr_mod.day_id(NOW)
+for owner, n in (("cw:acme", 30), ("student", 1)):
+    for i in range(n):
+        tr_mod._store[0].upsert_summary(f"t#{owner}#tr_{i:016x}", {"slug": owner, "app": owner, "day": day, "started": NOW + i, "ttl": NOW + 999}, {"spans": 1, "refused": 1})
+numbers = tr_mod.compute_day(day)
+assert numbers["answers"] == 1 and numbers["apps"]["cw:acme"]["answers"] == 30 and numbers["apps"]["student"]["answers"] == 1, "bots are stored under their own key but not in the class total"
+quiet = tr_mod.check_drift(day, numbers, {"total": {"answers": 100, "refused": 0, "errors": 0, "tokens": 0, "cost_micro": 0, "llm_ms": 0}, "apps": {}}, lambda subject, body: (_ for _ in ()).throw(AssertionError("no email for a bot")), NOW)
+assert quiet is None, "a business's bot with 100 percent refusals sends no email"
+print("  ok  one trace per answered message: owner cw:<tenant> (never a student slug), masked text, numbers only when switched off, one batch, links from the message item, a broken store never stops a reply, bots stay out of the class numbers and the drift email")
+
 # ---- T-C: the worker distils a session's notes and compares two versions ----
 f = Fakes()
 register(f.store) if False else None

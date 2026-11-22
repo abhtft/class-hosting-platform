@@ -169,6 +169,8 @@ SETTINGS = {
     "chatwoot.extrasTopK": {"type": "int", "default": 3, "min": 1, "max": 10, "env": None},
     "chatwoot.mediaCaptionMaxChars": {"type": "int", "default": 1000, "min": 100, "max": 4000, "env": None},
     "chatwoot.suiteExpectedChars": {"type": "int", "default": 600, "min": 20, "max": 2000, "env": None},
+    "chatwoot.traceRetentionDays": {"type": "int", "default": 30, "min": 1, "max": 90, "env": None},
+    "chatwoot.traceText": {"type": "int", "default": 1, "min": 0, "max": 1, "env": None},
     "chatwoot.suggestMaxCount": {"type": "int", "default": 30, "min": 5, "max": 40, "env": None},
     "chatwoot.suggestPassages": {"type": "int", "default": 40, "min": 5, "max": 100, "env": None},
     "chatwoot.suggestPassageChars": {"type": "int", "default": 700, "min": 200, "max": 2000, "env": None},

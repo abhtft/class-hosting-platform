@@ -2706,6 +2706,40 @@
       ]
     },
     {
+      "key": "chatwoot.traceRetentionDays",
+      "group": "chatwoot",
+      "title": "How long a business's traces are kept",
+      "help": "Days a trace of a customer message (the steps of one answer) is kept before it is deleted automatically.",
+      "unit": "days",
+      "default": 30,
+      "min": 1,
+      "max": 90,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_trace.RETENTION_DAYS"
+      ]
+    },
+    {
+      "key": "chatwoot.traceText",
+      "group": "chatwoot",
+      "title": "Keep the customer's words in traces",
+      "help": "1 keeps the customer's message and the reply in the trace, with phone numbers, Aadhaar, PAN, UPI ids and the like hidden. 0 keeps only numbers and labels (no text at all).",
+      "unit": "0 or 1",
+      "default": 1,
+      "min": 0,
+      "max": 1,
+      "choices": [
+        0,
+        1
+      ],
+      "scope": "runtime",
+      "risk": "careful",
+      "code": [
+        "chatwoot_trace.KEEP_TEXT"
+      ]
+    },
+    {
       "key": "chatwoot.suggestMaxCount",
       "group": "chatwoot",
       "title": "Most test rows written from the books at once",

@@ -40,6 +40,7 @@ import chatwoot_memory as memory
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
 import chatwoot_suggest as suggest_rows
+import chatwoot_trace
 import gemini
 import chatwoot_suite as suite
 import chatwoot_interview as interview_topics
@@ -180,8 +181,9 @@ def post_json(url, headers, body, timeout):
 
 
 class Deps:
-    def __init__(self, store, secrets, invoke=None, http=None, registry=None, runtime=None, memory=None, files=None):
+    def __init__(self, store, secrets, invoke=None, http=None, registry=None, runtime=None, memory=None, files=None, traces=None):
         self.store, self.secrets, self.invoke, self.http, self.registry, self.runtime, self.memory, self.files = store, secrets, invoke, http, registry, runtime, memory, files
+        self.traces = traces  # where the trace of each answered message is written (a traces store), or None: no traces
 
 
 _receiver_deps = None
@@ -208,7 +210,8 @@ def default_worker_deps():
         _worker_deps = Deps(store, Secrets(read_secret, credentials_of), http=post_json, registry=registry.Registry(store, ttl=0),
                              runtime=engine.real_runtime(),  # ttl 0: asks the table every time; the runtime searches the shelves and asks the model
                              memory=memory.DynamoMemory(boto3.resource("dynamodb").Table(table)) if table else None,
-                             files=media.S3Files() if os.environ.get("BUCKET") else None)  # the media files of the agents (read only)
+                             files=media.S3Files() if os.environ.get("BUCKET") else None,  # the media files of the agents (read only)
+                             traces=chatwoot_trace.traces.store() if chatwoot_trace.traces.available() and os.environ.get("TRACES_TABLE") else None)
     return _worker_deps
 
 
@@ -370,11 +373,13 @@ def compose(event, agent, tenant, deps, now, history):
         raise Refused("cap_reached", config=config)
     text = event.get("text") if isinstance(event.get("text"), str) else ""
     try:
-        reply_text, metrics, reason = answer_text(config, text, history, {**context_of(event), "media_per_reply": media.limits_of(tenant)["media_per_reply"]}, tenant["tenant_id"], deps.runtime)
+        reply_text, metrics, reason = answer_text(config, text, history, {**context_of(event), "media_per_reply": media.limits_of(tenant)["media_per_reply"]}, tenant["tenant_id"], deps.runtime,
+                                                  explain=deps.traces is not None)  # the passages and their scores, for the trace only
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
         raise Refused(failure.reason, failure.metrics, config) from None
     spend(deps, key, metrics, now)
+    metrics.update(version=live, channel=context_of(event)["channel"], _tenant=tenant["tenant_id"], _text=reply_text)  # the worker takes the underscored ones out again: they are for the trace only
     if metrics.get("media"):  # the items the model chose, for the worker to send after the text (a dry run only describes them)
         by_id = {i["id"]: i for i in config.get("media") or []}
         metrics["media_items"] = [by_id[i] for i in metrics["media"] if i in by_id]  # in the order the model chose
@@ -988,6 +993,22 @@ def sweep(event, deps, now):
     return {"swept": True}
 
 
+def write_trace(event, outcome, deps, now):
+    """Take the trace-only fields out of the outcome's metrics (they must not reach the message item) and write the message's trace. Returns {"trace_id": id} or {}. Never raises."""
+    metrics = outcome.get("metrics")
+    if not isinstance(metrics, dict):
+        return {}
+    data = {name: metrics.pop(name, None) for name in ("_text", "_tenant", "explain")}
+    tenant_id = data.pop("_tenant")
+    if deps.traces is None or not tenant_id:
+        return {}
+    trace_id = chatwoot_trace.record(deps.traces, event, tenant_id, outcome, {"text": data["_text"], "explain": data["explain"]}, now)
+    if trace_id is None:
+        log("trace_not_written", agent=event.get("agent_id"), message=event.get("message_id"))
+        return {}
+    return {"trace_id": trace_id}
+
+
 def worker(event, context=None, now=None, deps=None):
     now = int(now if now is not None else time.time())
     deps = deps or default_worker_deps()
@@ -1022,10 +1043,11 @@ def worker(event, context=None, now=None, deps=None):
         deps.store.finish(key, "failed", now, {"reason": "error"})
         log("failed", agent=agent_id, message=message_id, reason="error", error=type(error).__name__)
         raise
+    trace = write_trace(event, outcome, deps, now)  # one trace per message that reached the model's side; never raises
     if outcome["status"] == "replied":
-        deps.store.finish(key, "replied", now, {**outcome["metrics"], **({"reply_id": outcome["reply_id"]} if outcome["reply_id"] else {})})
-        log("replied", agent=agent_id, message=message_id)
+        deps.store.finish(key, "replied", now, {**outcome["metrics"], **trace, **({"reply_id": outcome["reply_id"]} if outcome["reply_id"] else {})})
+        log("replied", agent=agent_id, message=message_id, trace=trace.get("trace_id"))
         return {"replied": True}
-    deps.store.finish(key, "failed", now, {**outcome["metrics"], "reason": outcome["reason"]})
+    deps.store.finish(key, "failed", now, {**outcome["metrics"], **trace, "reason": outcome["reason"]})
     log("failed", agent=agent_id, message=message_id, reason=outcome["reason"])
     raise ReplyFailed(outcome["reason"])

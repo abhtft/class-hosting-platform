@@ -1278,6 +1278,15 @@ Resources:
               Condition:
                 ForAllValues:StringLike:
                   dynamodb:LeadingKeys: ['mem#*']
+            - !If # traces: it writes the trace of each message it answered, under a business's own prefix (t#cw:<business>#...) and nowhere else in that table; it never reads or deletes
+              - UseTraces
+              - Effect: Allow
+                Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:BatchWriteItem]
+                Resource: !GetAtt TracesTable.Arn
+                Condition:
+                  ForAllValues:StringLike:
+                    dynamodb:LeadingKeys: ['t#cw:*']
+              - !Ref AWS::NoValue
             - Effect: Allow # the shelves of the businesses (read only): knowledge/tenant/ and nothing else in the bucket
               Action: s3:GetObject
               Resource: !Sub '${SitesBucket.Arn}/knowledge/tenant/*'

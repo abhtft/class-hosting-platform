@@ -228,6 +228,10 @@ A second suite that is the same for every business: 40 cases (`config/suites/sta
 
 A run is started like any suite run with `{"version": n, "suite": "central"}` (or `suite-run ... --central`, also with `--all-live`). It runs on the agent's own configuration, writes the same kind of run record with `suite: central`, and keeps its own state (`suitestate#<agent>#central`); an agent runs only one suite at a time. Against a model that obeys any message the injection and unsafe cases fail; against one that says it does not know all 40 pass (unit tests). The suite is a net for the known and common failures, not a proof of safety, and it grows from real failures.
 
+### Traces of the answers (plan TR1)
+
+Every message the worker answers (or tried to) leaves one trace in the traces table: partition `t#cw:<tenant>#tr_<16 hex>`, one `summary` item (index fields `app` = `cw:<tenant>`, `day`, `started`; `agent`, `version`, `route`, `status`, `reason`, `message_id`, `conversation_id`, token and cost counters) and one item per step (`retrieval`, `llm`, `answer`, `media`). The worker writes them in one batch after the reply. The privacy level is `masked` while `chatwoot.traceText` is 1 and `metadata` (numbers and labels only) when 0; items expire after `chatwoot.traceRetentionDays`. The id is also saved in the message item (`trace_id`). The worker's role may only write under `t#cw:*`; reading is for the admin function (TR2). Bots are excluded from the class totals and from the daily drift email in `traces.py`; their own totals are still stored per `app`. See docs/notes/TR0-TRACEABILITY-AUDIT.md.
+
 ### Fill the tests table from the books (plan T5)
 
 `POST /admin/agents/{name}/suite/suggest` takes `{"version": n}` or `{"config": {...}}`, `"count"` (3 to `chatwoot.suggestMaxCount`) and optionally `"dry": true`. The worker samples the agent's shelves (`chatwoot_suggest.sample`), asks the model once and returns `{"rows": [{question, expected, keys, refuse}], passages, spent_micro}`; with `dry` it returns `{estimate_micro, passages, count}` and asks nothing. Rows are proposals: the owner reviews them in Studio before saving.

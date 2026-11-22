@@ -86,10 +86,11 @@ code = re.sub(r"#[^\n]*", "", worker)
 assert sorted(re.findall(r"Action: ([\w:]+)", code)) == ["bedrock:InvokeModel", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "s3:GetObject", "s3:GetObject", "s3:ListBucket", "secretsmanager:GetSecretValue", "secretsmanager:GetSecretValue"], "exactly these single-action permissions"
 bedrock_resources = re.findall(r"bedrock:[^\s']*", code)
 assert sorted(bedrock_resources) == sorted(['bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-haiku-5-5', 'bedrock:*:${AWS::AccountId}:inference-profile/us.anthropic.claude-sonnet-5-5', 'bedrock:*::foundation-model/anthropic.claude-haiku-5-5', 'bedrock:*::foundation-model/anthropic.claude-sonnet-5-5', 'bedrock:InvokeModel']), "Bedrock: asking the two offered Claude models, nothing else of Bedrock"
-assert re.findall(r"Action: \[([\w:, ]+)\]", code) == ["dynamodb:GetItem, dynamodb:PutItem"], "and one pair, on the memory table only"
+assert re.findall(r"Action: \[([\w:, ]+)\]", code) == ["dynamodb:GetItem, dynamodb:PutItem", "dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:BatchWriteItem"], "one pair on the memory table, and the trace writes"
+assert re.search(r"UseTraces\n\s+- Effect: Allow\n\s+Action: \[dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:BatchWriteItem\]\n\s+Resource: !GetAtt TracesTable\.Arn\n\s+Condition:\n\s+ForAllValues:StringLike:\n\s+dynamodb:LeadingKeys: \['t#cw:\*'\]", worker), "traces: write only under a business's own prefix t#cw:, only when traces are on, never read or delete"
 assert re.findall(r"\$\{SitesBucket\.Arn\}/[^']*", code) == ["${SitesBucket.Arn}/knowledge/tenant/*", "${SitesBucket.Arn}/chatwoot-media/*"], "objects under knowledge/tenant/ (read the shelves) and chatwoot-media/ (read the owners' media) only: not the class library, not a student's shelf, not a site"
 for forbidden in ("lambda:", "dynamodb:Scan", "dynamodb:Query", "dynamodb:DeleteItem", "dynamodb:*", "s3:PutObject", "s3:DeleteObject", "s3:*", "TokensTable", "kms:", "iam:", "ssm:", "cloudfront",
-                  "StudentDataTable", "TracesTable", "Resource: '*'", "Action: '*'", "knowledge/student", "knowledge/class", "sites/", "portal/"):
+                  "StudentDataTable", "Resource: '*'", "Action: '*'", "knowledge/student", "knowledge/class", "sites/", "portal/"):
     assert forbidden not in code, f"the worker must not have {forbidden}"
 assert template.count("bedrock:InvokeModel") == 3, "only the worker, the AI proxy and the Knowledge Base trial's own role (off by default, below) may ask Bedrock: no student role, no other function"
 
