@@ -476,10 +476,15 @@ def orchestrate(config, text, history, context, tenant_id, deps, now, explain=Fa
         reply, metrics, reason = answer_text(part, text, history, context, tenant_id, deps.runtime, explain)
         if reason:  # the department's own hand-over sentence; its team takes the conversation
             reply = part["handover_text"]
-        metrics.update(department=department["id"], route_layer=picked["layer"], department_version=live, team_id=department["team_id"],
+        metrics.update(department=department["id"], route_layer=picked["layer"], department_version=live, team_id=department["team_id"], media_pool=part.get("media") or [],
                        tokens=metrics.get("tokens", 0) + spent["tokens"], cost_micro=metrics.get("cost_micro", 0) + spent["cost_micro"])
         return reply, metrics, reason
-    made = engine.respond(config, text, tenant_id, deps.runtime, history, context, explain)  # the orchestrator's own books: what belongs to the business as a whole
+    try:
+        made = engine.respond(config, text, tenant_id, deps.runtime, history, context, explain)  # the orchestrator's own books: what belongs to the business as a whole
+    except engine.RuntimeFailure as failure:
+        if failure.reason != "no_shelf":
+            raise
+        return orchestrator.menu_text(config), {**failure.metrics, "route": "menu", "route_layer": "ask", **spent}, None  # no general shelf (yet): a greeting gets the menu, not a hand-over
     made["metrics"].update(tokens=made["metrics"].get("tokens", 0) + spent["tokens"], cost_micro=made["metrics"].get("cost_micro", 0) + spent["cost_micro"])
     if made["route"] == "fallback":  # they are not sure: ask, never guess
         return orchestrator.menu_text(config), {**made["metrics"], "route": "menu", "route_layer": "ask"}, None
@@ -517,8 +522,9 @@ def compose(event, agent, tenant, deps, now, history):
         raise Refused(failure.reason, failure.metrics, config) from None
     spend(deps, key, metrics, now)
     metrics.update(version=live, channel=context_of(event)["channel"], _tenant=tenant["tenant_id"], _text=reply_text)  # the worker takes the underscored ones out again: they are for the trace only
+    pool = metrics.pop("media_pool", None)  # an orchestrator's department: the files of the department that answered, not the orchestrator's own
     if metrics.get("media"):  # the items the model chose, for the worker to send after the text (a dry run only describes them)
-        by_id = {i["id"]: i for i in config.get("media") or []}
+        by_id = {i["id"]: i for i in (pool if pool is not None else config.get("media")) or []}
         metrics["media_items"] = [by_id[i] for i in metrics["media"] if i in by_id]  # in the order the model chose
     return reply_text, metrics, reason
 
@@ -537,7 +543,8 @@ def dry_turn(config, text, history, context, tenant_id, deps, key, now):
            "spent_micro": int(metrics.get("cost_micro") or 0), "via": metrics.get("via"), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
     if metrics.get("route_layer"):  # an orchestrator: which department answered and which rule chose it
         out.update(department=metrics.get("department"), route_layer=metrics["route_layer"])
-    out["media"] = media.describe([i for i in config.get("media") or [] if i["id"] in (metrics.get("media") or [])])
+    pool = metrics.pop("media_pool", None)
+    out["media"] = media.describe([i for i in (pool if pool is not None else config.get("media")) or [] if i["id"] in (metrics.get("media") or [])])
     if reason:
         out.update(route="handover", reason=reason, failure=False, note=handover.note_text(reason, history, text))
     return out
@@ -724,6 +731,13 @@ def consistency_check(event, deps, now):
         return config
     found = consistency.fields(config)
     facts = consistency.corrections(config)
+    for department in config.get("departments") or []:  # an orchestrator: the facts of the whole number must agree, so each department's live texts and corrections are read too
+        try:
+            part, _ = department_config(department, event["tenant_id"], deps)
+        except engine.RuntimeFailure:
+            continue  # a department that is off or not set up is not part of the check
+        found += consistency.department_fields(department, part)
+        facts += [f"({department['label']}) {text}" for text in consistency.corrections(part)]
     if len(found) < 2 and not facts:  # nothing to compare: one text and no correction
         return {"result": {"conflicts": [], "checked": len(found), "spent_micro": 0}}
     key = usage_key(event["tenant_id"], now)

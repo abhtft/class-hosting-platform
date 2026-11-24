@@ -36,6 +36,17 @@ def fields(config):
     return found
 
 
+def department_fields(department, config):
+    """The texts of a department's live version, for an orchestrator's check: the ids say which department (`department:<id>:<field>`), so a conflict in one can be shown and the owner is told
+    to change it in that department's own agent (the orchestrator's editor cannot)."""
+    found = []
+    for field in fields(config):
+        if field["id"].startswith("media:") or field["id"].startswith("inbox_note:"):
+            continue  # a department's files and inbox notes are its own business
+        found.append({"id": f"department:{department['id']}:{field['id']}", "label": f"{department['label']}: {field['label']}", "text": field["text"]})
+    return found
+
+
 def corrections(config):
     """The corrections (extras) as texts, the newest first: a later correction wins over an earlier one."""
     records = [e for e in (config.get("extras") or []) if isinstance(e, dict) and isinstance(e.get("text"), str)]

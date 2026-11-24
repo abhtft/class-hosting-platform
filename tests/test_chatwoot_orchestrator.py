@@ -106,6 +106,8 @@ class Fakes:
     def search(self, tenant, collections, query):
         self.searches.append(list(collections))
         shelf = collections[0]
+        if shelf in getattr(self, "missing", ()):
+            return {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": [shelf]}
         hit = {"doc": shelf, "title": shelf, "page": 1, "page_end": 1, "section": "", "text": f"{shelf} facts", "vector": 0.9, "collection": shelf}
         return {"hits": [hit], "confident": self.confident.get(shelf, False), "tokens": 1, "cost_micro": 1, "missing": []}
 
@@ -334,3 +336,33 @@ for bad in ({"rows": saved["rows"]}, {"version": 1, "config": {}, "rows": saved[
         pass
 assert admin.run_routing(astore2, tenant2, "front", {"version": 1, "rows": saved["rows"]}, lambda p: {"error": "not_orchestrator"})[0] == 409
 print("  ok  the routing table is checked row by row, kept with a revision under a prefix the permissions already cover, and a run is forwarded with the rows Studio sends")
+
+# ---- O4: the consistency check reads the departments' live texts too
+f = Fakes()
+f.store.items[reg.version_key("lib", 1)]["config"] = {**LIB, "instructions": "Library is open 9 AM to 6 PM.", "extras": ["Library opens at 10 AM."]}
+f.store.items[reg.version_key("front", 1)]["config"] = {**ORCH, "instructions": "We are open 10 AM to 6 PM."}
+f.answer = json.dumps([{"field": "department:library:instructions", "quote": "9 AM to 6 PM", "fact": "We are open 10 AM to 6 PM.", "fix": "10 AM to 6 PM", "why": "same office"},
+                       {"field": "instructions", "quote": "no such text", "fix": "x"}])
+got = api.worker({"kind": "consistency", "tenant_id": "acme", "agent_id": "front", "version": 1}, None, now=NOW, deps=f.deps)["result"]
+assert [c["field"] for c in got["conflicts"]] == ["department:library:instructions"] and got["checked"] >= 5
+prompt = f.llm_calls[-1][1]["content"]
+assert "[department:library:instructions] (Library: the instructions)" in prompt and "(Library) Library opens at 10 AM." in prompt and "department:classes" in prompt
+f.store.items[reg.agent_key("cls")]["enabled"] = False
+f.llm_calls.clear()
+api.worker({"kind": "consistency", "tenant_id": "acme", "agent_id": "front", "version": 1}, None, now=NOW + 1, deps=f.deps)
+assert "department:classes" not in f.llm_calls[-1][1]["content"] and "department:library" in f.llm_calls[-1][1]["content"], "a department that is off is left out"
+print("  ok  an orchestrator's consistency check reads each live department's texts and corrections, names the department in the conflict, and leaves a department that is off out")
+
+# ---- found while reviewing: a department's own files travel with its answer, and an orchestrator without a general shelf shows the menu
+f = Fakes()
+f.store.items[reg.version_key("lib", 1)]["config"] = {**LIB, "media": [{"id": "brochure", "name": "Library brochure", "kind": "link", "description": "fees and rules", "url": "https://example.org/library"}]}
+f.answer = "Yeh rahi jankari.\nMEDIA: brochure"
+out, item = send(f, "1")
+assert item["department"] == "library" and item.get("media") == [["brochure", "link"]] and "https://example.org/library" in f.requests[-1][1]["content"], "the department's link is sent with its answer"
+got = api.worker({"kind": "test", "tenant_id": "acme", "agent_id": "front", "text": "1", "version": 1}, None, now=NOW, deps=f.deps)["result"]
+assert [m["id"] for m in got["media"]] == ["brochure"], "the test chat describes the department's files too"
+f = Fakes()
+f.missing = ("general",)
+out, item = send(f, "Namaste")
+assert out == {"replied": True} and item["route"] == "menu" and item["route_layer"] == "ask", "no general shelf yet: the menu, not a hand-over"
+print("  ok  a department's own files are sent with its answer (and shown in the test chat); an orchestrator whose general shelf does not exist yet shows the menu instead of handing over")

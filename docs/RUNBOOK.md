@@ -67,6 +67,10 @@ Follow docs/CHATWOOT_TRACES_TESTING.md (preconditions, 40 numbered cases, the AW
 
 Find a message's trace: read `msg#<agent>#<message_id>` in the Chatwoot table and use its `trace_id`; the trace is `t#cw:<tenant>#<trace_id>` in the traces table (`summary` plus steps). A missing `trace_id` on a replied message means the trace could not be written: look for the log line `trace_not_written` (the reply was still sent). Turn the customer's words off with `chatwoot.traceText` = 0 (only numbers stay); retention is `chatwoot.traceRetentionDays`. Student backend and traces must be on (`TracesEnabled`), otherwise bots write no traces.
 
+## Orchestrator routing: tuning
+
+Tune with the routing table in Studio (Checks, Routing): add the messages that went to the wrong place with where they should go, change keywords and example questions of the departments, run again. Too many menus: lower `chatwoot.orchestratorMeaningMin` a little or add example questions. Wrong department by meaning: raise `orchestratorMeaningMargin` or add examples to the right one. A greeting goes to the menu on purpose when nothing is sure. `routing_meaning_failed` and `routing_model_failed` in the logs mean a layer was skipped (the next layer or the menu answered).
+
 ## Orchestrator (one number, several departments)
 
 Set up: create each department agent with type `department` (no inbox), publish and make live a version for each; in Chatwoot create one team per department and note its number; publish the orchestrator's version with `departments` (agent names and team numbers) and make it live. Debug: a message item shows `department` and `route_layer` (`menu_word`, `menu_number`, `menu_label`, `keyword`, `keyword_tie`, `sticky`, `general`, `ask`, `guard`); `department_unavailable` means the department agent is off, not of type `department`, or has no live version; `handover_team` 0 means Chatwoot refused the team assignment (check the team number).
