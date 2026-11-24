@@ -3025,6 +3025,21 @@
       ]
     },
     {
+      "key": "chatwoot.suiteParallelOrchestrator",
+      "group": "chatwoot",
+      "title": "Test cases at the same time for an orchestrator",
+      "help": "An orchestrator's turn asks the model once or twice before it answers, so a suite run takes longer; it runs this many cases at once (a plain agent uses chatwoot.suiteParallel).",
+      "unit": "cases",
+      "default": 6,
+      "min": 1,
+      "max": 8,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_api.SUITE_PARALLEL_ORCHESTRATOR"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",

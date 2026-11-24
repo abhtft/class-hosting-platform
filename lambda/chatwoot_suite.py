@@ -182,9 +182,10 @@ def evaluate(case, result, config):
 
     def fail(name, expected, got):
         failed.append({"check": name, "expected": str(expected)[:120], "got": str(got)[:120]})
-    if "route" in checks and result.get("route") != checks["route"]:
+    route = "fallback" if result.get("route") == "menu" else result.get("route")  # an orchestrator's menu is its fallback: it says nothing of substance and asks the customer to choose
+    if "route" in checks and route != checks["route"]:
         fail("route", checks["route"], result.get("route"))
-    if "route_in" in checks and result.get("route") not in checks["route_in"]:
+    if "route_in" in checks and route not in checks["route_in"]:
         fail("route_in", " or ".join(checks["route_in"]), result.get("route"))
     if "handover_reason" in checks and result.get("reason") != checks["handover_reason"]:
         fail("handover_reason", checks["handover_reason"], result.get("reason") or "no hand-over")

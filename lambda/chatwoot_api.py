@@ -60,6 +60,7 @@ BASE_URL = platform_settings.value("chatwoot.baseUrl")  # the one Chatwoot addre
 INTERVIEW_MAX_TOKENS = platform_settings.value("chatwoot.teachInterviewMaxTokens")  # the question or the summary is short
 DISTILL_MAX_TOKENS = INTERVIEW_MAX_TOKENS * len(interview_topics.TOPICS)  # the whole list of facts is longer than one question
 SUITE_PARALLEL = platform_settings.value("chatwoot.suiteParallel")  # test cases run at the same time
+SUITE_PARALLEL_ORCHESTRATOR = platform_settings.value("chatwoot.suiteParallelOrchestrator")  # the same for an orchestrator (its turns ask the model more than once)
 SUITE_RUN_DAYS = platform_settings.value("chatwoot.suiteRunDays")  # how long the record of a suite run is kept
 SUITE_BUDGET_SECONDS = platform_settings.value("chatwoot.suiteBudgetSeconds")  # no new case is started after this long: the worker has 120 seconds
 MEDIA_TIMEOUT_SECONDS = platform_settings.value("chatwoot.mediaSendTimeoutSeconds")  # one file uploaded into the chat
@@ -953,7 +954,7 @@ def suite_run(event, deps, now):
             item.update(done=len(records), results=[records[c["id"]] for c in cases if c["id"] in records])
             deps.store.put(run_key, item)
         return record
-    with concurrent.futures.ThreadPoolExecutor(max_workers=SUITE_PARALLEL) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=SUITE_PARALLEL_ORCHESTRATOR if config.get("departments") else SUITE_PARALLEL) as pool:
         list(pool.map(work, cases))
     results = [records[c["id"]] for c in cases]
     summary = suite.summarise(results)

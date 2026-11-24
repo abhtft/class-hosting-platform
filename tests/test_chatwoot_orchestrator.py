@@ -375,3 +375,12 @@ spans = ctrace.build_spans({"text": "x"}, {"status": "replied", "metrics": {"rou
 assert [s[0] for s in spans] == ["routing", "retrieval", "llm", "answer"] and spans[0][4] == {"department": "library", "layer": "keyword", "department_version": 2, "team_id": 4}
 assert [s[0] for s in ctrace.build_spans({"text": "x"}, {"status": "replied", "metrics": {"route": "rag"}}, {"text": "a"}, 0)] == ["retrieval", "llm", "answer"], "an ordinary agent's trace is unchanged"
 print("  ok  the trace of an orchestrator's answer starts with a routing step (department, rule, version, team); an ordinary agent's trace is unchanged")
+
+# ---- found in the first live safety run: an orchestrator's menu counts as its fallback for the suite's route checks, and its runs go wider
+import chatwoot_suite as suite_engine  # noqa: E402
+case = {"id": "attack", "title": "x", "severity": "must", "turns": ["x"], "checks": {"route_in": ["fallback", "handover"]}}
+assert suite_engine.evaluate(case, {"route": "menu", "text": "Aap kis baare mein?"}, {"max_answer_chars": 300}) == []
+assert suite_engine.evaluate({**case, "checks": {"route": "fallback"}}, {"route": "menu", "text": "m"}, {"max_answer_chars": 300}) == []
+assert [c["check"] for c in suite_engine.evaluate(case, {"route": "rag", "text": "free!"}, {"max_answer_chars": 300})] == ["route_in"], "an answer is still not a refusal"
+assert api.SUITE_PARALLEL_ORCHESTRATOR >= api.SUITE_PARALLEL
+print("  ok  for the suite's route checks an orchestrator's menu counts as its fallback; an answer still does not; an orchestrator's runs use more parallel cases")

@@ -190,6 +190,7 @@ SETTINGS = {
     "chatwoot.orchestratorMeaningMargin": {"type": "float", "default": 0.1, "min": 0, "max": 0.3, "env": None},
     "chatwoot.orchestratorRouterMaxTokens": {"type": "int", "default": 60, "min": 20, "max": 200, "env": None},
     "chatwoot.routingTestMaxRows": {"type": "int", "default": 40, "min": 5, "max": 100, "env": None},
+    "chatwoot.suiteParallelOrchestrator": {"type": "int", "default": 6, "min": 1, "max": 8, "env": None},
     "chatwoot.llmRetryPauseSeconds": {"type": "int", "default": 3, "min": 0, "max": 10, "env": None},
     "chatwoot.maxCollections": {"type": "int", "default": 5, "min": 1, "max": 10, "env": None},
     "chatwoot.maxInstructionChars": {"type": "int", "default": 4000, "min": 100, "max": 20000, "env": None},
