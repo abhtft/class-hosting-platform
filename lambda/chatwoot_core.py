@@ -193,6 +193,12 @@ def status_request(base_url, style, token, account_id, conversation_id, status):
     return url[: -len("/messages")] + "/toggle_status", headers, json.dumps({"status": status}).encode("utf8")
 
 
+def assign_request(base_url, style, token, account_id, conversation_id, team_id):
+    """(url, headers, body) of Chatwoot's assignment call with a team only (the team's own setting decides whether a person of the team is picked). Same address rules as a reply."""
+    url, headers, _ = reply_request(base_url, style, token, account_id, conversation_id, "")
+    return url[: -len("/messages")] + "/assignments", headers, json.dumps({"team_id": int(team_id)}).encode("utf8")
+
+
 def status_result(status, body):
     """('ok', None) when Chatwoot changed the status, else ('failed', reason) with the same short codes as a reply."""
     kind, detail = reply_result(status, body)

@@ -38,6 +38,7 @@ import chatwoot_core as core
 import chatwoot_handover as handover
 import chatwoot_media as media
 import chatwoot_memory as memory
+import chatwoot_orchestrator as orchestrator
 import chatwoot_registry as registry
 import chatwoot_runtime as engine
 import chatwoot_suggest as suggest_rows
@@ -332,7 +333,8 @@ def remember(event, deps, text, metrics, now):
     if deps.memory is None:
         return
     try:
-        memory.remember(deps.memory, event["agent_id"], event["conversation_id"], event.get("text") or "", text, metrics.get("route") == "fallback", now, handover="handover" in metrics)
+        memory.remember(deps.memory, event["agent_id"], event["conversation_id"], event.get("text") or "", text, metrics.get("route") == "fallback", now, handover="handover" in metrics,
+                        department=metrics.get("department") if metrics.get("department") != "general" else None)
     except Exception as error:
         log("memory_unavailable", error=type(error).__name__)
 
@@ -358,6 +360,63 @@ def answer_text(config, text, history, context, tenant_id, runtime, explain=Fals
     return made["text"], made["metrics"], None
 
 
+def department_config(department, tenant_id, deps):
+    """The live configuration of a department's agent: the same business, type `department`, switched on, with a live version that is not itself an orchestrator. Anything else is
+    engine.RuntimeFailure("department_unavailable") (the customer is handed to a person)."""
+    problem = {"department": department["id"]}
+    try:
+        agent, tenant = deps.registry.load(department["agent"])
+    except Exception as error:
+        log("registry_unavailable", agent=department["agent"], error=type(error).__name__)
+        raise engine.RuntimeFailure("department_unavailable", problem) from None
+    ok = isinstance(agent, dict) and isinstance(tenant, dict) and agent.get("tenant_id") == tenant_id == tenant.get("tenant_id") and agent.get("type") == "department" \
+        and agent.get("enabled") is True and tenant.get("enabled") is True and (agent.get("live_version") or 0) > 0
+    version = deps.store.get(registry.version_key(department["agent"], agent["live_version"])) if ok else None
+    try:
+        config = engine.clean_config((version or {}).get("config")) if ok else None
+    except engine.ConfigError:
+        config = None
+    if not config or config.get("departments"):
+        log("department_unavailable", department=department["id"], agent=department["agent"])
+        raise engine.RuntimeFailure("department_unavailable", problem)
+    return config, agent["live_version"]
+
+
+def orchestrate(config, text, history, context, tenant_id, deps, now, explain=False):
+    """One message to an orchestrator: (reply, metrics, hand-over reason or None), like answer_text. The guard first (the hand-over rules, for the whole number), then the rules
+    (menu, a reply to the menu, a keyword, the department the conversation is in), then the orchestrator's own books; when they are not sure, the menu. A chosen department answers
+    with its own live version, exactly as if it were the bot of this number."""
+    stay = orchestrator.current(history, now, config["sticky_minutes"])
+    by_id = {d["id"]: d for d in config["departments"]}
+    reason = handover.decide(text, history, config["handover_on"], (context or {}).get("attachments"))
+    if reason:
+        team = by_id[stay]["team_id"] if stay in by_id else None
+        return config["handover_text"], {"route": "handover", "route_layer": "guard", "department": stay, "team_id": team}, reason
+    picked = orchestrator.route(text, config, history, now)
+    if picked["kind"] == "menu" or (picked["kind"] == "none" and not str(text or "").strip()):
+        return orchestrator.menu_text(config), {"route": "menu", "route_layer": picked["layer"]}, None
+    if picked["kind"] == "department":
+        department = picked["department"]
+        part, live = department_config(department, tenant_id, deps)
+        reply, metrics, reason = answer_text(part, text, history, context, tenant_id, deps.runtime, explain)
+        if reason:  # the department's own hand-over sentence; its team takes the conversation
+            reply = part["handover_text"]
+        metrics.update(department=department["id"], route_layer=picked["layer"], department_version=live, team_id=department["team_id"])
+        return reply, metrics, reason
+    made = engine.respond(config, text, tenant_id, deps.runtime, history, context, explain)  # the orchestrator's own books: what belongs to the business as a whole
+    if made["route"] == "fallback":  # they are not sure: ask, never guess
+        return orchestrator.menu_text(config), {**made["metrics"], "route": "menu", "route_layer": "ask"}, None
+    made["metrics"].update(department="general", route_layer="general")
+    return made["text"], made["metrics"], None
+
+
+def answer_any(config, text, history, context, tenant_id, deps, now, explain=False):
+    """answer_text for an ordinary agent, orchestrate for an orchestrator: the one entry of a real answer, the test chat and a suite run."""
+    if config.get("departments"):
+        return orchestrate(config, text, history, context, tenant_id, deps, now, explain)
+    return answer_text(config, text, history, context, tenant_id, deps.runtime, explain)
+
+
 def compose(event, agent, tenant, deps, now, history):
     """The text to send: (reply, metrics, hand-over reason or None). Reads the agent's live version, checks the business's monthly spend, then answers (answer_text). Raises
     Refused with a reason code when there is nothing to send."""
@@ -374,8 +433,8 @@ def compose(event, agent, tenant, deps, now, history):
         raise Refused("cap_reached", config=config)
     text = event.get("text") if isinstance(event.get("text"), str) else ""
     try:
-        reply_text, metrics, reason = answer_text(config, text, history, {**context_of(event), "media_per_reply": media.limits_of(tenant)["media_per_reply"]}, tenant["tenant_id"], deps.runtime,
-                                                  explain=deps.traces is not None)  # the passages and their scores, for the trace only
+        reply_text, metrics, reason = answer_any(config, text, history, {**context_of(event), "media_per_reply": media.limits_of(tenant)["media_per_reply"]}, tenant["tenant_id"], deps, now,
+                                                 explain=deps.traces is not None)  # the passages and their scores, for the trace only
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
         raise Refused(failure.reason, failure.metrics, config) from None
@@ -391,7 +450,7 @@ def dry_turn(config, text, history, context, tenant_id, deps, key, now):
     """One message answered the way the worker would, but only described: {"route", "text", "used"?, "confident", "explain", "tokens", "spent_micro", "retrieval_ms", "llm_ms"} plus, for a
     hand-over (a reason or a failure of the answer), {"reason", "failure", "note"}. What it spends is counted against the business's month. Shared by the test chat (test) and the suite run."""
     try:
-        reply_text, metrics, reason = answer_text(config, text, history, context, tenant_id, deps.runtime, explain=True)
+        reply_text, metrics, reason = answer_any(config, text, history, context, tenant_id, deps, now, explain=True)
     except engine.RuntimeFailure as failure:  # in real life this customer would be handed to a person: say so
         spend(deps, key, failure.metrics, now)
         return {"route": "handover", "reason": failure.reason, "failure": True, "text": config["handover_text"], "note": handover.note_text(failure.reason, history, text),
@@ -399,6 +458,8 @@ def dry_turn(config, text, history, context, tenant_id, deps, key, now):
     spend(deps, key, metrics, now)
     out = {"route": metrics.get("route"), "text": reply_text, "confident": bool(metrics.get("confident")), "explain": metrics.get("explain", []), "tokens": int(metrics.get("tokens") or 0),
            "spent_micro": int(metrics.get("cost_micro") or 0), "via": metrics.get("via"), "retrieval_ms": int(metrics.get("retrieval_ms") or 0), "llm_ms": int(metrics.get("llm_ms") or 0)}
+    if metrics.get("route_layer"):  # an orchestrator: which department answered and which rule chose it
+        out.update(department=metrics.get("department"), route_layer=metrics["route_layer"])
     out["media"] = media.describe([i for i in config.get("media") or [] if i["id"] in (metrics.get("media") or [])])
     if reason:
         out.update(route="handover", reason=reason, failure=False, note=handover.note_text(reason, history, text))
@@ -804,7 +865,7 @@ def suite_run(event, deps, now):
     return finish(status="done", results=results, ttl=now + SUITE_RUN_DAYS * 86400, **summary)
 
 
-def hand_over(event, deps, base, credentials, reason, sentence, history, text, send_text):
+def hand_over(event, deps, base, credentials, reason, sentence, history, text, send_text, team_id=None, department=None):
     """Hand the conversation to a person with Chatwoot's own means, three steps that each run even if another failed: the customer's one sentence (when `send_text`),
     a private note for the team, and the status `open`. Returns ((kind, detail) of the customer's sentence, the flags for the message item)."""
     token, ids = credentials["api_token"], (event["account_id"], event["conversation_id"])
@@ -822,8 +883,12 @@ def hand_over(event, deps, base, credentials, reason, sentence, history, text, s
     if send_text:
         sent = call(core.reply_request(base, AUTH_STYLE, token, *ids, sentence or handover.DEFAULT_TEXT), core.reply_result)
         flags["handover_text"] = int(sent[0] == "replied")
-    note = call(core.reply_request(base, AUTH_STYLE, token, *ids, handover.note_text(reason, history, text), private=True), core.reply_result)
+    note_text = (f"Department: {department}.\n" if department else "") + handover.note_text(reason, history, text)
+    note = call(core.reply_request(base, AUTH_STYLE, token, *ids, note_text, private=True), core.reply_result)
     flags["handover_note"] = int(note[0] == "replied")
+    if team_id:  # an orchestrator's department: its own Chatwoot team gets the conversation
+        assigned = call(core.assign_request(base, AUTH_STYLE, token, *ids, team_id), core.status_result)
+        flags["handover_team"] = int(assigned[0] == "ok")
     opened = call(core.status_request(base, AUTH_STYLE, token, *ids, "open"), core.status_result)
     flags["handover_open"] = int(opened[0] == "ok")
     log("handover", agent=event["agent_id"], message=event.get("message_id"), reason=reason, text=flags.get("handover_text"), note=flags["handover_note"], opened=flags["handover_open"])
@@ -835,7 +900,8 @@ def hand_over(event, deps, base, credentials, reason, sentence, history, text, s
 
 def hand_over_outcome(event, deps, ready, reason, sentence, history, metrics, now):
     """The worker's outcome for a message that goes to a person: replied when the customer's sentence was posted, failed (with its code) when it was not."""
-    (kind, detail), flags = hand_over(event, deps, ready["base"], ready["credentials"], reason, sentence, history, event.get("text") or "", True)
+    (kind, detail), flags = hand_over(event, deps, ready["base"], ready["credentials"], reason, sentence, history, event.get("text") or "", True,
+                                      team_id=(metrics or {}).get("team_id"), department=(metrics or {}).get("department"))
     metrics = {**metrics, **flags, "route": "handover"}
     if kind != "replied":
         return failed(detail, metrics)

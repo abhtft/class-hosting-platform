@@ -140,7 +140,13 @@ def clean_agent(body, creating):
             out[field] = body[field]
     if "expected_rev" in body and not (isinstance(body["expected_rev"], int) and not isinstance(body["expected_rev"], bool) and body["expected_rev"] >= 0):
         raise Invalid("expected_rev must be a whole number.")
-    if creating and ("account_id" not in out or "inbox_ids" not in out):
+    if creating and out.get("type") == "department":  # reached only through an orchestrator of the same business: no inbox, no webhook of its own
+        if out.get("inbox_ids"):
+            raise Invalid("A department agent has no inbox of its own: its orchestrator's number serves it.")
+        if "account_id" not in out:
+            raise Invalid("account_id is required to create an agent.")
+        out["inbox_ids"] = []
+    elif creating and ("account_id" not in out or "inbox_ids" not in out):
         raise Invalid("account_id and inbox_ids are required to create an agent.")
     return out
 

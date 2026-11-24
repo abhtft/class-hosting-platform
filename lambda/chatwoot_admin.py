@@ -32,6 +32,7 @@ import time
 import chatwoot_core as core
 import chatwoot_media as media
 import chatwoot_memory as memory
+import chatwoot_orchestrator as orchestrator
 import chatwoot_registry as reg
 import chatwoot_repeat as repeat
 import chatwoot_suggest as suggest_rows
@@ -204,12 +205,29 @@ def retire_version(store, tenant, name, number):
     return 200, {"retired": number, "left": len(left) - 1}
 
 
+def check_departments(store, tenant, agent, config):
+    """An orchestrator's version (one with `departments`) must name department agents of this same business, and must not itself be a department. Invalid otherwise."""
+    if "departments" not in config:
+        return
+    if agent.get("type") == "department":
+        raise reg.Invalid("A department agent cannot list departments of its own: only an orchestrator does.")
+    try:
+        cleaned = orchestrator.clean(config)
+    except orchestrator.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+    for department in cleaned["departments"]:
+        found = store.get(reg.agent_key(department["agent"]))
+        if not found or found.get("tenant_id") != tenant["tenant_id"] or found.get("type") != "department":
+            raise reg.Invalid(f"Department {department['id']}: {department['agent']} must be a department agent of this business (create it with type department).")
+
+
 def put_version(store, tenant, name, number, body, now, files=None):
     agent = owned(store, tenant, name)
     if agent is None:
         return problem(404, "not_found", "No such agent.")
     config = reg.clean_config(body)
     items = check_media(config, tenant, name, files)
+    check_departments(store, tenant, agent, config)
     try:
         media.mark_kept(store, tenant["tenant_id"], name, items, now)
     except media.Invalid as error:

@@ -21,7 +21,7 @@ import platform_settings
 NOTE_MAX_CHARS = platform_settings.value("chatwoot.noteMaxChars")
 
 TRIGGERS = ("person_asked", "complaint", "warm_lead", "stuck", "customer_media")
-FAILURE_REASONS = ("llm_error", "retrieval_error", "no_shelf", "cap_reached", "bad_config", "agent_error")  # an answer that could not be made: the customer must not be left in silence
+FAILURE_REASONS = ("llm_error", "retrieval_error", "no_shelf", "cap_reached", "bad_config", "agent_error", "department_unavailable")  # an answer that could not be made: the customer must not be left in silence
 DEFAULT_TEXT = "Dhanyavaad! Aapki jankari hamari team ko mil gayi hai. Team jaldi aapse sampark karegi (Mon-Sat, 9 AM se 6 PM). Tab tak aap yahin likh sakte hain."
 
 _PHONE = re.compile(r"(?<!\d)(?:(?:\+|00)?91[ -]?)?[6-9](?:[ -]?\d){9}(?!\d)")  # an Indian mobile number, with or without +91 and spaces
@@ -49,6 +49,7 @@ LABELS = {
     "stuck": "the bot could not answer two messages in a row",
     "customer_media": "the customer sent a photo, voice note, file or location without any words (the bot does not read these): please open the conversation",
     "stuck_item": "the bot's reply to the last message may not have been delivered (the worker did not finish): please read this conversation",
+    "department_unavailable": "the department that should answer is switched off, has no live version or is not set up: please answer this customer",
 }
 
 

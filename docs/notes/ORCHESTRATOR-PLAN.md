@@ -1,6 +1,6 @@
 # Orchestrator agent: one WhatsApp number, several departments (plan, 2026-11-24)
 
-**Status: plan for the owner's alignment. Nothing is built.** It reuses what exists; new code is marked as such.
+**Status: O1 built 2026-11-24 (platform and a first Studio screen); O2 onwards not started.** It reuses what exists; new code is marked as such.
 
 ## 1. The need
 

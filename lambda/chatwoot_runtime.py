@@ -19,6 +19,7 @@ import time
 import embeddings as em
 import bedrock
 import chatwoot_media as media
+import chatwoot_orchestrator as orchestrator
 import gemini
 import knowledge_core as kc
 import knowledge_store as ks
@@ -143,6 +144,11 @@ def clean_config(config):
     out = {"instructions": instructions.strip(), "language": language, "collections": list(collections), "fallback_text": fallback.strip(), "max_answer_chars": limit, "mode": mode,
            "handover_text": handover_text.strip(), "handover_on": list(handover_on), "inbox_notes": {k: v.strip() for k, v in notes.items()},
            "followup_fallback_text": followup.strip() if isinstance(followup, str) else None}
+    if "departments" in config:  # an orchestrator: one number, several departments (chatwoot_orchestrator)
+        try:
+            out.update(orchestrator.clean(config))
+        except orchestrator.Invalid as error:
+            raise ConfigError(str(error)) from None
     if records:
         out["extras"] = records
     if items:

@@ -14,6 +14,8 @@ Rules:
   * Two messages of one conversation answered at the same moment can lose a turn (the write re-reads just before it writes, which keeps that rare). That is accepted.
   * A memory that cannot be read or written never stops an answer: the caller treats an error as "no memory".
 """
+import re
+
 import platform_settings
 
 HOURS_SECONDS = platform_settings.hours("chatwoot.memoryHours")  # 0 = memory off
@@ -39,7 +41,12 @@ def clean(turns):
     out = []
     for turn in turns if isinstance(turns, list) else []:
         if isinstance(turn, dict) and isinstance(turn.get("c"), str) and isinstance(turn.get("b"), str):
-            out.append({"c": cut(turn["c"]), "b": cut(turn["b"]), **({"f": 1} if turn.get("f") == 1 else {}), **({"h": 1} if turn.get("h") == 1 else {})})
+            extra = {}
+            if isinstance(turn.get("d"), str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,29}", turn["d"]):  # the department of an orchestrator that answered
+                extra["d"] = turn["d"]
+            if isinstance(turn.get("t"), (int, float)) and not isinstance(turn.get("t"), bool) or type(turn.get("t")).__name__ == "Decimal":  # DynamoDB gives numbers back as Decimal
+                extra["t"] = int(turn["t"])
+            out.append({"c": cut(turn["c"]), "b": cut(turn["b"]), **({"f": 1} if turn.get("f") == 1 else {}), **({"h": 1} if turn.get("h") == 1 else {}), **extra})
     return out[-TURNS:]
 
 
@@ -53,12 +60,12 @@ def load(store, agent_id, conversation_id, now):
     return clean(item.get("turns"))
 
 
-def remember(store, agent_id, conversation_id, customer, bot, fallback, now, handover=False):
+def remember(store, agent_id, conversation_id, customer, bot, fallback, now, handover=False, department=None):
     """Add one turn and keep the last TURNS. Re-reads just before writing, so a turn written by a message answered at the same moment is not thrown away."""
     if not enabled():
         return
     turns = load(store, agent_id, conversation_id, now)
-    turns.append({"c": cut(customer), "b": cut(bot), **({"f": 1} if fallback else {}), **({"h": 1} if handover else {})})
+    turns.append({"c": cut(customer), "b": cut(bot), **({"f": 1} if fallback else {}), **({"h": 1} if handover else {}), **({"d": department, "t": int(now)} if department else {})})  # t: for how long the department stays
     store.put(key(agent_id, conversation_id), {"turns": turns[-TURNS:], "ttl": now + HOURS_SECONDS})
 
 

@@ -2935,6 +2935,36 @@
       ]
     },
     {
+      "key": "chatwoot.orchestratorMaxDepartments",
+      "group": "chatwoot",
+      "title": "Most departments behind one number",
+      "help": "How many departments an orchestrator may list (a WhatsApp list shows at most 10 choices).",
+      "unit": "departments",
+      "default": 8,
+      "min": 2,
+      "max": 10,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_orchestrator.MAX_DEPARTMENTS"
+      ]
+    },
+    {
+      "key": "chatwoot.orchestratorStickyMinutes",
+      "group": "chatwoot",
+      "title": "How long a conversation stays in a department",
+      "help": "After a customer chose a department, follow-up messages within this many minutes stay with it unless they clearly name another one. A version may set its own.",
+      "unit": "minutes",
+      "default": 30,
+      "min": 0,
+      "max": 1440,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_orchestrator.STICKY_MINUTES"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
