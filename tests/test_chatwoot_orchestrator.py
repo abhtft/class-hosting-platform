@@ -366,3 +366,10 @@ f.missing = ("general",)
 out, item = send(f, "Namaste")
 assert out == {"replied": True} and item["route"] == "menu" and item["route_layer"] == "ask", "no general shelf yet: the menu, not a hand-over"
 print("  ok  a department's own files are sent with its answer (and shown in the test chat); an orchestrator whose general shelf does not exist yet shows the menu instead of handing over")
+
+# ---- traces: an orchestrator's answer has a routing step (labels and numbers only)
+import chatwoot_trace as ctrace  # noqa: E402
+spans = ctrace.build_spans({"text": "x"}, {"status": "replied", "metrics": {"route": "rag", "route_layer": "keyword", "department": "library", "department_version": 2, "team_id": 4, "llm_ms": 5}}, {"text": "a"}, 0)
+assert [s[0] for s in spans] == ["routing", "retrieval", "llm", "answer"] and spans[0][4] == {"department": "library", "layer": "keyword", "department_version": 2, "team_id": 4}
+assert [s[0] for s in ctrace.build_spans({"text": "x"}, {"status": "replied", "metrics": {"route": "rag"}}, {"text": "a"}, 0)] == ["retrieval", "llm", "answer"], "an ordinary agent's trace is unchanged"
+print("  ok  the trace of an orchestrator's answer starts with a routing step (department, rule, version, team); an ordinary agent's trace is unchanged")

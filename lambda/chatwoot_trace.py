@@ -40,7 +40,11 @@ def build_spans(event, outcome, data, started_ms):
     """[(name, kind, duration_ms, status, attrs)] for one message, from what the worker knows. Numbers and labels first; text keys are reduced by the privacy level when written."""
     metrics = outcome.get("metrics") or {}
     passages = [{"title": p.get("title"), "page": p.get("page"), "section": p.get("section"), "score": p.get("score"), "used": bool(p.get("used"))} for p in (data.get("explain") or [])[:20]]
-    spans = [("retrieval", "retriever", int(metrics.get("retrieval_ms") or 0), "ok",
+    spans = []
+    if metrics.get("route_layer"):  # an orchestrator: which department the message went to and which rule chose it (labels and numbers only)
+        spans.append(("routing", "chain", 0, "ok", {"department": str(metrics.get("department") or ""), "layer": str(metrics["route_layer"]), "department_version": int(metrics.get("department_version") or 0),
+                                                     "team_id": int(metrics.get("team_id") or 0)}))
+    spans += [("retrieval", "retriever", int(metrics.get("retrieval_ms") or 0), "ok",
               {"query": event.get("text") or "", "shelves": metrics.get("shelves") or [], "hit_count": int(metrics.get("hits") or 0), "confident": bool(metrics.get("confident")),
                "corrections_used": int(metrics.get("updates") or 0), "hits": passages})]
     if used_llm(metrics):
