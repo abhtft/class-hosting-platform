@@ -2,6 +2,8 @@
 
 Status: **plan only, nothing built, needs approval per phase.** Supersedes the Docling-first order of `KNOWLEDGE-QUALITY-PLAN.md` (that note stays as the fallback path: Docling is Phase 8 here).
 
+> **Order changed (2026-11-24):** for small documents the first step is now `KNOWLEDGE-DOCUMENT-MODE-PLAN.md` (send the whole PDF). The reader described here becomes its Track 2.
+
 ## 1. The idea and what it really means
 
 Today a book becomes text with a PDF library (`pypdf`), which sees characters, not the page. A modern multimodal model **sees the page**: tables, columns, Hindi script, stamps, photographed price lists. So: **send each document to a model in the form the model reads best (the PDF itself, or the image), let it write clean structured text, and keep everything after that (chunk, embed, search, answer) as it is.**
