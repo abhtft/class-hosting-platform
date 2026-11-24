@@ -53,8 +53,8 @@ def clean(config):
         raise Invalid(f"departments must list 2 to {MAX_DEPARTMENTS} departments.")
     out, ids, agents = [], set(), set()
     for d in found:
-        if not isinstance(d, dict) or sorted(set(d) - {"id", "label", "agent", "team_id", "description", "keywords", "examples"}):
-            raise Invalid("Each department is {id, label, agent, team_id, description, keywords, examples} and nothing else.")
+        if not isinstance(d, dict) or sorted(set(d) - {"id", "label", "agent", "team_id", "description", "keywords", "examples", "welcome"}):
+            raise Invalid("Each department is {id, label, agent, team_id, description, keywords, examples, welcome} and nothing else.")
         if not isinstance(d.get("id"), str) or not _ID.fullmatch(d["id"]) or d["id"] in ids:
             raise Invalid("Each department needs a different id: lowercase letters, digits, _ and - (up to 30).")
         if not isinstance(d.get("agent"), str) or not core.AGENT_ID.fullmatch(d["agent"]) or d["agent"] in agents:
@@ -66,12 +66,18 @@ def clean(config):
         agents.add(d["agent"])
         out.append({"id": d["id"], "label": _text(d.get("label"), f"Department {d['id']}: label", 40), "agent": d["agent"], "team_id": team,
                     "description": _text(d.get("description"), f"Department {d['id']}: description", 300, required=False),
-                    "keywords": _list(d.get("keywords"), f"Department {d['id']}: keywords", 30, 40), "examples": _list(d.get("examples"), f"Department {d['id']}: examples", 30, 200)})
+                    "keywords": _list(d.get("keywords"), f"Department {d['id']}: keywords", 30, 40), "examples": _list(d.get("examples"), f"Department {d['id']}: examples", 30, 200),
+                    "welcome": _text(d.get("welcome"), f"Department {d['id']}: welcome", 300, required=False)})
     sticky = config.get("sticky_minutes", STICKY_MINUTES)
     if not isinstance(sticky, int) or isinstance(sticky, bool) or not 0 <= sticky <= 24 * 60:
         raise Invalid("sticky_minutes must be a whole number from 0 (never stay) to 1440.")
     prompt = _text(config.get("menu_prompt"), "menu_prompt", 300, required=False) or DEFAULT_MENU_PROMPT
     return {"departments": out, "menu_prompt": prompt, "sticky_minutes": sticky}
+
+
+def welcome_text(department):
+    """What the customer gets when they only CHOSE a department (a menu number or its name, no question yet): the department's own welcome line, or a plain default that asks for the question."""
+    return department.get("welcome") or f"{department['label']} mein aapka swagat hai. Aap kya jaanna chahte hain?"
 
 
 def menu_text(config):
@@ -126,6 +132,14 @@ def example_texts(config):
     """([(department id, example text)], the texts alone): every department's example questions, for the meaning match."""
     pairs = [(d["id"], example) for d in config["departments"] for example in d["examples"]]
     return pairs, [text for _, text in pairs]
+
+
+def meaning_rank(pairs, scores):
+    """[(department id, its best match with the message)], best first: what the meaning layer saw (kept in the message item and shown in routing runs, to tune the thresholds)."""
+    best = {}
+    for (department, _), score in zip(pairs, scores):
+        best[department] = max(best.get(department, -1.0), float(score))
+    return sorted(best.items(), key=lambda item: -item[1])
 
 
 def meaning_pick(pairs, scores, minimum=None, margin=None):

@@ -143,11 +143,13 @@ def send(f, text, now=NOW):
 f = Fakes()
 out, item = send(f, "Namaste")
 assert out == {"replied": True} and item["route"] == "menu" and f.requests[-1][1]["content"].endswith("2. Digital classes") and not f.llm_calls and f.router_calls == 1, "a greeting nothing decides: the routing model says unsure, the general books are not sure, the menu"
+before = (len(f.searches), len(f.llm_calls))
 out, item = send(f, "1", NOW + 5)
-assert item["route"] == "rag" and item["department"] == "library" and item["route_layer"] == "menu_number" and f.searches[-1] == ["library"] and "Library desk." in f.llm_calls[-1][0]["content"]
-assert f.requests[-1][1]["content"] == "Library 8 baje khulti hai."
+assert item["route"] == "menu" and item["department"] == "library" and item["route_layer"] == "menu_number" and (len(f.searches), len(f.llm_calls)) == before, "only a choice: a welcome, no book search for \"1\""
+assert f.requests[-1][1]["content"] == "Library mein aapka swagat hai. Aap kya jaanna chahte hain?"
 out, item = send(f, "aur fees kitni hai?", NOW + 30)
-assert item["department"] == "library" and item["route_layer"] == "sticky", "a follow-up stays with the library"
+assert item["route"] == "rag" and item["department"] == "library" and item["route_layer"] == "sticky" and "Library desk." in f.llm_calls[-1][0]["content"], "the question after the choice stays with the library and is answered"
+assert f.requests[-1][1]["content"] == "Library 8 baje khulti hai."
 out, item = send(f, "batch kab start hoga?", NOW + 60)
 assert item["department"] == "classes" and f.searches[-1] == ["classes"], "a clear keyword moves to classes"
 out, item = send(f, "menu", NOW + 70)
@@ -357,9 +359,9 @@ print("  ok  an orchestrator's consistency check reads each live department's te
 f = Fakes()
 f.store.items[reg.version_key("lib", 1)]["config"] = {**LIB, "media": [{"id": "brochure", "name": "Library brochure", "kind": "link", "description": "fees and rules", "url": "https://example.org/library"}]}
 f.answer = "Yeh rahi jankari.\nMEDIA: brochure"
-out, item = send(f, "1")
+out, item = send(f, "library ki fees?")
 assert item["department"] == "library" and item.get("media") == [["brochure", "link"]] and "https://example.org/library" in f.requests[-1][1]["content"], "the department's link is sent with its answer"
-got = api.worker({"kind": "test", "tenant_id": "acme", "agent_id": "front", "text": "1", "version": 1}, None, now=NOW, deps=f.deps)["result"]
+got = api.worker({"kind": "test", "tenant_id": "acme", "agent_id": "front", "text": "library ki fees?", "version": 1}, None, now=NOW, deps=f.deps)["result"]
 assert [m["id"] for m in got["media"]] == ["brochure"], "the test chat describes the department's files too"
 f = Fakes()
 f.missing = ("general",)

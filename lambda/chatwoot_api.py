@@ -398,6 +398,7 @@ def route_message(config, text, history, now, deps):
             spent["tokens"] += scored["tokens"]
             spent["cost_micro"] += scored["cost_micro"]
             chosen = orchestrator.meaning_pick(pairs, scored["scores"])
+            spent["meaning"] = [[d, round(s, 3)] for d, s in orchestrator.meaning_rank(pairs, scored["scores"])[:3]]
         except Exception as error:
             log("routing_meaning_failed", error=type(error).__name__)
             chosen = None
@@ -447,13 +448,13 @@ def route_run(event, deps, now):
         if reason:
             return {"id": row["id"], "got": "handover", "layer": "guard", "tokens": 0, "cost_micro": 0}
         routed, spent = route_message(config, row["text"], history, now, deps)
-        return {"id": row["id"], "got": orchestrator.outcome(routed, None), "layer": routed["layer"], **spent}
+        return {"id": row["id"], "got": orchestrator.outcome(routed, None), "layer": routed["layer"], "meaning": spent.get("meaning"), "tokens": spent["tokens"], "cost_micro": spent["cost_micro"]}
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         done = list(pool.map(one, rows))
     cost = sum(d["cost_micro"] for d in done)
     spend(deps, key, {"cost_micro": cost}, now)
     expect = {row["id"]: row["expect"] for row in rows}
-    out = [{"id": d["id"], "got": d["got"], "layer": d["layer"], "ok": d["got"] == expect[d["id"]]} for d in done]
+    out = [{"id": d["id"], "got": d["got"], "layer": d["layer"], "ok": d["got"] == expect[d["id"]], **({"meaning": d["meaning"]} if d.get("meaning") else {})} for d in done]
     return {"result": {"rows": out, "passed": sum(1 for r in out if r["ok"]), "spent_micro": int(cost)}}
 
 
@@ -470,6 +471,10 @@ def orchestrate(config, text, history, context, tenant_id, deps, now, explain=Fa
     picked, spent = route_message(config, text, history, now, deps)
     if picked["kind"] == "menu" or (picked["kind"] == "none" and not str(text or "").strip()):
         return orchestrator.menu_text(config), {"route": "menu", "route_layer": picked["layer"], **spent}, None
+    if picked["kind"] == "department" and picked["layer"] in ("menu_number", "menu_label"):  # the customer only chose a desk: welcome them and ask the question, do not search the books for "1"
+        department = picked["department"]
+        department_config(department, tenant_id, deps)  # a desk that is off or not set up is found out now, not after the customer has typed a question
+        return orchestrator.welcome_text(department), {"route": "menu", "route_layer": picked["layer"], "department": department["id"], "team_id": department["team_id"], **spent}, None
     if picked["kind"] == "department":
         department = picked["department"]
         part, live = department_config(department, tenant_id, deps)
