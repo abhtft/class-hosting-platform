@@ -141,3 +141,38 @@ Phases 0 to 2 are the core: about 4 to 5 days, no new hosting, and each step can
 1. **Which real documents** to use for the gold set (the `shop` books, and one with tables, one Hindi or scanned from a real or likely client)?
 2. **Approve Phase 0 and 1** (about 2 days, no platform change, no cost beyond a few cents of embeddings).
 3. Later, at the Phase 2 gate: option A (offline converter) or B (a Docling service on Railway).
+
+---
+
+## 10. Revision (2026-11-24, after the owner's question): run it as a background job, and compare three readers
+
+**Correction to section 4.** Reading a book is rare (a book changes a few times a year), bursty and already asynchronous (`knowledge_worker`, 900 s, 2 GB). That is the ideal shape for a **pay-per-use background job**, not for a laptop script (manual, error-prone) and not for an always-on service (idle cost). So the production route is a **container-image job**, and the laptop is used only for the one-day measurement in Phase 1.
+
+| Route | Cost shape | Verdict |
+|---|---|---|
+| Laptop script | free, manual every time | Only for the Phase 1 spike |
+| Always-on Railway `docling-serve` | idle cost every month, even with no uploads | No |
+| **Lambda container image ("reader" function)**, started by the existing ingestion queue | pay per second of use, nothing when idle; image stored in ECR (about 2 GB, cents per month) | **Recommended** for books up to a few hundred born-digital pages. 15 minute limit: split OCR-heavy books into page ranges of 25 to 40 pages per invocation |
+| **Fargate task on demand** | pay per minute while it runs, no 15 minute limit | Only if big scanned books are common |
+
+Rough cost (my arithmetic from public price levels, **verify**): a 200-page born-digital book at about 1 s per page on CPU is about 200 s; at 6 GB memory that is roughly 1,200 GB-seconds, about **2 US cents**. A scanned book with CPU OCR can be much slower (tens of seconds per page reported for EasyOCR on CPU), so it costs more and needs page-range splitting, still cents to a dollar. Against the credits the owner has, cost is not the constraint; **time to build and maintain the image is**.
+
+**Does it help beyond modern embeddings?** An embedding model only sees the text we give it. Smart embeddings improve matching of well-formed text; they cannot recover a table that was flattened, text that came out in the wrong order, or a Hindi page read as garbage. So the gain is:
+- **large** for documents with tables, columns, scans or Devanagari fonts;
+- **close to zero** for clean, text-only PDFs and FAQ-style documents.
+That is why Phase 0 and 1 decide, with numbers on the owner's real documents.
+
+**A third reader to compare: Gemini reading the PDF directly.** Gemini accepts PDFs natively (vision), counted by Google at roughly 258 tokens per page (an average; scanned or image-heavy pages count more), through the API key we already use. No new infrastructure. Strong candidate for scans and Hindi, and it is what the existing model-based `ocr` hook already does page by page. Main risk: a model transcribing a price list may drop or alter a number. So any model-read page must pass a **numbers check** (every number in the output must also appear in the PDF's own text layer when one exists), and prices are never trusted to a model alone.
+
+**Hindi:** Docling's own documentation does not confirm Devanagari accuracy. RapidOCR (its default OCR) has no language selection; EasyOCR and Tesseract (with the Hindi pack) can be configured for Hindi. Must be tested on real Hindi pages.
+
+### Revised Phase 1 (the spike compares three readers on the same documents)
+1. Reader 0: current pypdf. Reader 1: Docling (born-digital layout and tables; OCR only if needed). Reader 2: Gemini reading the PDF to Markdown.
+2. Same gold set from Phase 0; report hit@1/3/5, table questions, Hindi questions, time and cost per book, and numbers-check failures.
+3. Decision gate: pick per document kind, for example Docling for layout and tables, Gemini for scans and Hindi, pypdf for clean text. The platform keeps `pypdf` as default and fallback.
+
+### Revised Phase 2 (only the winners)
+Production implementation is a **container-image reader function started by the ingestion queue**, a new SAM resource (change set shown before execute, Checkov first, ECR image cost stated first), with a setting `knowledge.extractor` per collection and the extractor recorded on every document. If Gemini alone wins, no container is needed at all: only a new extractor inside the current worker.
+
+### Documents needed for Phase 0
+About 4 real files, kept local and not committed: (1) the `shop` books, (2) a document with price or fee tables, (3) a Hindi or Hinglish PDF, (4) a scanned PDF. Plus 30 to 40 questions with the expected answer location (the `shop` tests table can seed this).
