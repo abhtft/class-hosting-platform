@@ -2,6 +2,8 @@
 
 Status: **plan only, nothing built.** Needs the owner's approval per phase. Follows `OPEN-SOURCE-TOOLS-2026-11.md` section 4 and `ARCHITECTURE-REVIEW-2026-11.md` (R3).
 
+> **Superseded in order (2026-11-24):** the first step is now the model-reads-the-document approach in `KNOWLEDGE-READER-PLAN.md`. This note stays valid for the Docling path (its Phase 8) and the cost comparison in section 10.
+
 ## 1. Why this first (and one correction to the order)
 
 The agent answers only from the books, so answer quality is capped by what the books look like *after* we read them. A table flattened into one line, a Hindi PDF read as garbage, a page header repeated 200 times: no prompt or model fixes that. So yes, knowledge before tracing.
