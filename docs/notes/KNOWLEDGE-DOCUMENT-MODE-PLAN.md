@@ -100,3 +100,30 @@ Plus the answer (a few hundred output tokens at 2.50 USD per million, about 0.05
 2. The real documents (kept local, not committed): the `shop` books, one with tables, one Hindi or Hinglish; and any questions you already know customers ask.
 3. Which models your keys can reach besides the enabled Gemini Flash-Lite, so Phase 1 can try a larger one.
 4. The decision rule for Phase 4 (my proposal is in section 4; change it if you want stricter numbers).
+
+---
+
+## 8. Revision: three evidence levels, hybrid as the default candidate (2026-11-24)
+
+The owner's point: sending the whole PDF on every small question is wasteful, so keep retrieval and attach only the relevant part of the PDF. This is feasible and cheaper than whole-document mode. The agent version gets one setting, `evidence`, with three levels built on the same two new pieces (a document loader and the native model call):
+
+| Level | What the model gets | Finds the right place by | Cost per message (estimate) | Best for |
+|---|---|---|---|---|
+| `text` (today) | the extracted passages | retrieval | about 0.1 US cent | clean text documents |
+| **`pages` (hybrid)** | the extracted passages **and the original PDF pages of the top hits** (the hit page, plus the page before and after when the passage crosses a page) | retrieval | about 0.15 to 0.25 US cent | tables, Hindi, forms, large shelves |
+| `whole` | the whole PDFs | none (the model reads everything) | about 0.15 to 0.6 US cent | small shelves (up to about 30 pages) |
+
+Why `pages` is cheap: a page is about 258 tokens (Google's average), so three hit pages with neighbours are roughly 1,000 to 1,500 extra tokens, a fraction of a cent. No trigger rule ("only when the passage is a table") is needed: attaching the hit pages is almost free, and a simple rule is easier to test than a clever one.
+
+### How `pages` works (feasibility, from the code)
+- Every passage already stores `page` and `page_end` (`chunk_pages`), and the search result carries them. The retrieval and the confidence gate stay exactly as they are.
+- The original file is in S3. Cutting out pages 3 to 5 of a PDF uses `PdfWriter` from the vendored pypdf (pure Python, milliseconds); the small PDF is sent as an inline part. Cache the loaded source while the container is warm.
+- Prompt: the passages stay as the text hint; the pages come with the sentence "the attached pages are the original; if the extracted text and the page differ, the page is right". Same fixed rules, same corrections-first order, same "not sure" sentence.
+- Documents that are not PDFs (text, Markdown, HTML have only pseudo-pages) use the `text` level automatically. A page that cannot be cut (damaged PDF) falls back to text for that hit.
+- If the native call fails everywhere, the answer falls back to `text`; nothing breaks.
+- `pages` does not fix a retrieval miss (the right page never retrieved). `whole` does; for a small shelf the owner can pick `whole`, for a big shelf `pages`. A later option: `whole` for the top 1 to 3 documents chosen by retrieval (Phase 6).
+
+### Changed phases
+- **Phase 0 and 1** (gold set, baseline, spike): the spike now has **three arms** on the same gold questions: `text` (baseline), `pages` (retrieval, then the hit pages attached), `whole`. Output per arm: correct by key facts, input tokens and cached tokens, seconds, cost.
+- **Phase 2:** build the shared pieces once (native call, document loader, page cutter, pinning by id and sha256), then both `pages` and `whole` as small branches of `respond()`. Tests as listed above, plus: page cut for a passage across two pages, a non-PDF falls back to text, damaged PDF falls back, text and page disagree (the page is used).
+- **Phase 4 (owner testing days):** three versions of the same agent, N (`text`), N+1 (`pages`), N+2 (`whole`), run through the same tests, safety suite and repeatability; decision rule as in section 4. My expectation, to be checked by the numbers: `pages` is the best default for most businesses; `whole` wins for tiny shelves where a missed retrieval is the main error.
