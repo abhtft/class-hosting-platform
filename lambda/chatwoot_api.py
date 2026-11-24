@@ -382,6 +382,81 @@ def department_config(department, tenant_id, deps):
     return config, agent["live_version"]
 
 
+def route_message(config, text, history, now, deps):
+    """(the route, what routing spent): the rules first (free), then, when they are not sure or the conversation is only staying where it was, the meaning match (the message against the
+    departments' example questions: one embedding call) and last the small model (one short call, only when nothing else decided and there is no department to stay in). A layer that
+    fails is skipped, never fatal: the next one, or the menu, takes over. Routing never reads the books of a department."""
+    spent = {"tokens": 0, "cost_micro": 0}
+    picked = orchestrator.route(text, config, history, now)
+    if picked["layer"] not in ("sticky", "none") or not str(text or "").strip():
+        return picked, spent
+    stay = picked["department"]["id"] if picked["kind"] == "department" else None
+    pairs, texts = orchestrator.example_texts(config)
+    if texts and deps.runtime.extras is not None:
+        try:
+            scored = deps.runtime.extras(texts, str(text))
+            spent["tokens"] += scored["tokens"]
+            spent["cost_micro"] += scored["cost_micro"]
+            chosen = orchestrator.meaning_pick(pairs, scored["scores"])
+        except Exception as error:
+            log("routing_meaning_failed", error=type(error).__name__)
+            chosen = None
+        if chosen and chosen != stay:  # a clear switch of topic, or a clear first choice
+            return {"kind": "department", "department": next(d for d in config["departments"] if d["id"] == chosen), "layer": "meaning_switch" if stay else "meaning"}, spent
+    if stay:
+        return picked, spent
+    try:  # nothing decided and there is no department to stay in: one short call to the cheapest model
+        answer = deps.runtime.llm(orchestrator.router_messages(config, history, text), orchestrator.ROUTER_MAX_TOKENS)
+        spent["tokens"] += int(answer.get("tokens") or 0)
+        spent["cost_micro"] += int(answer.get("cost_micro") or 0)
+        chosen = orchestrator.parse_router(answer.get("text"), config)
+    except Exception as error:
+        log("routing_model_failed", error=type(error).__name__)
+        return picked, spent
+    if chosen == "general":
+        return {"kind": "none", "department": None, "layer": "router_general"}, spent
+    if chosen:
+        return {"kind": "department", "department": next(d for d in config["departments"] if d["id"] == chosen), "layer": "router"}, spent
+    return picked, spent
+
+
+def route_run(event, deps, now):
+    """Where would each message of a routing table go (started by the admin function and nobody else): the guard, the rules, the meaning match and the routing model, WITHOUT asking any
+    department to answer, so a run is cheap. Rows are given in the event (Studio sends the table). Returns {"result": {"rows": [{"id", "got", "layer", "ok"}], "passed", "spent_micro"}}
+    or {"error": code}."""
+    pair, problem = owned_pair(event, deps)
+    if problem:
+        return problem
+    agent, tenant = pair
+    config, used = dry_target(event["agent_id"], tenant, event, deps)
+    if used is None:
+        return config
+    if not config.get("departments"):
+        return {"error": "not_orchestrator"}
+    try:
+        rows = orchestrator.clean_rows(event.get("rows"))
+    except orchestrator.Invalid:
+        return {"error": "bad_event"}
+    key = usage_key(event["tenant_id"], now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+
+    def one(row):
+        history = [{"c": "earlier", "b": "earlier", "d": row["in_department"], "t": now}] if row.get("in_department") else []
+        reason = handover.decide(row["text"], history, config["handover_on"])
+        if reason:
+            return {"id": row["id"], "got": "handover", "layer": "guard", "tokens": 0, "cost_micro": 0}
+        routed, spent = route_message(config, row["text"], history, now, deps)
+        return {"id": row["id"], "got": orchestrator.outcome(routed, None), "layer": routed["layer"], **spent}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        done = list(pool.map(one, rows))
+    cost = sum(d["cost_micro"] for d in done)
+    spend(deps, key, {"cost_micro": cost}, now)
+    expect = {row["id"]: row["expect"] for row in rows}
+    out = [{"id": d["id"], "got": d["got"], "layer": d["layer"], "ok": d["got"] == expect[d["id"]]} for d in done]
+    return {"result": {"rows": out, "passed": sum(1 for r in out if r["ok"]), "spent_micro": int(cost)}}
+
+
 def orchestrate(config, text, history, context, tenant_id, deps, now, explain=False):
     """One message to an orchestrator: (reply, metrics, hand-over reason or None), like answer_text. The guard first (the hand-over rules, for the whole number), then the rules
     (menu, a reply to the menu, a keyword, the department the conversation is in), then the orchestrator's own books; when they are not sure, the menu. A chosen department answers
@@ -392,21 +467,23 @@ def orchestrate(config, text, history, context, tenant_id, deps, now, explain=Fa
     if reason:
         team = by_id[stay]["team_id"] if stay in by_id else None
         return config["handover_text"], {"route": "handover", "route_layer": "guard", "department": stay, "team_id": team}, reason
-    picked = orchestrator.route(text, config, history, now)
+    picked, spent = route_message(config, text, history, now, deps)
     if picked["kind"] == "menu" or (picked["kind"] == "none" and not str(text or "").strip()):
-        return orchestrator.menu_text(config), {"route": "menu", "route_layer": picked["layer"]}, None
+        return orchestrator.menu_text(config), {"route": "menu", "route_layer": picked["layer"], **spent}, None
     if picked["kind"] == "department":
         department = picked["department"]
         part, live = department_config(department, tenant_id, deps)
         reply, metrics, reason = answer_text(part, text, history, context, tenant_id, deps.runtime, explain)
         if reason:  # the department's own hand-over sentence; its team takes the conversation
             reply = part["handover_text"]
-        metrics.update(department=department["id"], route_layer=picked["layer"], department_version=live, team_id=department["team_id"])
+        metrics.update(department=department["id"], route_layer=picked["layer"], department_version=live, team_id=department["team_id"],
+                       tokens=metrics.get("tokens", 0) + spent["tokens"], cost_micro=metrics.get("cost_micro", 0) + spent["cost_micro"])
         return reply, metrics, reason
     made = engine.respond(config, text, tenant_id, deps.runtime, history, context, explain)  # the orchestrator's own books: what belongs to the business as a whole
+    made["metrics"].update(tokens=made["metrics"].get("tokens", 0) + spent["tokens"], cost_micro=made["metrics"].get("cost_micro", 0) + spent["cost_micro"])
     if made["route"] == "fallback":  # they are not sure: ask, never guess
         return orchestrator.menu_text(config), {**made["metrics"], "route": "menu", "route_layer": "ask"}, None
-    made["metrics"].update(department="general", route_layer="general")
+    made["metrics"].update(department="general", route_layer="router_general" if picked["layer"] == "router_general" else "general")
     return made["text"], made["metrics"], None
 
 
@@ -1113,6 +1190,8 @@ def worker(event, context=None, now=None, deps=None):
         return sweep(event, deps, now)
     if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
         return test(event, deps, now)
+    if event.get("kind") == "route_run":  # from the admin function: where would each message of an orchestrator's routing table go
+        return route_run(event, deps, now)
     if event.get("kind") == "consistency":  # from the admin function: the places of a version that disagree, for the owner to review
         return consistency_check(event, deps, now)
     if event.get("kind") == "suggest":  # from the admin function: test rows written from the agent's books for the owner to review

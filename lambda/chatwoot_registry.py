@@ -57,6 +57,11 @@ def repeat_state_key(agent):
     return f"repeatstate#{agent}"
 
 
+def routing_tests_key(agent):
+    """The routing table of an orchestrator (its rows and their revision). Under `suite#` so the same narrow permissions that cover the suites cover it."""
+    return f"suite#routing#{agent}"
+
+
 def suite_key(agent):
     """The test suite of an agent (its cases and their revision)."""
     return f"suite#{agent}"

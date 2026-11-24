@@ -65,6 +65,8 @@ SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
 TRACES = re.compile(rf"/admin/agents/({_NAME})/traces")
 TRACES_SUMMARY = re.compile(rf"/admin/agents/({_NAME})/traces/summary")
 TRACE_ONE = re.compile(rf"/admin/agents/({_NAME})/traces/(tr_[0-9a-f]{{16}})")
+ROUTING_TESTS = re.compile(rf"/admin/agents/({_NAME})/routing-tests")
+ROUTING_RUN = re.compile(rf"/admin/agents/({_NAME})/routing-run")
 CONSISTENCY = re.compile(rf"/admin/agents/({_NAME})/consistency")
 SUITE_SUGGEST = re.compile(rf"/admin/agents/({_NAME})/suite/suggest")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
@@ -332,7 +334,7 @@ def test_error(code):
     """(HTTP status, plain message) for a worker's dry-run error code; anything unknown is a 502."""
     known = {"bad_config": (400, "The configuration cannot be used."), "version_not_found": (404, "No such version."), "not_found": (404, "No such agent."),
              "cap_reached": (429, "This business has used its spend limit for the month."), "bad_event": (400, "Send some text."), "registry_unavailable": (503, "Try again in a moment."),
-             "no_books": (409, "This agent has no books to write questions from."), "model_unavailable": (502, "The model could not be reached. Try again."), "bad_answer": (502, "The model did not give usable rows. Try again.")}
+             "no_books": (409, "This agent has no books to write questions from."), "not_orchestrator": (409, "This version is not an orchestrator: it lists no departments."), "model_unavailable": (502, "The model could not be reached. Try again."), "bad_answer": (502, "The model did not give usable rows. Try again.")}
     return known.get(code, (502, "The test could not be run. Try again."))
 
 
@@ -543,6 +545,72 @@ def trace_summary(tenant, name, event, store, trace_store, now):
     if days is not None and not str(days).isdigit():
         raise reg.Invalid("days is a whole number.")
     return 200, chatwoot_trace.summary(trace_store, tenant["tenant_id"], name, int(days) if days else None, now)
+
+
+def get_routing_tests(store, tenant, name):
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    item = store.get(reg.routing_tests_key(name)) or {}
+    return 200, {"rev": item.get("rev", 0), "rows": item.get("rows", []), "updated_at": item.get("updated_at")}
+
+
+def put_routing_tests(store, tenant, name, body, now):
+    """Replace an orchestrator's routing table: every row is checked (orchestrator.clean_rows), the revision refuses an overwrite of a newer change."""
+    unknown = sorted(set(body) - {"rows", "expected_rev"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    try:
+        rows = orchestrator.clean_rows(body.get("rows"))
+    except orchestrator.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+    existing = store.get(reg.routing_tests_key(name))
+    if "expected_rev" in body and body["expected_rev"] != (existing or {}).get("rev", 0):
+        return problem(409, "changed", "The table was changed since you read it.", rev=(existing or {}).get("rev", 0))
+    item = {"tenant_id": tenant["tenant_id"], "agent_id": name, "rev": (existing or {}).get("rev", 0) + 1, "rows": rows, "updated_at": now}
+    stored = store.replace_if(reg.routing_tests_key(name), item, "rev", existing["rev"]) if existing else store.claim(reg.routing_tests_key(name), item)
+    if not stored:
+        return problem(409, "changed", "The table was changed by another call at the same moment. Read it and try again.")
+    log("routing_tests_saved", tenant=tenant["tenant_id"], agent=name, rows=len(rows))
+    return (200 if existing else 201), {"rev": item["rev"], "rows": rows, "updated_at": now}
+
+
+def run_routing(store, tenant, name, body, invoke):
+    """Ask the worker where each row of a routing table would go (the rows come from the caller: Studio sends the table it shows). Nothing is saved."""
+    unknown = sorted(set(body) - {"version", "config", "rows"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    if owned(store, tenant, name) is None:
+        return problem(404, "not_found", "No such agent.")
+    if ("version" in body) == ("config" in body):
+        raise reg.Invalid("Send either version (a published version) or config (a draft), not both and not neither.")
+    try:
+        rows = orchestrator.clean_rows(body.get("rows"))
+    except orchestrator.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+    payload = {"kind": "route_run", "tenant_id": tenant["tenant_id"], "agent_id": name, "rows": rows}
+    if "config" in body:
+        if not isinstance(body["config"], dict) or len(json.dumps(body["config"]).encode("utf8")) > reg.MAX_VERSION_BYTES:
+            raise reg.Invalid(f"config must be a JSON object of at most {reg.MAX_VERSION_BYTES // 1024} KB.")
+        payload["config"] = body["config"]
+    else:
+        number = body["version"]
+        if not isinstance(number, int) or isinstance(number, bool) or not 1 <= number <= reg.MAX_VERSIONS:
+            raise reg.Invalid("version must be a published version number.")
+        payload["version"] = number
+    try:
+        answer = (invoke or invoke_worker)(payload)
+    except Exception as error:
+        log("routing_run_unavailable", error=type(error).__name__)
+        return problem(502, "test_failed", "The routing run could not be made. Try again.")
+    if not isinstance(answer, dict):
+        return problem(502, "test_failed", "The routing run could not be made. Try again.")
+    if isinstance(answer.get("result"), dict):
+        return 200, answer["result"]
+    status, message = test_error(answer.get("error"))
+    code = answer.get("error") if status != 502 else "test_failed"
+    return problem(status, str(code), message)
 
 
 def check_consistency(store, tenant, name, body, invoke):
@@ -1027,6 +1095,14 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None, trac
     found = TRACES.fullmatch(path)
     if found:
         return list_traces(tenant, found.group(1), event, store, trace_store) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    found = ROUTING_TESTS.fullmatch(path)
+    if found:
+        if method == "GET":
+            return get_routing_tests(store, tenant, found.group(1))
+        return put_routing_tests(store, tenant, found.group(1), parse_body(event), now) if method == "PUT" else problem(405, "method_not_allowed", "Use GET or PUT.")
+    found = ROUTING_RUN.fullmatch(path)
+    if found:
+        return run_routing(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
     found = CONSISTENCY.fullmatch(path)
     if found:
         return check_consistency(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")

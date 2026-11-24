@@ -2965,6 +2965,66 @@
       ]
     },
     {
+      "key": "chatwoot.orchestratorMeaningMin",
+      "group": "chatwoot",
+      "title": "Meaning match needed to choose a department",
+      "help": "A department is chosen by meaning when the message's best match with its example questions reaches this (0 to 1) and is clearly ahead of the next department.",
+      "unit": "score",
+      "default": 0.62,
+      "min": 0.3,
+      "max": 0.95,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_orchestrator.MEANING_MIN"
+      ]
+    },
+    {
+      "key": "chatwoot.orchestratorMeaningMargin",
+      "group": "chatwoot",
+      "title": "Lead the best department needs",
+      "help": "The best department's match must beat the next department's by at least this much, or the small model (or the menu) decides.",
+      "unit": "score",
+      "default": 0.04,
+      "min": 0,
+      "max": 0.3,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_orchestrator.MEANING_MARGIN"
+      ]
+    },
+    {
+      "key": "chatwoot.orchestratorRouterMaxTokens",
+      "group": "chatwoot",
+      "title": "Longest answer of the routing model",
+      "help": "The small model that picks a department writes only a short JSON: this is the most it may write.",
+      "unit": "tokens",
+      "default": 60,
+      "min": 20,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_orchestrator.ROUTER_MAX_TOKENS"
+      ]
+    },
+    {
+      "key": "chatwoot.routingTestMaxRows",
+      "group": "chatwoot",
+      "title": "Most rows in an orchestrator's routing table",
+      "help": "How many \"message goes to this department\" rows one orchestrator may keep and run at once.",
+      "unit": "rows",
+      "default": 40,
+      "min": 5,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_orchestrator.TEST_MAX_ROWS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
