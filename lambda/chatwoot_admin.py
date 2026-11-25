@@ -29,6 +29,7 @@ import re
 import secrets
 import time
 
+import chatwoot_books as books
 import chatwoot_core as core
 import chatwoot_media as media
 import chatwoot_memory as memory
@@ -65,6 +66,14 @@ SUITE_STATE = re.compile(rf"/admin/agents/({_NAME})/suite/state")
 TRACES = re.compile(rf"/admin/agents/({_NAME})/traces")
 TRACES_SUMMARY = re.compile(rf"/admin/agents/({_NAME})/traces/summary")
 TRACE_ONE = re.compile(rf"/admin/agents/({_NAME})/traces/(tr_[0-9a-f]{{16}})")
+BOOKS = re.compile(r"/admin/books")
+BOOKS_REFRESH = re.compile(r"/admin/books/refresh")
+BOOKS_UPLOAD = re.compile(r"/admin/books/upload-url")
+BOOKS_SEARCH = re.compile(r"/admin/books/search")
+BOOKS_START = re.compile(r"/admin/books/([0-9a-f]{12})/start")
+BOOKS_SHELF = re.compile(r"/admin/books/shelves/([a-z0-9][a-z0-9_-]{0,39})")
+BOOKS_DOC = re.compile(r"/admin/books/([a-z0-9][a-z0-9_-]{0,39})/([a-z0-9][a-z0-9_-]{0,39})")
+BOOKS_PASSAGES = re.compile(r"/admin/books/([a-z0-9][a-z0-9_-]{0,39})/([a-z0-9][a-z0-9_-]{0,39})/passages")
 ROUTING_TESTS = re.compile(rf"/admin/agents/({_NAME})/routing-tests")
 ROUTING_RUN = re.compile(rf"/admin/agents/({_NAME})/routing-run")
 CONSISTENCY = re.compile(rf"/admin/agents/({_NAME})/consistency")
@@ -334,7 +343,7 @@ def test_error(code):
     """(HTTP status, plain message) for a worker's dry-run error code; anything unknown is a 502."""
     known = {"bad_config": (400, "The configuration cannot be used."), "version_not_found": (404, "No such version."), "not_found": (404, "No such agent."),
              "cap_reached": (429, "This business has used its spend limit for the month."), "bad_event": (400, "Send some text."), "registry_unavailable": (503, "Try again in a moment."),
-             "no_books": (409, "This agent has no books to write questions from."), "not_orchestrator": (409, "This version is not an orchestrator: it lists no departments."), "model_unavailable": (502, "The model could not be reached. Try again."), "bad_answer": (502, "The model did not give usable rows. Try again.")}
+             "no_books": (409, "This agent has no books to write questions from."), "not_orchestrator": (409, "This version is not an orchestrator: it lists no departments."), "bad_event": (400, "Check the shelves and the question."), "model_unavailable": (502, "The model could not be reached. Try again."), "bad_answer": (502, "The model did not give usable rows. Try again.")}
     return known.get(code, (502, "The test could not be run. Try again."))
 
 
@@ -545,6 +554,151 @@ def trace_summary(tenant, name, event, store, trace_store, now):
     if days is not None and not str(days).isdigit():
         raise reg.Invalid("days is a whole number.")
     return 200, chatwoot_trace.summary(trace_store, tenant["tenant_id"], name, int(days) if days else None, now)
+
+
+def invoke_books(payload, wait=True):
+    """Ask the books function (the only writer of the shelves) to do one thing: wait for its answer, or only start it (a book is read in the background)."""
+    import boto3
+    response = boto3.client("lambda").invoke(FunctionName=os.environ["CHATWOOT_BOOKS_FUNCTION"], InvocationType="RequestResponse" if wait else "Event", Payload=json.dumps(payload).encode("utf8"))
+    if not wait:
+        if response.get("StatusCode") != 202:
+            raise RuntimeError("the books function was not started")
+        return {}
+    if response.get("FunctionError"):
+        raise RuntimeError("the books function failed")
+    return json.loads(response["Payload"].read())
+
+
+def books_call(tenant, payload, wait=True):
+    """invoke_books with the tenant of the KEY (never of the body), the answer mapped to (status, payload) problems; (None, answer) when it went through."""
+    try:
+        answer = invoke_books({**payload, "tenant_id": tenant["tenant_id"]}, wait)
+    except Exception as error:
+        log("books_unavailable", error=type(error).__name__)
+        return problem(502, "books_unavailable", "The books could not be reached. Try again in a moment."), None
+    if isinstance(answer, dict) and answer.get("error"):
+        status = {"not_found": 404, "bad_event": 400}.get(answer["error"], 502)
+        return problem(status, str(answer["error"]), str(answer.get("message") or "The books could not do that.")), None
+    return None, answer
+
+
+def get_books(store, tenant, now, refresh=False):
+    """The business's shelves and books (from the index; built from the shelves on the first look or when asked)."""
+    item = store.get(books.index_key(tenant["tenant_id"]))
+    if item is None or refresh:
+        failed, _ = books_call(tenant, {"kind": "reindex"})
+        if failed:
+            return failed
+        item = store.get(books.index_key(tenant["tenant_id"]))
+    return 200, books.view(item, now)
+
+
+def books_upload(store, tenant, body, files, now):
+    try:
+        return 200, books.upload_form(store, files, tenant, body, now)
+    except books.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+
+
+def books_start(store, tenant, book_id, files, now):
+    """The book has been sent to storage: check it arrived, mark it queued and start reading it in the background."""
+    item = store.get(books.index_key(tenant["tenant_id"])) or {}
+    pending = (item.get("pending") or {}).get(book_id)
+    if not pending or pending.get("status") != "uploading":
+        return problem(404, "not_found", "No such upload.")
+    if not files.size(pending["key"]):
+        return problem(409, "not_uploaded", "The file has not arrived. Send it to the address from the upload form first.")
+    try:
+        books.mark(store, tenant["tenant_id"], book_id, "queued", now)
+    except books.Invalid as error:
+        raise reg.Invalid(str(error)) from None
+    failed, _ = books_call(tenant, {"kind": "ingest", "book_id": book_id}, wait=False)
+    if failed:
+        books.mark(store, tenant["tenant_id"], book_id, "failed", now, error="The book could not be started. Remove it and add it again.")
+        return failed
+    return 202, {"book_id": book_id, "status": "queued"}
+
+
+def books_forget(store, tenant, book_id, now):
+    """Remove a book that is pending (failed, or never finished uploading): only its record, nothing is on a shelf."""
+    item = store.get(books.index_key(tenant["tenant_id"])) or {}
+    pending = (item.get("pending") or {}).get(book_id)
+    if not pending or pending.get("status") in ("queued", "reading"):
+        return problem(409, "busy", "That book is being read. Wait until it is done or failed.")
+    books.mark(store, tenant["tenant_id"], book_id, None, now)
+    return 200, {"removed": True}
+
+
+def shelves_in_use(store, tenant, shelf):
+    """The agents whose LIVE version reads this shelf (a shelf in use is not deleted)."""
+    users = []
+    for name in tenant.get("agents") or []:
+        agent = store.get(reg.agent_key(name)) or {}
+        live = agent.get("live_version") or 0
+        config = (store.get(reg.version_key(name, live)) or {}).get("config") if live else None
+        if isinstance(config, dict) and shelf in (config.get("collections") or []):
+            users.append(name)
+    return users
+
+
+def books_search(tenant, body, invoke):
+    unknown = sorted(set(body) - {"shelves", "query"})
+    if unknown:
+        raise reg.Invalid(f"Unknown field: {unknown[0]}.")
+    shelves, query = body.get("shelves"), body.get("query")
+    if not isinstance(shelves, list) or not 1 <= len(shelves) <= 5 or not all(isinstance(s, str) and books.SHELF.fullmatch(s) for s in shelves):
+        raise reg.Invalid("shelves is a list of 1 to 5 shelf names.")
+    if not isinstance(query, str) or not query.strip() or len(query) > core.MAX_QUESTION_CHARS:
+        raise reg.Invalid(f"query is a question of up to {core.MAX_QUESTION_CHARS} characters.")
+    try:
+        answer = (invoke or invoke_worker)({"kind": "books_search", "tenant_id": tenant["tenant_id"], "shelves": shelves, "query": query.strip()})
+    except Exception as error:
+        log("books_search_unavailable", error=type(error).__name__)
+        return problem(502, "test_failed", "The search could not be made. Try again.")
+    if isinstance(answer, dict) and isinstance(answer.get("result"), dict):
+        return 200, answer["result"]
+    status, message = test_error((answer or {}).get("error") if isinstance(answer, dict) else None)
+    return problem(status, str((answer or {}).get("error") if status != 502 else "test_failed"), message)
+
+
+def books_route(store, tenant, method, path, event, now, invoke, files):
+    """The books routes (None when the path is not one of them)."""
+    if BOOKS.fullmatch(path):
+        return get_books(store, tenant, now) if method == "GET" else problem(405, "method_not_allowed", "Use GET.")
+    if BOOKS_REFRESH.fullmatch(path):
+        return get_books(store, tenant, now, refresh=True) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    if BOOKS_UPLOAD.fullmatch(path):
+        return books_upload(store, tenant, parse_body(event), files or media.S3Files(), now) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    if BOOKS_SEARCH.fullmatch(path):
+        return books_search(tenant, parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    found = BOOKS_START.fullmatch(path)
+    if found:
+        return books_start(store, tenant, found.group(1), files or media.S3Files(), now) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    found = BOOKS_SHELF.fullmatch(path)
+    if found:
+        if method != "DELETE":
+            return problem(405, "method_not_allowed", "Use DELETE.")
+        users = shelves_in_use(store, tenant, found.group(1))
+        if users:
+            return problem(409, "shelf_in_use", "The live version of " + ", ".join(users) + " reads this shelf. Make another version live or change its shelves first.", agents=users)
+        failed, _ = books_call(tenant, {"kind": "delete_shelf", "shelf": found.group(1)})
+        return failed or (200, {"deleted": True})
+    found = BOOKS_PASSAGES.fullmatch(path)
+    if found:
+        if method != "GET":
+            return problem(405, "method_not_allowed", "Use GET.")
+        failed, answer = books_call(tenant, {"kind": "passages", "shelf": found.group(1), "doc_id": found.group(2)})
+        return failed or (200, answer)
+    found = BOOKS_DOC.fullmatch(path)
+    if found:
+        shelf, doc = found.groups()
+        if method == "DELETE" and shelf == "pending":  # a pending book (failed or never finished) is forgotten by its id
+            return books_forget(store, tenant, doc, now)
+        if method != "DELETE":
+            return problem(405, "method_not_allowed", "Use DELETE.")
+        failed, _ = books_call(tenant, {"kind": "delete_book", "shelf": shelf, "doc_id": doc})
+        return failed or (200, {"deleted": True})
+    return None
 
 
 def get_routing_tests(store, tenant, name):
@@ -1011,6 +1165,10 @@ def save_teach_test(store, tenant, name, sid, number, now):
 
 
 def route(store, tenant, method, path, event, now, invoke=None, files=None, trace_store=None):
+    if path == "/admin/books" or path.startswith("/admin/books/"):
+        done = books_route(store, tenant, method, path, event, now, invoke, files)
+        if done is not None:
+            return done
     if LIST.fullmatch(path):
         if method != "GET":
             return problem(405, "method_not_allowed", "Use GET.")

@@ -42,7 +42,7 @@ for name in ("GatewayFunction", "StudentSandboxRole"):
 named = r"Action: secretsmanager:GetSecretValue\n\s+Resource: !Sub 'arn:\$\{AWS::Partition\}:secretsmanager:\$\{AWS::Region\}:\$\{AWS::AccountId\}:secret:\$\{AiSecretName\}-\?\?\?\?\?\?'"
 for name in ("KnowledgeFunction", "KnowledgeWorkerFunction"):
     assert len(re.findall(named, block(name))) == 1, f"{name} reads exactly the one named secret (the embedding keys)"
-assert template.count("Action: secretsmanager:") == 8, "only the two statements above, the Gemini proxy (test_template_gemini.py), the two class knowledge functions and the Chatwoot receiver (bot secrets) and worker (bot token and the Google key) (test_template_chatwoot.py) mention Secrets Manager"
+assert template.count("Action: secretsmanager:") == 9, "only the two statements above, the Gemini proxy (test_template_gemini.py), the two class knowledge functions, the Chatwoot receiver (bot secrets), worker (bot token and the Google key) and books function (the Google key) (test_template_chatwoot.py) mention Secrets Manager"
 assert not re.search(r"secretsmanager:\*|secretsmanager:GetSecretValue\n\s+Resource: '\*'", template)
 
 # ---- long AI answers must fit: student function 25 s, gateway 29 s, HTTP API limit 30 s ----

@@ -3040,6 +3040,66 @@
       ]
     },
     {
+      "key": "chatwoot.bookMaxBooks",
+      "group": "chatwoot",
+      "title": "Most books one business may keep",
+      "help": "The owner adds books in Studio; a business may keep this many in all its shelves (each book is read once and costs a little to embed).",
+      "unit": "books",
+      "default": 40,
+      "min": 1,
+      "max": 200,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_books.MAX_BOOKS"
+      ]
+    },
+    {
+      "key": "chatwoot.bookMaxShelves",
+      "group": "chatwoot",
+      "title": "Most shelves one business may have",
+      "help": "A shelf is a group of books an agent can be pointed at. A business may have this many.",
+      "unit": "shelves",
+      "default": 10,
+      "min": 1,
+      "max": 30,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_books.MAX_SHELVES"
+      ]
+    },
+    {
+      "key": "chatwoot.bookPreviewPassages",
+      "group": "chatwoot",
+      "title": "Passages shown when the owner opens a book",
+      "help": "Studio shows the first passages of a book so the owner can see what the agent really reads.",
+      "unit": "passages",
+      "default": 20,
+      "min": 5,
+      "max": 100,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_books.PREVIEW"
+      ]
+    },
+    {
+      "key": "chatwoot.bookStaleUploadMinutes",
+      "group": "chatwoot",
+      "title": "How long an unfinished upload is shown",
+      "help": "A book whose upload was started but never finished disappears from the list after this long.",
+      "unit": "minutes",
+      "default": 60,
+      "min": 5,
+      "max": 1440,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_books.STALE_UPLOAD_SECONDS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",
@@ -4441,6 +4501,10 @@
     }
   ],
   "fixed": [
+    {
+      "code": "chatwoot_books.UPLOAD_SECONDS",
+      "reason": "How long an upload form stays valid (15 minutes): the time to send one file, not a limit anyone tunes."
+    },
     {
       "code": "chatwoot_consistency.FIELD_CHARS",
       "reason": "A text is cut to the longest length the platform accepts for any field (the instructions) before the model reads it: the limit of the fields themselves, not a separate choice."

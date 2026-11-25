@@ -81,13 +81,13 @@ for name in ("DeployFunction", "SweeperFunction"):
 assert re.search(r"Action: s3:DeleteObject\n\s+Resource: !Sub '\$\{SitesBucket\.Arn\}/userdata/\*'", block("DeployFunction")), "the portal may only delete students' stored files (the teacher's clear), never read or write them"
 # the single-line grants: class storage's userdata/ and class knowledge's knowledge/ (the portal's, the API's and the book reader's), nothing else
 single = re.findall(r"Action: \[s3:GetObject, s3:PutObject, s3:DeleteObject\]\n\s+Resource: !Sub '([^']+)'", template)
-assert sorted(single) == ["${SitesBucket.Arn}/knowledge/*"] * 3 + ["${SitesBucket.Arn}/projects/*", "${SitesBucket.Arn}/userdata/*"], single
+assert sorted(single) == ["${SitesBucket.Arn}/knowledge/*"] * 3 + ["${SitesBucket.Arn}/knowledge/tenant/*", "${SitesBucket.Arn}/projects/*", "${SitesBucket.Arn}/userdata/*"], single  # (knowledge/tenant/*: the Chatwoot books function, the only writer of the businesses' shelves)
 # project sync's projects/: the portal only (it signs upload forms and download links and deletes; it never reads a file)
 assert "${SitesBucket.Arn}/projects/*" in block("DeployFunction") and template.count("${SitesBucket.Arn}/projects/*") == 1, "only the portal function may touch projects/"
 for name in ("DeployFunction", "KnowledgeFunction", "KnowledgeWorkerFunction"):
     assert "${SitesBucket.Arn}/knowledge/*" in block(name), f"{name} is one of the three that may write knowledge/"
 # the compute worker's three (its own role, the control function, the portal) write the worker/ folder only: tests/test_template_worker.py checks each
-assert template.count("s3:PutObject") == 11, "every S3 write grant is reviewed (two lists above, class storage's userdata/, three for knowledge/, project sync's projects/, three for worker/, the Chatwoot admin function's chatwoot-media/): extend this check for a new one"
+assert template.count("s3:PutObject") == 13, "every S3 write grant is reviewed (two lists above, class storage's userdata/, three for knowledge/, project sync's projects/, three for worker/, the Chatwoot admin function's chatwoot-media/ and chatwoot-books/, the Chatwoot books function's knowledge/tenant/): extend this check for a new one"
 assert "${SitesBucket.Arn}/chatwoot-media/*" in block("ChatwootAdminFunction") and "s3:PutObject" in block("ChatwootAdminFunction"), "the Chatwoot admin function signs the media upload forms (tests/test_template_chatwoot.py checks its exact grant)"
 
 # ---- the kit signing key: only the account's administrators (the teacher's own credentials) can use it ----

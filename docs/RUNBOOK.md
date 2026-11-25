@@ -67,6 +67,10 @@ Follow docs/CHATWOOT_TRACES_TESTING.md (preconditions, 40 numbered cases, the AW
 
 Find a message's trace: read `msg#<agent>#<message_id>` in the Chatwoot table and use its `trace_id`; the trace is `t#cw:<tenant>#<trace_id>` in the traces table (`summary` plus steps). A missing `trace_id` on a replied message means the trace could not be written: look for the log line `trace_not_written` (the reply was still sent). Turn the customer's words off with `chatwoot.traceText` = 0 (only numbers stay); retention is `chatwoot.traceRetentionDays`. Student backend and traces must be on (`TracesEnabled`), otherwise bots write no traces.
 
+## Books in Studio
+
+A book shown as **failed** carries a plain reason (`no text` for a scanned PDF, `spend limit`, `too many passages`); the log line `book_failed` has the code. A book stuck on "Reading" for more than ten minutes means the books function timed out: dismiss it and add the file again (a smaller file or split it). If a shelf the teacher's command made is missing from Studio, press "Check the shelves again" (it rebuilds the list from the bucket). `books_unavailable` in the admin log means the books function could not be reached (check `CHATWOOT_BOOKS_FUNCTION`).
+
 ## Orchestrator routing: tuning
 
 Tune with the routing table in Studio (Checks, Routing): add the messages that went to the wrong place with where they should go, change keywords and example questions of the departments, run again. Too many menus: lower `chatwoot.orchestratorMeaningMin` a little or add example questions. Wrong department by meaning: raise `orchestratorMeaningMargin` or add examples to the right one. A greeting goes to the menu on purpose when nothing is sure. `routing_meaning_failed` and `routing_model_failed` in the logs mean a layer was skipped (the next layer or the menu answered).

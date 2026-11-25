@@ -383,6 +383,33 @@ def department_config(department, tenant_id, deps):
     return config, agent["live_version"]
 
 
+def books_search(event, deps, now):
+    """Which passages the given shelves of this business find for a question, with their scores and whether the books are sure: for the owner to see why an agent knows or does not know
+    something. Only the embedding of the question is paid for (counted against the business's month). Returns {"result": {...}} or {"error": code}."""
+    tenant_id = event.get("tenant_id")
+    shelves, query = event.get("shelves"), event.get("query")
+    if not isinstance(tenant_id, str) or not isinstance(shelves, list) or not 1 <= len(shelves) <= 5 or not all(isinstance(s, str) for s in shelves) or not isinstance(query, str) or not query.strip():
+        return {"error": "bad_event"}
+    try:
+        tenant = deps.store.get(registry.tenant_key(tenant_id))
+    except Exception as error:
+        log("registry_unavailable", error=type(error).__name__)
+        return {"error": "registry_unavailable"}
+    if not isinstance(tenant, dict) or tenant.get("enabled") is not True:
+        return {"error": "not_found"}
+    key = usage_key(tenant_id, now)
+    if deps.store.usage(key) >= monthly_cap_micro(tenant):
+        return {"error": "cap_reached"}
+    try:
+        found = deps.runtime.search(tenant_id, shelves, query.strip()[:core.MAX_QUESTION_CHARS])
+    except Exception as error:
+        log("books_search_failed", error=type(error).__name__)
+        return {"error": "model_unavailable"}
+    spend(deps, key, {"cost_micro": found.get("cost_micro")}, now)
+    hits = [{"title": str(h.get("title") or "")[:80], "page": h.get("page"), "section": str(h.get("section") or "")[:80], "shelf": h.get("collection"), "score": round(float(h.get("vector") or 0), 3), "text": str(h.get("text") or "")[:400]} for h in found.get("hits", [])]
+    return {"result": {"hits": hits, "confident": bool(found.get("confident")), "missing": list(found.get("missing") or []), "spent_micro": int(found.get("cost_micro") or 0)}}
+
+
 def route_message(config, text, history, now, deps):
     """(the route, what routing spent): the rules first (free), then, when they are not sure or the conversation is only staying where it was, the meaning match (the message against the
     departments' example questions: one embedding call) and last the small model (one short call, only when nothing else decided and there is no department to stay in). A layer that
@@ -1210,6 +1237,8 @@ def worker(event, context=None, now=None, deps=None):
         return sweep(event, deps, now)
     if event.get("kind") == "test":  # from the admin function: Studio's dry run, answered in the same invocation
         return test(event, deps, now)
+    if event.get("kind") == "books_search":  # from the admin function: what the shelves would find for a question (no model is asked)
+        return books_search(event, deps, now)
     if event.get("kind") == "route_run":  # from the admin function: where would each message of an orchestrator's routing table go
         return route_run(event, deps, now)
     if event.get("kind") == "consistency":  # from the admin function: the places of a version that disagree, for the owner to review

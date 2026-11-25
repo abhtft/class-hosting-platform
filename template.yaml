@@ -1501,6 +1501,7 @@ Resources:
         Variables:
           CHATWOOT_TABLE: !Ref ChatwootTable
           CHATWOOT_WORKER_FUNCTION: !Ref ChatwootWorkerFunction
+          CHATWOOT_BOOKS_FUNCTION: !Ref ChatwootBooksFunction
           CHATWOOT_PROVIDER: !Ref ChatwootProvider
       Policies:
         - Statement:
@@ -1528,6 +1529,18 @@ Resources:
             - Effect: Allow # media upload forms and the check that a file arrived: only chatwoot-media/ (the form is signed with this role, so it can write nowhere else, and only up to the announced size)
               Action: [s3:PutObject, s3:GetObject]
               Resource: !Sub '${SitesBucket.Arn}/chatwoot-media/*'
+            - Effect: Allow # the list of a business's books (books#...): one item, read and written one at a time; the shelves themselves are only ever written by the books function
+              Action: [dynamodb:GetItem, dynamodb:PutItem]
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['books#*']
+            - Effect: Allow # book upload forms and the check that a book arrived: only chatwoot-books/ (signed with this role: nowhere else, and only up to the announced size)
+              Action: [s3:PutObject, s3:GetObject]
+              Resource: !Sub '${SitesBucket.Arn}/chatwoot-books/*'
+            - Effect: Allow # the books function: read a book into a shelf, remove one, show its passages (it does the work; this function only asks)
+              Action: lambda:InvokeFunction
+              Resource: !GetAtt ChatwootBooksFunction.Arn
             - !If # traces: the owner's Activity list reads a business's own traces (t#cw:... and the by-app index for cw:...), read only
               - UseTraces
               - Effect: Allow
@@ -1553,6 +1566,59 @@ Resources:
             ApiId: !Ref ChatwootApi
             Path: /admin/{proxy+}
             Method: ANY
+
+  # The books function: the only writer of a business's shelves. The admin function (Studio) asks it to read an uploaded book into a shelf (cut into passages, embedded with the platform's Google
+  # key, the cost counted against the business's month), to remove a book or a shelf, to build the list from the shelves already there and to show a book's first passages. Nothing else can call it.
+  ChatwootBooksFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseChatwoot
+    Properties:
+      CodeUri: lambda/
+      Handler: chatwoot_books.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 2048 # reading a book of a few hundred pages in pure Python
+      Timeout: 600
+      EventInvokeConfig:
+        MaximumRetryAttempts: 0 # a failed book is shown as failed; an automatic second try would only spend twice
+      Environment:
+        Variables:
+          CHATWOOT_TABLE: !Ref ChatwootTable
+      Policies:
+        - Statement:
+            - Effect: Allow # the list of the books (books#...), the business (tenant#...) and what it has spent this month (usage#...)
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['books#*', 'tenant#*', 'usage#*']
+            - Effect: Allow # write the list of the books
+              Action: dynamodb:PutItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['books#*']
+            - Effect: Allow # count what reading a book cost against its business's month
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['usage#*']
+            - Effect: Allow # the uploaded book (read, then removed): chatwoot-books/ only
+              Action: [s3:GetObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/chatwoot-books/*'
+            - Effect: Allow # the shelves of the businesses: knowledge/tenant/ and nothing else in the bucket
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${SitesBucket.Arn}/knowledge/tenant/*'
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !GetAtt SitesBucket.Arn
+              Condition:
+                StringLike:
+                  s3:prefix: ['knowledge/tenant/*']
+            - Effect: Allow # the platform's Google key (this one secret): to embed the passages of a book
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AiSecretName}-??????'
 
   # ---------- Class AI proxy for Gemini ----------
   # Its own API and function (like storage), so a busy student cannot slow the portal. Students call it with their private ga_ key; the
