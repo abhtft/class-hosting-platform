@@ -1,6 +1,6 @@
 # Connect an agent to Chatwoot from Studio (plan, nothing built yet)
 
-Date: 2026-11-27. Status: **plan for approval**. Written after the live test of `mds` failed with `no_secret`: the agent's secret `chatwoot/mds` did not exist, and the only way to make it was a command in the teacher's terminal.
+Date: 2026-11-27. Status: **C1 (platform) and C2 (Studio) built and tested locally, not deployed; C3 (health line) not started**. Written after the live test of `mds` failed with `no_secret`: the agent's secret `chatwoot/mds` did not exist, and the only way to make it was a command in the teacher's terminal.
 
 ## 1. The problem
 An agent answers only when three things from Chatwoot are known to the platform: the **bot secret** (checks that a webhook really comes from Chatwoot), the **bot access token** (lets the agent post its reply) and the **account number**. Today they live in the Secrets Manager secret `chatwoot/<agent>`, made by hand with the AWS CLI. An owner cannot do that, and a mistake shows up only as silence (the customer gets "marked open due to an error with the agent bot"; the cause is only in CloudWatch).
@@ -33,7 +33,7 @@ Studio card --PUT /api/agents/<name>/connection--> Studio backend --(tenant key)
 |---|---|---|
 | D1 | Where the values live | **Secrets Manager** (as today; about 0.40 USD a month per agent, accepted). Not a table. |
 | D2 | May the admin function read the secret (to change one field without retyping the others)? | **Yes**, `GetSecretValue` on `chatwoot/*` only, used inside the function and never returned. The alternative (always retype all three) is error-prone. |
-| D3 | A form that changes bot credentials must not be open to anyone with the Studio address | **Hard gate: Studio sign-in must be ON** (owner list). With sign-in off, the card shows "Turn on sign-in first" and the routes refuse. Today sign-in is off, so the owner must turn it on first (`npm run signin -- on`; the teacher must have set up Google once). |
+| D3 | A form that changes bot credentials must not be open to anyone with the Studio address | **Already in place, nothing new built:** every Studio agent route (the card's too) requires a signed-in person who is in `OWNER_EMAILS` (`agents_route`), and the platform checks the business's service key. The earlier note that sign-in is off came from an old memory; to be confirmed against production before the card is relied on. |
 | D4 | Connection health line | **Yes, as step 2**: the receiver keeps one small item per agent with the last accepted webhook time and the last refusal (reason and time), overwritten, no growth. |
 
 ## 5. Phases and what "done" means

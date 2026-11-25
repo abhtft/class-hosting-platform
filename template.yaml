@@ -1586,6 +1586,9 @@ Resources:
             - Effect: Allow # the books function: read a book into a shelf, remove one, show its passages (it does the work; this function only asks)
               Action: lambda:InvokeFunction
               Resource: !GetAtt ChatwootBooksFunction.Arn
+            - Effect: Allow # connect an agent to Chatwoot from Studio: make and change the agent's own secret chatwoot/<agent> (bot secret, bot token, account number) and read it to change one value; a value is never returned
+              Action: [secretsmanager:GetSecretValue, secretsmanager:PutSecretValue, secretsmanager:CreateSecret]
+              Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:chatwoot/*'
             - !If # traces: the owner's Activity list reads a business's own traces (t#cw:... and the by-app index for cw:...), read only
               - UseTraces
               - Effect: Allow

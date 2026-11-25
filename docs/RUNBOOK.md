@@ -85,6 +85,14 @@ After a change to how words are read for the keyword search (the Hindi fix of th
 
 **The date and time the agent is told.** Every answer prompt says today's date, the weekday and the time in the time zone of the setting `chatwoot.timezoneOffsetMinutes` (330 = India). If a customer's "today" or "now" is answered for the wrong day, check that setting first, then the passage that holds the timetable (a line such as "Monday to Saturday: 9 AM to 6 PM" is read correctly; a table flattened by the PDF reader may not be).
 
+## Chatwoot connection from Studio (bot secret, token, account number)
+
+An owner connects an agent in Studio, Overview, **Chatwoot connection**: the account number and inboxes, and below them the bot secret and the bot's access token (copied from Chatwoot, Settings, Bots). They go to the agent's secret `chatwoot/<agent>` in Secrets Manager; Studio never shows them again (`set` or `missing` only). An empty field keeps what is stored. The new values are used within `chatwoot.secretCacheSeconds` (5 minutes) because the receiver and the worker remember a secret for that long.
+
+**When a customer's message gets no answer and Chatwoot writes "Conversation was marked open by system due to an error with the agent bot":** read the receiver's log (`/aws/lambda/<stack>-ChatwootReceiverFunction-...`). `{"chatwoot": "refused", "agent": "<name>", "reason": "no_secret"}` means the agent's secret does not exist or has no `bot_secret`: open Studio, the agent, Chatwoot connection, and fill the card. `bad_signature` means the bot secret in the card is not the one Chatwoot has for that bot (copy it again). A reply that is not posted is a worker error (`reply_failed`): the bot token or the account number is wrong. Log lines `connection_saved` (field names only) and `vault_failed` (error type only) are the admin function's side.
+
+Studio refuses the card unless the person is signed in and is in `OWNER_EMAILS` (the same check as every Studio route). By hand, the older way still works: `aws secretsmanager create-secret --name chatwoot/<agent> --secret-string file://secret.json` with `{"bot_secret": ..., "api_token": ..., "account_id": ...}`, then delete the file.
+
 ## Orchestrator routing: tuning
 
 Tune with the routing table in Studio (Checks, Routing): add the messages that went to the wrong place with where they should go, change keywords and example questions of the departments, run again. Too many menus: lower `chatwoot.orchestratorMeaningMin` a little or add example questions. Wrong department by meaning: raise `orchestratorMeaningMargin` or add examples to the right one. A greeting goes to the menu on purpose when nothing is sure. `routing_meaning_failed` and `routing_model_failed` in the logs mean a layer was skipped (the next layer or the menu answered).

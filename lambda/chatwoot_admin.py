@@ -15,12 +15,14 @@
   GET    /admin/agents/{name}/suite/state        the latest runs and, per published version, whether it passed
   POST   /admin/agents/{name}/suite/runs         start a run (asynchronous): {"version"} or {"config"}; answers 202 with its run_id
   GET    /admin/agents/{name}/suite/runs/{id}    a run's progress and, when done, its verdict per case
+  GET    /admin/agents/{name}/connection         which of the three Chatwoot values are set (never the values) and whether the agent is connected
+  PUT    /admin/agents/{name}/connection         {"bot_secret"?, "api_token"?, "account_id"?, "by"?}: kept in the secret chatwoot/<name>; an empty field keeps what is there
   POST   /admin/agents/{name}/test               Studio's dry run: {"text", "version" or "config", "history"?, "channel"?, "inbox_id"?}; the worker answers in the same call (nothing is posted
                                                  to Chatwoot, nothing is stored) and the answer, its route and the passages it used come back
 
 Every error is JSON {"error": "<code>", "message": "..."}. An agent of another tenant is "not_found" on every route. A wrong, unknown, rotated or switched-off key is
-the same 401 for all of them. Only the registry items (tenant#, agent#) are touched; nothing here reads a secret or calls Chatwoot; the one other thing it may do is ask the worker for a
-dry run (the test route). The
+the same 401 for all of them. Only the registry items (tenant#, agent#) are touched; nothing here calls Chatwoot; the one other thing it may do is ask the worker for a
+dry run (the test route). The only secrets it touches are the agent's own chatwoot/<name> (the connection route): it writes them and reads them to change one value, and a value is never in a response or a log. The
 teacher creates tenants and their keys with tools/chatwoot_admin.py (never over the web)."""
 import base64
 import json
@@ -31,6 +33,7 @@ import time
 
 import chatwoot_archive as archive
 import chatwoot_books as books
+import chatwoot_connection as connection
 import chatwoot_core as core
 import chatwoot_media as media
 import chatwoot_memory as memory
@@ -77,6 +80,7 @@ BOOKS_DOC = re.compile(r"/admin/books/([a-z0-9][a-z0-9_-]{0,39})/([a-z0-9][a-z0-
 BOOKS_PASSAGES = re.compile(r"/admin/books/([a-z0-9][a-z0-9_-]{0,39})/([a-z0-9][a-z0-9_-]{0,39})/passages")
 ROUTING_TESTS = re.compile(rf"/admin/agents/({_NAME})/routing-tests")
 ROUTING_RUN = re.compile(rf"/admin/agents/({_NAME})/routing-run")
+CONNECTION = re.compile(rf"/admin/agents/({_NAME})/connection")
 CONSISTENCY = re.compile(rf"/admin/agents/({_NAME})/consistency")
 SUITE_SUGGEST = re.compile(rf"/admin/agents/({_NAME})/suite/suggest")
 SUITE_RUNS = re.compile(rf"/admin/agents/({_NAME})/suite/runs")
@@ -195,6 +199,51 @@ def put_agent(store, tenant, name, body, now):
         log("agent_archived" if archived else "agent_restored", tenant=tenant["tenant_id"], agent=name)
     log("agent_updated", tenant=tenant["tenant_id"], agent=name)
     return 200, view(updated)
+
+
+def vault_failed(error, tenant, name, what):
+    log("vault_failed", tenant=tenant["tenant_id"], agent=name, step=what, error=type(error).__name__)  # the type only: an AWS message can carry a name or an ARN
+    return problem(503, "vault_unavailable", "The place the connection is kept is not reachable right now. Try again in a moment.")
+
+
+def get_connection(store, tenant, name, vault):
+    """Which of the three Chatwoot values an agent has (never the values) and whether it is connected: (status, payload)."""
+    agent = owned(store, tenant, name)
+    if agent is None:
+        return problem(404, "not_found", "No such agent.")
+    try:
+        text = vault.read(connection.secret_name(name))
+    except Exception as error:
+        return vault_failed(error, tenant, name, "read")
+    return 200, {**connection.status(agent, text), "secret_cache_seconds": platform_settings.value("chatwoot.secretCacheSeconds")}
+
+
+def put_connection(store, tenant, name, body, now, vault):
+    """Keep the values the owner typed in the agent's secret: the ones given replace the stored ones, the others stay. The account number is also written on the agent (the receiver
+    checks it against every message). Returns the new status, never a value."""
+    changes = connection.clean(body)
+    agent = owned(store, tenant, name)
+    if agent is None:
+        return problem(404, "not_found", "No such agent.")
+    try:
+        text = vault.read(connection.secret_name(name))
+        merged = connection.merge(text, changes, agent.get("account_id"))
+        vault.write(connection.secret_name(name), merged)
+    except Exception as error:
+        return vault_failed(error, tenant, name, "write")
+    for _ in range(3):  # the note of who changed it and when (no value) and the account number; a lost race re-reads the agent
+        account = connection.parse(merged).get("account_id")
+        note = {"changed_at": now, "changed_by": changes.get("by") or None}
+        updated = {**agent, "connection": note, "rev": agent["rev"] + 1, "updated_at": now, **({"account_id": account} if reg._whole(account) else {})}
+        if store.replace_if(reg.agent_key(name), updated, "rev", agent["rev"]):
+            break
+        agent = owned(store, tenant, name)
+        if agent is None:
+            return problem(404, "not_found", "No such agent.")
+    else:
+        return problem(409, "changed", "The values were saved, but the agent was changed by another call at the same moment. Open the card again to see the state.")
+    log("connection_saved", tenant=tenant["tenant_id"], agent=name, fields=sorted(k for k in changes if k != "by"))
+    return 200, {**connection.status(updated, merged), "secret_cache_seconds": platform_settings.value("chatwoot.secretCacheSeconds")}
 
 
 def check_media(config, tenant, name, files):
@@ -1185,7 +1234,7 @@ def save_teach_test(store, tenant, name, sid, number, now):
     return 201, {"case": case, "note": note, "suite_rev": saved["rev"]}
 
 
-def route(store, tenant, method, path, event, now, invoke=None, files=None, trace_store=None):
+def route(store, tenant, method, path, event, now, invoke=None, files=None, trace_store=None, vault=None):
     if path == "/admin/books" or path.startswith("/admin/books/"):
         done = books_route(store, tenant, method, path, event, now, invoke, files)
         if done is not None:
@@ -1282,6 +1331,12 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None, trac
     found = ROUTING_RUN.fullmatch(path)
     if found:
         return run_routing(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
+    found = CONNECTION.fullmatch(path)
+    if found:
+        vault = vault or connection.SecretsVault()
+        if method == "GET":
+            return get_connection(store, tenant, found.group(1), vault)
+        return put_connection(store, tenant, found.group(1), parse_body(event), now, vault) if method == "PUT" else problem(405, "method_not_allowed", "Use GET or PUT.")
     found = CONSISTENCY.fullmatch(path)
     if found:
         return check_consistency(store, tenant, found.group(1), parse_body(event), invoke) if method == "POST" else problem(405, "method_not_allowed", "Use POST.")
@@ -1315,7 +1370,7 @@ def route(store, tenant, method, path, event, now, invoke=None, files=None, trac
     return problem(404, "not_found", "No such route.")
 
 
-def handler(event, context=None, now=None, store=None, invoke=None, files=None, trace_store=None):
+def handler(event, context=None, now=None, store=None, invoke=None, files=None, trace_store=None, vault=None):
     now = int(now if now is not None else time.time())
     store = store or default_store()
     headers = {name.lower(): value for name, value in (event.get("headers") or {}).items()}
@@ -1327,7 +1382,7 @@ def handler(event, context=None, now=None, store=None, invoke=None, files=None, 
     if tenant is None:
         return reply(401, {"error": "unauthorized", "message": "Send the business's service key as: Authorization: Bearer cs_..."})
     try:
-        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now, invoke, files, trace_store if trace_store is not None else chatwoot_trace.default_store())
+        status, payload = route(store, tenant, event["requestContext"]["http"]["method"], (event.get("rawPath") or "").rstrip("/"), event, now, invoke, files, trace_store if trace_store is not None else chatwoot_trace.default_store(), vault)
     except reg.Invalid as error:
         return reply(400, {"error": "bad_request", "message": str(error)})
     except OverflowError:
