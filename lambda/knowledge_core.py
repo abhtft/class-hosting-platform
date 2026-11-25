@@ -13,6 +13,7 @@ import math
 import operator
 import re
 import struct
+import unicodedata
 from array import array
 
 # ------------------------------------------------------------------ words
@@ -22,7 +23,22 @@ down during each few for from further had has have having he her here hers him h
 out over own same she should so some such than that the their theirs them then there these they this those through to too under until up very was we were what when where which
 while who whom why will with would you your yours""".split())
 
-WORD = re.compile(r"[a-z0-9]+")
+# Hindi function words (the same job as the English list: they say nothing about the topic and would only dilute the keyword match and the "words found" coverage).
+HINDI_STOPWORDS = frozenset("""का की के को में से पर और है हैं था थी थे हो हूं हूँ यह वह ये वे इस उस इन उन एक भी तो ही कि क्या कौन कब कहां कहाँ कैसे क्यों कितना कितनी कितने
+लिए साथ तक या जो मैं मुझे मेरा मेरी हम आप आपका आपकी आपके तुम कर करें करना सकता सकती सकते रहा रही रहे होता होती होते वाला वाली वाले बहुत कृपया""".split())
+
+# Latin letters and digits plus the Devanagari block (letters, vowel signs, virama, digits): a Hindi book and a Hindi question must meet in the keyword index too.
+WORD = re.compile(r"[a-z0-9\u0900-\u0963\u0966-\u097f]+")  # Devanagari letters, signs and digits; the danda (U+0964, U+0965) is punctuation, not part of a word
+_DEVANAGARI_DIGITS = {ord(d): str(i) for i, d in enumerate("०१२३४५६७८९")}
+_DEVANAGARI_FOLD = {ord("़"): None, ord("ँ"): "ं"}  # nukta dropped (फ़ीस = फीस) and chandrabindu read as anusvara (हैं = हैँ): people type both ways
+
+
+def fold(text):
+    """Lowercase and make the spellings of one Hindi word equal: precomposed letters split (NFC), nukta dropped, chandrabindu read as anusvara, Devanagari digits as 0-9."""
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFC", str(text).lower()).translate(_DEVANAGARI_DIGITS).translate(_DEVANAGARI_FOLD))
+
+
+STOPWORDS = STOPWORDS | frozenset(fold(w) for w in HINDI_STOPWORDS)
 
 
 def stem(word):
@@ -42,7 +58,7 @@ def stem(word):
 
 def tokenize(text, keep_stopwords=False):
     """Lowercase words and numbers, stopwords dropped, lightly stemmed. Numbers stay (years and quantities matter in study books)."""
-    words = WORD.findall(str(text).lower())
+    words = WORD.findall(fold(text))
     return [stem(w) for w in words if keep_stopwords or w not in STOPWORDS]
 
 
@@ -99,7 +115,7 @@ def clean_pages(pages):
 
 _HEADING_WORDS = re.compile(r"^(chapter|unit|section|lesson|topic|part)\s+([0-9]+|[ivxlc]+)\b", re.I)
 _HEADING_NUMBERED = re.compile(r"^\d+(?:\.\d+)*\.?\s+[A-Za-z]")
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[])")
+_SENTENCE_END = re.compile(r"(?<=[.!?\u0964])\s+(?=[A-Z0-9\u0900-\u097f\"'(\[])")  # the Hindi full stop (danda) ends a sentence like a period
 
 
 def is_heading(line):

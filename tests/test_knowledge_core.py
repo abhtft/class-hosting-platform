@@ -33,6 +33,20 @@ assert kc.tokenize("") == [] and kc.tokenize("!!! ???") == []
 assert kc.estimate_tokens("abcd" * 10) == 10
 print("  ok  tokenizer: lowercase words and numbers, stopwords dropped, plural and verb forms meet, short words untouched")
 
+# Hindi in Devanagari: the keyword index and the "words found" coverage must see it (it was invisible before), spelling variants meet, function words go
+assert kc.tokenize("लाइब्रेरी की फीस कितनी है?") == ["लाइब्रेरी", "फीस"], "Hindi function words go, the topic words stay"
+assert kc.tokenize("फ़ीस") == kc.tokenize("फीस") == ["फीस"], "a nukta typed or not is one word"
+assert kc.tokenize("कहाँ कहां") == [] and kc.tokenize("हैं हैँ") == [], "chandrabindu and anusvara spellings are one word (here both stopwords)"
+assert kc.tokenize("फीस ८०० है।") == ["फीस", "800"], "Devanagari digits read as numbers and the Hindi full stop is not part of a word"
+assert kc.tokenize("library की फीस Rs 800") == ["library", "फीस", "rs", "800"], "Hinglish and mixed scripts: both halves are indexed"
+assert kc.tokenize("Library fee is Rs 800.") == ["library", "fee", "rs", "800"], "English is unchanged"
+hindi_docs = ["लाइब्रेरी की फीस महीने के ८०० रुपये है।", "डिजिटल क्लास का समय सुबह ९ बजे से शाम ६ बजे तक है।"]
+hindi_index = kc.build_bm25([kc.tokenize(d) for d in hindi_docs])
+assert list(kc.bm25_scores(hindi_index, kc.tokenize("फ़ीस कितनी है?"))) == [0], "a Hindi question finds the Hindi passage by keyword"
+assert list(kc.bm25_scores(hindi_index, kc.tokenize("क्लास का समय क्या है"))) == [1]
+assert kc._SENTENCE_END.split("फीस ८०० है। सीट कहां है। Open at 9.") == ["फीस ८०० है।", "सीट कहां है।", "Open at 9."], "the danda ends a sentence"
+print("  ok  Hindi (Devanagari): found by the keyword index, spelling variants and digits meet, function words dropped, the danda ends a sentence")
+
 # ---------------------------------------------------------------- cleaning
 header = "NCERT Science Class 9"
 parts = ["roots", "stems", "leaves", "flowers", "fruits", "seeds", "soil", "rain"]

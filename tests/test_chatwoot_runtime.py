@@ -481,6 +481,22 @@ assert "writing on facebook page" in other and "same channel" in other, "a chann
 assert rt.channel_rule("") == "" and rt.channel_rule(None) == ""
 print("  ok  the model is told when a conversation has started (no second greeting), which channel the customer writes on (WhatsApp: never message the same number or ask for the mobile number), and the agent's note for the inbox")
 
+# the model is told today's date, weekday and time (worked out here, in the agents' time zone), so "today", "tomorrow" and "open now" mean the right day
+import calendar  # noqa: E402
+friday = calendar.timegm((2026, 11, 27, 10, 10, 0))  # 3:40 PM in India
+assert rt.TIMEZONE_OFFSET_MINUTES == 330 and rt.now_line(friday).startswith("Right now it is Friday, 27 November 2026, 3:40 PM (UTC+5:30).")
+assert "never guess a date or a day" in rt.now_line(friday)
+assert "Saturday, 28 November 2026, 1:30 AM (UTC+5:30)" in rt.now_line(calendar.timegm((2026, 11, 27, 20, 0, 0))), "past midnight in India it is already the next day"
+assert "Friday, 27 November 2026, 12:05 AM" in rt.now_line(calendar.timegm((2026, 11, 26, 18, 35, 0))) and "12:00 PM" in rt.now_line(calendar.timegm((2026, 11, 27, 6, 30, 0)))
+rt.TIMEZONE_OFFSET_MINUTES = 0
+assert "Friday, 27 November 2026, 10:10 AM (UTC+0)" in rt.now_line(friday)
+rt.TIMEZONE_OFFSET_MINUTES = -300
+assert "Friday, 27 November 2026, 5:10 AM (UTC-5)" in rt.now_line(friday)
+rt.TIMEZONE_OFFSET_MINUTES = 330
+assert "Right now it is" in rt.now_line() and "Right now it is" in rt.build_messages(cfg, "aaj class hai?", fact)[0][0]["content"], "every prompt carries it, with the clock when nothing is given"
+assert "Friday, 27 November 2026, 3:40 PM" in rt.build_messages(cfg, "aaj class hai?", fact, None, {"now": friday})[0][0]["content"], "the worker can pass the time of the message"
+print("  ok  every prompt tells the model the date, the weekday and the time in the agents' time zone (India by default), also across midnight")
+
 # the configuration: inbox notes and a follow-up fallback
 base = {"collections": ["faq"], "fallback_text": "Welcome!"}
 assert rt.clean_config({**base, "followup_fallback_text": "  Sorry, I do not have that.  "})["followup_fallback_text"] == "Sorry, I do not have that."

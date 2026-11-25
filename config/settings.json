@@ -2661,6 +2661,21 @@
       ]
     },
     {
+      "key": "chatwoot.timezoneOffsetMinutes",
+      "group": "chatwoot",
+      "title": "Time zone of the agents (minutes from UTC)",
+      "help": "The agents are told today's date, the weekday and the time in this time zone, so a customer's \"today\", \"tomorrow\" and \"is it open now\" mean the right day. 330 is India (UTC+5:30); 0 is UTC; negative is west of UTC.",
+      "unit": "minutes",
+      "default": 330,
+      "min": -720,
+      "max": 840,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.TIMEZONE_OFFSET_MINUTES"
+      ]
+    },
+    {
       "key": "chatwoot.extrasTopK",
       "group": "chatwoot",
       "title": "Most extras used for one answer",

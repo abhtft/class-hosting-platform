@@ -273,6 +273,26 @@ def reindex(event, deps, now):
     return {"status": "done", "shelves": len(found)}
 
 
+def rebuild_search(event, deps, now):
+    """Build the search index (keyword and vector files) of a business's shelves again from the passages and vectors already stored: no book is read again and nothing is paid for
+    to the embedding model. A shelf's keyword index is made when its books are added, so it has to be done once after the tokenizer changes (the Hindi fix). `shelf` limits it to one."""
+    import knowledge_store as ks
+    tenant_id = event.get("tenant_id")
+    wanted = clean_shelf(event["shelf"]) if event.get("shelf") else None
+    done, failed = [], []
+    for shelf in deps.shelves.collections("tenant", tenant_id):
+        if wanted and shelf != wanted:
+            continue
+        try:
+            deps.shelves.rebuild(ks.base_of("tenant", tenant_id, shelf))
+            done.append(shelf)
+        except ks.StoreError as error:
+            failed.append(shelf)
+            log("rebuild_failed", tenant=tenant_id, shelf=shelf, code=error.code)
+    log("search_rebuilt", tenant=tenant_id, shelves=len(done), failed=len(failed))
+    return {"status": "done" if not failed else "partial", "shelves": done, "failed": failed}
+
+
 def passages(event, deps, now):
     """The first passages of one book (cut), to show the owner what the agent actually reads."""
     import knowledge_store as ks
@@ -286,7 +306,7 @@ def passages(event, deps, now):
     return {"total": len(items), "passages": [{"page": p.get("page"), "section": str(p.get("section") or "")[:80], "text": str(p.get("text") or "")[:700]} for p in items[:PREVIEW]]}
 
 
-KINDS = {"ingest": ingest, "delete_book": delete_book, "delete_shelf": delete_shelf, "reindex": reindex, "passages": passages}
+KINDS = {"ingest": ingest, "delete_book": delete_book, "delete_shelf": delete_shelf, "reindex": reindex, "rebuild_search": rebuild_search, "passages": passages}
 
 
 def handler(event, context=None, now=None, deps=None):

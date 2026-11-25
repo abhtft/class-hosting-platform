@@ -45,6 +45,9 @@ ANSWER_CHARS_MAX = platform_settings.value("chatwoot.answerCharsMax")
 FALLBACK_MAX_CHARS = platform_settings.value("chatwoot.fallbackMaxChars")
 INBOX_NOTE_CHARS = platform_settings.value("chatwoot.inboxNoteMaxChars")
 MAX_INBOX_NOTES = platform_settings.value("chatwoot.maxInboxesPerAgent")
+TIMEZONE_OFFSET_MINUTES = platform_settings.value("chatwoot.timezoneOffsetMinutes")  # the agents' "now" is told in this time zone (330 = India)
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 NOT_SURE = "The books do not say."
 LANGUAGES = {"en": "English", "hi": "Hindi (Devanagari script)", "hinglish": "Hinglish (Hindi written in Roman letters)"}
 MODES = ("rag", "auto")
@@ -229,6 +232,18 @@ def channel_rule(channel):
     return CHANNEL_RULES.get(channel) or GENERIC_CHANNEL_RULE.format(name=channel.replace("_", " "))
 
 
+def now_line(now=None):
+    """The one sentence that tells the model today's date, weekday and time ("Friday, 27 November 2026, 3:40 PM (UTC+5:30)"), worked out here and not by the model, so "today",
+    "tomorrow", "this week" and "is it open now" are answered against the right day. `now` is Unix seconds (default: the clock); the zone is chatwoot.timezoneOffsetMinutes."""
+    offset = TIMEZONE_OFFSET_MINUTES
+    local = time.gmtime((time.time() if now is None else now) + offset * 60)
+    hour12 = local.tm_hour % 12 or 12
+    zone = f"UTC{'-' if offset < 0 else '+'}{abs(offset) // 60}" + (f":{abs(offset) % 60:02d}" if abs(offset) % 60 else "")
+    stamp = f"{WEEKDAYS[local.tm_wday]}, {local.tm_mday} {MONTHS[local.tm_mon - 1]} {local.tm_year}, {hour12}:{local.tm_min:02d} {'AM' if local.tm_hour < 12 else 'PM'} ({zone})"
+    return (f"Right now it is {stamp}. Use this for the customer's words such as today, tomorrow, yesterday, this week, now, open or closed: work out the date or the weekday "
+            "from it and from what the books say, and never guess a date or a day.")
+
+
 def relevant_extras(extras, scores, text):
     """The extras to use for a question: those whose meaning match reaches chatwoot.extrasMinScore or whose words cover the question as the books' rule says; the best
     chatwoot.extrasTopK by match, then NEWEST FIRST (the later correction is listed first and wins). Each is the record plus its "score"."""
@@ -268,6 +283,7 @@ def build_messages(config, text, hits, history=None, context=None, updates=None)
         parts.append(media.prompt_part(config["media"], (context or {}).get("media_per_reply")))
     parts.append(f"Reply in the language the customer wrote in; if you cannot tell, reply in {LANGUAGES[config['language']]}.")
     context = context or {}
+    parts.append(now_line(context.get("now")))
     if history:
         parts.append("This conversation has already started: do NOT greet, welcome or say hello again. Go straight to the answer.")
     rule = channel_rule(context.get("channel"))

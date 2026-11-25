@@ -224,3 +224,22 @@ shelves.create_collection(other, "x", model=books.embedding_choice()[0], dims=bo
 books.handler({"kind": "delete_shelf", "tenant_id": "acme", "shelf": "faq"}, now=NOW, deps=deps)
 assert shelves.meta(other) is not None and shelves.meta(ks.base_of("tenant", "acme", "faq")) is None
 print("  ok  the books function refuses odd events by name and works only on the tenant of the event")
+
+# ---- a shelf indexed before the Hindi fix is searched by keyword again after "rebuild_search" (no book is read again, nothing is paid for)
+import re  # noqa: E402
+modern_word = kc.WORD
+kc.WORD = re.compile(r"[a-z0-9]+")  # how the keyword index was built before the fix: Devanagari words were dropped
+add("hindi", "fees-hi.txt", "लाइब्रेरी की फीस महीने के ८०० रुपये है। सीट कहां मिलेगी, यह रिसेप्शन पर पूछिए।\n\nडिजिटल क्लास का समय सुबह ९ बजे से शाम ६ बजे तक है।".encode("utf8"))
+kc.WORD = modern_word
+hindi_base = ks.base_of("tenant", "acme", "hindi")
+assert not kc.bm25_scores(shelves.load(hindi_base).bm25, kc.tokenize("फ़ीस कितनी है")), "the old keyword index knows no Hindi"
+spent = store.usage(api.usage_key("acme", NOW + 5))
+version = shelves.meta(hindi_base)["version"]
+assert books.handler({"kind": "rebuild_search", "tenant_id": "acme", "shelf": "hindi"}, now=NOW, deps=deps) == {"status": "done", "shelves": ["hindi"], "failed": []}
+assert kc.bm25_scores(shelves.load(hindi_base).bm25, kc.tokenize("फ़ीस कितनी है")), "after the rebuild a Hindi question finds the passage by keyword"
+assert shelves.meta(hindi_base)["version"] == version + 1 and store.usage(api.usage_key("acme", NOW + 5)) == spent, "a new index version, no cost"
+everything = books.handler({"kind": "rebuild_search", "tenant_id": "acme"}, now=NOW, deps=deps)
+assert everything["status"] == "done" and "hindi" in everything["shelves"], everything
+assert books.handler({"kind": "rebuild_search", "tenant_id": "acme", "shelf": "pending"}, now=NOW, deps=deps)["error"] == "bad_event"
+assert books.handler({"kind": "rebuild_search", "tenant_id": "nobody"}, now=NOW, deps=deps) == {"status": "done", "shelves": [], "failed": []}, "another business's shelves are never touched"
+print("  ok  rebuild_search makes the keyword index of existing shelves again (Hindi found afterwards), one shelf or all of the business's, with no cost and no other business touched")

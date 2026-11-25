@@ -242,7 +242,7 @@ The owner's side is read only and scoped by the key: the partition is built from
 
 ### Books (Knowledge tab)
 
-`chatwoot_books.py`: the pure rules (`upload_form`, the index item `books#<tenant>`: `{shelves: {name: {title, passages, docs: [...]}}, pending: {id: {shelf, name, key, size, status: uploading|queued|reading|failed, error?}}}`) and the books function's `handler` (kinds `ingest`, `delete_book`, `delete_shelf`, `reindex`, `passages`; it trusts only the ids in its event and works on the tenant of the event). The admin function (`books_route` in `chatwoot_admin.py`) never writes a shelf. An uploaded file goes to `chatwoot-books/<tenant>/<id>/<name>` and is removed once read. Books are not versioned. Plan: `docs/notes/KNOWLEDGE-TAB-PLAN.md`.
+`chatwoot_books.py`: the pure rules (`upload_form`, the index item `books#<tenant>`: `{shelves: {name: {title, passages, docs: [...]}}, pending: {id: {shelf, name, key, size, status: uploading|queued|reading|failed, error?}}}`) and the books function's `handler` (kinds `ingest`, `delete_book`, `delete_shelf`, `reindex`, `rebuild_search` (the keyword index of existing shelves again, from what is stored), `passages`; it trusts only the ids in its event and works on the tenant of the event). The admin function (`books_route` in `chatwoot_admin.py`) never writes a shelf. An uploaded file goes to `chatwoot-books/<tenant>/<id>/<name>` and is removed once read. Books are not versioned. Plan: `docs/notes/KNOWLEDGE-TAB-PLAN.md`.
 
 ### Orchestrator routing, layers O2 (meaning and the small model) and the routing table
 
