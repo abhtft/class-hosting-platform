@@ -188,3 +188,14 @@ assert "dynamodb:LeadingKeys: ['books#*', 'tenant#*', 'usage#*']" in books_raw a
 assert re.search(r"secret:\$\{AiSecretName\}-\?\?\?\?\?\?'", books_fn) and "chatwoot/*" not in books_fn, "the Google key and no bot secret"
 assert "ChatwootBooksFunction" not in block("ChatwootReceiverFunction") and "ChatwootBooksFunction" not in block("ChatwootWorkerFunction") and "ChatwootBooksFunction" not in block("ChatwootSweeperFunction"), "only the admin function may call it"
 print("  ok  the books function: its own narrow permissions (the list item, two bucket prefixes, the Google key), no way in except the admin function")
+
+# ---- the purge of archived agents: one daily function, the agent's own items only
+purge_fn = block("ChatwootPurgeFunction")
+pcode = re.sub(r"#[^\n]*", "", purge_fn)
+assert "Condition: UseChatwoot" in purge_fn and "Handler: chatwoot_archive.handler" in purge_fn and re.search(r"Type: Schedule\n\s+Properties:\n\s+Schedule: rate\(1 day\)", purge_fn) and purge_fn.count("Type: Schedule") == 1 and "HttpApi" not in purge_fn, "a daily schedule, nothing on the internet"
+assert sorted(re.findall(r"Action: ([\w:]+)", pcode)) == ["dynamodb:DeleteItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Scan"], "exactly these permissions"
+assert "dynamodb:LeadingKeys: ['agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'repeat#*', 'repeatstate#*', 'teach#*', 'teachidx#*']" in purge_fn, "it removes an agent's own items only (never msg#, mem#, media#, books#, usage# or tenant#)"
+assert purge_fn.count("dynamodb:LeadingKeys: ['tenant#*']") == 1 and "dynamodb:LeadingKeys: ['agent#*', 'tenant#*']" in purge_fn, "it writes only its business's list"
+for forbidden in ("secretsmanager:", "lambda:", "s3:", "SitesBucket", "TokensTable", "ChatwootMemoryTable", "bedrock", "dynamodb:UpdateItem"):
+    assert forbidden not in pcode, f"the purge function must not have {forbidden}"
+print("  ok  the purge function: daily, the agent's own items only, no secret, no bucket, no message or memory item")

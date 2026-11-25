@@ -195,6 +195,7 @@ SETTINGS = {
     "chatwoot.bookMaxShelves": {"type": "int", "default": 10, "min": 1, "max": 30, "env": None},
     "chatwoot.bookPreviewPassages": {"type": "int", "default": 20, "min": 5, "max": 100, "env": None},
     "chatwoot.bookStaleUploadMinutes": {"type": "int", "default": 60, "min": 5, "max": 1440, "env": None},
+    "chatwoot.archiveDays": {"type": "int", "default": 14, "min": 1, "max": 90, "env": None},
     "chatwoot.llmRetryPauseSeconds": {"type": "int", "default": 3, "min": 0, "max": 10, "env": None},
     "chatwoot.maxCollections": {"type": "int", "default": 5, "min": 1, "max": 10, "env": None},
     "chatwoot.maxInstructionChars": {"type": "int", "default": 4000, "min": 100, "max": 20000, "env": None},

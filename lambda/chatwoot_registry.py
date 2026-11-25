@@ -25,7 +25,7 @@ MAX_INBOXES = platform_settings.value("chatwoot.maxInboxesPerAgent")
 TENANT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,29}")  # always used with fullmatch
 _LABEL = re.compile(r"[a-z][a-z_]{0,39}")  # a short lowercase word such as chatbot or lead_collection: Studio's own words, the platform only stores them
 _KEY = re.compile(r"cs_([a-z0-9][a-z0-9-]{0,29})\.([A-Za-z0-9_-]{32,64})")
-AGENT_FIELDS = ("account_id", "inbox_ids", "enabled", "type", "purpose", "expected_rev")
+AGENT_FIELDS = ("account_id", "inbox_ids", "enabled", "type", "purpose", "expected_rev", "archived")
 _NO_KEY = hashlib.sha256(b"no such tenant").hexdigest()  # compared against when the tenant does not exist, so a wrong tenant and a wrong secret take the same path
 
 
@@ -143,6 +143,10 @@ def clean_agent(body, creating):
             if not isinstance(body[field], str) or not _LABEL.fullmatch(body[field]):
                 raise Invalid(f"{field} must be a short lowercase word (letters and underscores).")
             out[field] = body[field]
+    if "archived" in body:
+        if not isinstance(body["archived"], bool):
+            raise Invalid("archived must be true (archive the agent) or false (restore it).")
+        out["archived"] = body["archived"]
     if "expected_rev" in body and not (isinstance(body["expected_rev"], int) and not isinstance(body["expected_rev"], bool) and body["expected_rev"] >= 0):
         raise Invalid("expected_rev must be a whole number.")
     if creating and out.get("type") == "department":  # reached only through an orchestrator of the same business: no inbox, no webhook of its own

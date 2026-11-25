@@ -3100,6 +3100,21 @@
       ]
     },
     {
+      "key": "chatwoot.archiveDays",
+      "group": "chatwoot",
+      "title": "Days an archived agent is kept",
+      "help": "An archived agent is switched off and can be restored for this many days; then the janitor removes it for good (its versions, tests, routing table and teach sessions).",
+      "unit": "days",
+      "default": 14,
+      "min": 1,
+      "max": 90,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_archive.ARCHIVE_DAYS"
+      ]
+    },
+    {
       "key": "chatwoot.llmRetryPauseSeconds",
       "group": "chatwoot",
       "title": "Pause before asking the model again",

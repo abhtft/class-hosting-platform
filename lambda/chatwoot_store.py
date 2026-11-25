@@ -189,4 +189,4 @@ class MemoryStore:
         return True
 
     def list_prefix(self, prefix):
-        return [json.loads(json.dumps(item)) for key, item in sorted(self.items.items()) if key.startswith(prefix)]
+        return [{**json.loads(json.dumps(item)), "pk": key} for key, item in sorted(self.items.items()) if key.startswith(prefix)]  # with the key, like the table's items

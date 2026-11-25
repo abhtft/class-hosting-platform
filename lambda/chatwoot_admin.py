@@ -29,6 +29,7 @@ import re
 import secrets
 import time
 
+import chatwoot_archive as archive
 import chatwoot_books as books
 import chatwoot_core as core
 import chatwoot_media as media
@@ -119,6 +120,8 @@ def authenticate(headers, store):
 
 def view(agent):
     shown = {"name": agent["agent_id"], **{k: agent.get(k) for k in ("account_id", "inbox_ids", "enabled", "type", "purpose", "live_version", "versions", "rev", "created_at", "updated_at")}}
+    if agent.get("archived_at"):  # archived: switched off, kept for the archive days, can be restored
+        shown["archived_at"] = agent["archived_at"]
     if agent.get("overrides"):  # the reasons the owner gave for making a version live although the safety suite failed it
         shown["overrides"] = agent["overrides"]
     return shown
@@ -156,6 +159,11 @@ def put_agent(store, tenant, name, body, now):
     if existing is not None and existing.get("tenant_id") != tenant["tenant_id"]:
         return problem(409, "name_taken", "That agent name is already used. Names are shared by all businesses: choose another.")
     settings = reg.clean_agent(body, creating=existing is None)
+    archived = settings.pop("archived", None)
+    if existing is None and archived is not None:
+        raise reg.Invalid("A new agent cannot be archived.")
+    if existing is not None and existing.get("archived_at") and settings.get("enabled") is True and archived is not False:
+        return problem(409, "archived", "This agent is archived. Restore it first.")
     if existing is None:
         if len(tenant.get("agents") or []) >= reg.MAX_AGENTS:
             return problem(409, "agent_limit", f"A business may have at most {reg.MAX_AGENTS} agents.")
@@ -170,8 +178,17 @@ def put_agent(store, tenant, name, body, now):
     if "expected_rev" in body and body["expected_rev"] != existing["rev"]:
         return problem(409, "changed", "The agent was changed since you read it.", rev=existing["rev"])
     updated = {**existing, **settings, "rev": existing["rev"] + 1, "updated_at": now}
+    if archived is True:  # switched off and kept for the archive days; an agent a live orchestrator lists as a department is not archived
+        users = archive.used_by(store, tenant, name)
+        if users:
+            return problem(409, "in_use", "The live version of " + ", ".join(users) + " lists this agent as a department. Change that first.", agents=users)
+        updated = {**updated, "archived_at": now, "enabled": False}
+    elif archived is False:
+        updated.pop("archived_at", None)  # restored: it stays switched off until the owner switches it on
     if not store.replace_if(reg.agent_key(name), updated, "rev", existing["rev"]):
         return problem(409, "changed", "The agent was changed by another call at the same moment. Read it and try again.")
+    if archived is not None:
+        log("agent_archived" if archived else "agent_restored", tenant=tenant["tenant_id"], agent=name)
     log("agent_updated", tenant=tenant["tenant_id"], agent=name)
     return 200, view(updated)
 

@@ -1487,6 +1487,50 @@ Resources:
           Properties:
             Schedule: rate(1 day)
 
+  # The purge of archived agents (chatwoot_archive.py): once a day it removes, for good, the agents the owner archived more than chatwoot.archiveDays ago: the agent's own items (versions, tests and
+  # their runs, routing table, repeatability results, teach sessions) and its entry in its business's list. Nothing else: no message item, no secret, no book, no media, no S3. The bot's secret is the teacher's.
+  ChatwootPurgeFunction:
+    Type: AWS::Serverless::Function
+    Condition: UseChatwoot
+    Properties:
+      CodeUri: lambda/
+      Handler: chatwoot_archive.handler
+      Runtime: python3.12
+      Architectures: [arm64]
+      MemorySize: 256
+      Timeout: 120
+      Environment:
+        Variables:
+          CHATWOOT_TABLE: !Ref ChatwootTable
+      Policies:
+        - Statement:
+            - Effect: Allow # find the archived agents and the families of items of an agent (suite runs, teach sessions): a scan, filtered by the code
+              Action: dynamodb:Scan
+              Resource: !GetAtt ChatwootTable.Arn
+            - Effect: Allow # read the business and the live versions of its agents (an agent a live orchestrator lists as a department is not removed)
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['agent#*', 'tenant#*']
+            - Effect: Allow # take the agent's name out of its business's list
+              Action: dynamodb:PutItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['tenant#*']
+            - Effect: Allow # remove the agent's own items
+              Action: dynamodb:DeleteItem
+              Resource: !GetAtt ChatwootTable.Arn
+              Condition:
+                ForAllValues:StringLike:
+                  dynamodb:LeadingKeys: ['agent#*', 'suite#*', 'suitestate#*', 'suiterun#*', 'repeat#*', 'repeatstate#*', 'teach#*', 'teachidx#*']
+      Events:
+        Daily:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+
   ChatwootAdminFunction:
     Type: AWS::Serverless::Function
     Condition: UseChatwoot
