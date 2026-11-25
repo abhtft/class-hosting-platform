@@ -199,3 +199,13 @@ assert purge_fn.count("dynamodb:LeadingKeys: ['tenant#*']") == 1 and "dynamodb:L
 for forbidden in ("secretsmanager:", "lambda:", "s3:", "SitesBucket", "TokensTable", "ChatwootMemoryTable", "bedrock", "dynamodb:UpdateItem"):
     assert forbidden not in pcode, f"the purge function must not have {forbidden}"
 print("  ok  the purge function: daily, the agent's own items only, no secret, no bucket, no message or memory item")
+
+# ---- the alarms for the agents: each watches its own function (or the worker's own metric) and tells the same topic
+for alarm, metric, namespace, who in (("ChatwootWorkerErrorsAlarm", "Errors", "AWS/Lambda", "ChatwootWorkerFunction"), ("ChatwootReceiverErrorsAlarm", "Errors", "AWS/Lambda", "ChatwootReceiverFunction"),
+                                      ("ChatwootAdminErrorsAlarm", "Errors", "AWS/Lambda", "ChatwootAdminFunction"), ("ChatwootBooksErrorsAlarm", "Errors", "AWS/Lambda", "ChatwootBooksFunction"),
+                                      ("ChatwootFailedAnswersAlarm", "FailedAnswers", "ChatwootAgents", None)):
+    text = block(alarm)
+    assert "Condition: UseChatwootAlerts" in text and f"MetricName: {metric}" in text and f"Namespace: {namespace}" in text and "AlarmActions: [!Ref AlertsTopic]" in text and "TreatMissingData: notBreaching" in text, alarm
+    assert (f"Value: !Ref {who}" in text) if who else "Dimensions" not in text, alarm
+assert re.search(r"UseChatwootAlerts: !And \[!Condition UseChatwoot, !Condition UseAlerts\]", template), "only with the adapter and an alert address"
+print("  ok  the agents' alarms: worker, receiver, admin and books errors and failed answers, each only with the adapter and an alert address, all telling the one alert topic")

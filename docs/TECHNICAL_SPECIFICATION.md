@@ -1052,6 +1052,11 @@ A student can call their own public `/api` from anywhere and can use their own c
 | `backend-5xx` | 20 or more 5xx answers from the Backend API in 5 minutes |
 | `storage-errors` (only with storage) | 1 or more unhandled errors of `StorageFunction` in 5 minutes |
 | `knowledge-errors` (only with class knowledge) | 1 or more unhandled errors of `KnowledgeFunction` in 5 minutes (a book that fails to read is reported on the book, not here) |
+| `chatwoot-worker-errors` (only with the Chatwoot adapter) | 1 or more unhandled errors of `ChatwootWorkerFunction` in 5 minutes (a reply that failed) |
+| `chatwoot-receiver-errors` (adapter) | 1 or more errors of `ChatwootReceiverFunction` in 5 minutes |
+| `chatwoot-failed-answers` (adapter) | 3 or more customers handed to a person in 15 minutes because an answer could not be made (metric `ChatwootAgents/FailedAnswers`) |
+| `chatwoot-admin-errors` (adapter) | 3 or more errors of `ChatwootAdminFunction` in 5 minutes |
+| `chatwoot-books-errors` (adapter) | 1 or more errors of `ChatwootBooksFunction` in 5 minutes |
 
 All notify `AlertsTopic`; the subscription is confirmed (a test alarm email was received). The cost budget on the account is the owner's own AWS Budget (not managed here).
 
@@ -1161,7 +1166,7 @@ The open items are the register in [FUTURE.md](FUTURE.md) (one list, with what e
   "mcpPackage": { "version": "2.13.0" },
   "testSteps": 62,
   "teacherTools": 11,
-  "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors"]
+  "alarms": ["lambda-concurrency-near-limit", "lambda-throttles", "portal-function-errors", "sweeper-errors", "backend-gateway-errors", "backend-5xx", "storage-errors", "knowledge-errors", "chatwoot-worker-errors", "chatwoot-receiver-errors", "chatwoot-failed-answers", "chatwoot-admin-errors", "chatwoot-books-errors"]
 }
 ```
 

@@ -67,6 +67,12 @@ Follow docs/CHATWOOT_TRACES_TESTING.md (preconditions, 40 numbered cases, the AW
 
 Find a message's trace: read `msg#<agent>#<message_id>` in the Chatwoot table and use its `trace_id`; the trace is `t#cw:<tenant>#<trace_id>` in the traces table (`summary` plus steps). A missing `trace_id` on a replied message means the trace could not be written: look for the log line `trace_not_written` (the reply was still sent). Turn the customer's words off with `chatwoot.traceText` = 0 (only numbers stay); retention is `chatwoot.traceRetentionDays`. Student backend and traces must be on (`TracesEnabled`), otherwise bots write no traces.
 
+## Alarms and backups of the agents
+
+**Alarms** (e-mail to the alert address): `chatwoot-worker-errors` (a message was not answered or its reply not posted: read the worker's log for `failed`), `chatwoot-receiver-errors` (Chatwoot's webhook), `chatwoot-failed-answers` (3 or more customers handed to a person in 15 minutes because an answer could not be made: look at `reason` in the `ChatwootAgents` metric lines, usually the model provider or the books), `chatwoot-admin-errors`, `chatwoot-books-errors`. Quiet periods are not failures.
+
+**Backups.** The adapter's table (agents, versions, tests, the books list) has point-in-time recovery: restore it to any second of the last 35 days into a new table. The sites bucket (the shelves, uploaded books while they are read) is versioned and old versions are kept 30 days: a removed book or shelf can be recovered from the previous versions. The conversation memory table has no recovery on purpose (customers' words). An owner can also keep a copy of one agent: Studio, Overview, "Export a copy (JSON)".
+
 ## Archived agents
 
 Archive and restore are in Studio (Overview, "Manage this agent"; the Archived list in the sidebar). The purge logs `purged` per agent and `purge_skipped` with a reason (`in use`: a live orchestrator lists it, `not settled`: its business is missing); a skipped agent is tried again the next day. To keep one longer, restore it. To remove one at once, the teacher can delete its items by hand; there is no "delete now" button on purpose.

@@ -516,7 +516,12 @@ f.found = {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missin
 handed(f, job, "no_shelf")
 f, job = accepted()
 f.llm_error = RuntimeError("the model is down")
-handed(f, job, "llm_error")
+import contextlib, io  # noqa: E402
+captured = io.StringIO()
+with contextlib.redirect_stdout(captured):
+    handed(f, job, "llm_error")
+metric = [json.loads(l) for l in captured.getvalue().splitlines() if l.startswith("{") and "_aws" in l]
+assert len(metric) == 1 and metric[0]["FailedAnswers"] == 1 and metric[0]["reason"] == "llm_error" and "Asha" not in captured.getvalue(), "a customer handed to a person because the answer failed is counted for the alarm (labels only)"
 assert f.store.usage(MONTH) == 3 and len(f.requests) == 3, "the search was paid for even though the model failed; the customer is handed to a person, never left in silence"
 f, job = accepted()
 f.answers = [(500, b"oops")]

@@ -273,6 +273,7 @@ Conditions:
   UseBedrockKb: !And [!Condition UseChatwoot, !Equals [!Ref BedrockKbEnabled, 'true']]
   UseWorker: !Equals [!Ref WorkerEnabled, 'true']
   UseAlerts: !Not [!Equals [!Ref AlertEmailParameter, '']]
+  UseChatwootAlerts: !And [!Condition UseChatwoot, !Condition UseAlerts]
   UseAlertsAndBackend: !And [!Condition UseAlerts, !Condition UseBackend]
   UseAlertsAndStorage: !And [!Condition UseAlerts, !Condition UseStorage]
   UseAlertsAndKnowledge: !And [!Condition UseAlerts, !Condition UseKnowledge]
@@ -2093,6 +2094,92 @@ Resources:
       Period: 60
       EvaluationPeriods: 1
       Threshold: !Ref ConcurrencyAlarmThreshold
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  # The Chatwoot agents: an e-mail within minutes when customers are not being served. A reply that failed (network, timeout, Chatwoot refused it) is a worker error; an answer that could not be made
+  # and was handed to a person is counted by the worker itself (metric FailedAnswers); the others watch the receiver (Chatwoot's webhook), Studio's admin function and the books function.
+  ChatwootWorkerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseChatwootAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-chatwoot-worker-errors'
+      AlarmDescription: A customer's message could not be answered or its reply could not be posted. Read the worker's log (docs/RUNBOOK.md, the Chatwoot adapter).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref ChatwootWorkerFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  ChatwootReceiverErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseChatwootAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-chatwoot-receiver-errors'
+      AlarmDescription: Chatwoot's webhook is failing; customers' messages may not reach the bot.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref ChatwootReceiverFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  ChatwootFailedAnswersAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseChatwootAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-chatwoot-failed-answers'
+      AlarmDescription: Customers were handed to a person because an answer could not be made (the model or the books failed) several times in 15 minutes.
+      Namespace: ChatwootAgents
+      MetricName: FailedAnswers
+      Statistic: Sum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  ChatwootAdminErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseChatwootAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-chatwoot-admin-errors'
+      AlarmDescription: Studio's function on the platform is failing; the owner may not be able to work.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref ChatwootAdminFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlertsTopic]
+
+  ChatwootBooksErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: UseChatwootAlerts
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-chatwoot-books-errors'
+      AlarmDescription: The function that reads and removes the businesses' books is failing (a book may be stuck on Reading).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref ChatwootBooksFunction}]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
       AlarmActions: [!Ref AlertsTopic]

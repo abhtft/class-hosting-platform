@@ -86,6 +86,13 @@ def log(what, **details):
     print(json.dumps({"chatwoot": what, **details}))
 
 
+def emit_metric(name, **fields):
+    """One count of a CloudWatch metric in the Embedded Metric Format (a log line CloudWatch turns into a metric: nothing to call, nothing to pay for beyond the metric itself). Fields are labels
+    and reasons only, never a customer's words. Used for the answers a customer got a hand-over for because the answer could not be made (the model or the books failed): such a message
+    is still replied to, so it never shows as a Lambda error."""
+    print(json.dumps({"_aws": {"Timestamp": int(time.time() * 1000), "CloudWatchMetrics": [{"Namespace": "ChatwootAgents", "Dimensions": [[]], "Metrics": [{"Name": name, "Unit": "Count"}]}]}, name: 1, **fields}))
+
+
 def reply(status, **body):
     return {"statusCode": status, "headers": {"content-type": "application/json", "cache-control": "no-store"}, "body": json.dumps(body)}
 
@@ -1272,6 +1279,8 @@ def worker(event, context=None, now=None, deps=None):
         raise
     trace = write_trace(event, outcome, deps, now)  # one trace per message that reached the model's side; never raises
     if outcome["status"] == "replied":
+        if outcome["metrics"].get("handover") in handover.FAILURE_REASONS:  # the customer got a person instead of an answer because the answer could not be made
+            emit_metric("FailedAnswers", reason=outcome["metrics"]["handover"], agent=agent_id)
         deps.store.finish(key, "replied", now, {**outcome["metrics"], **trace, **({"reply_id": outcome["reply_id"]} if outcome["reply_id"] else {})})
         log("replied", agent=agent_id, message=message_id, trace=trace.get("trace_id"))
         return {"replied": True}
