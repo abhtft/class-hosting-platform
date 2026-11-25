@@ -95,3 +95,17 @@ assert archive.purge(store, NOW + 100 * DAY)["skipped"] == 1 and reg.agent_key("
 assert archive.due({"archived_at": True}, NOW) is False and archive.due({"archived_at": "x"}, NOW) is False and archive.due({}, NOW) is False
 assert archive.handler(now=NOW + 100 * DAY, store=store) == {"purged": [], "skipped": 1}
 print("  ok  a restored agent is never removed; one a live orchestrator now lists, or of an unknown business, is skipped and kept; odd archive dates count as not archived")
+
+
+# ---- the display name: what people see; the technical name never changes
+store, tenant = fresh()
+status, shown = put(store, tenant, "shop", {"display_name": "  Library desk  "})
+assert status == 200 and shown["display_name"] == "Library desk" and shown["name"] == "shop" and "display_name" not in admin.view(store.items[reg.agent_key("shopper")])
+assert put(store, tenant, "shop", {"enabled": False})[1]["display_name"] == "Library desk", "another change keeps it"
+status, shown = put(store, tenant, "shop", {"display_name": ""})
+assert status == 200 and "display_name" not in shown and "display_name" not in store.items[reg.agent_key("shop")], "empty clears it"
+assert put(store, tenant, "shop", {"display_name": None})[0] == 200
+for bad in (5, "x" * 61, "line\nbreak", ["a"]):
+    assert put(store, tenant, "shop", {"display_name": bad})[0] == 400, bad
+assert put(store, tenant, "brand-new", {"account_id": 1, "inbox_ids": [3], "display_name": "Front desk"})[1]["display_name"] == "Front desk", "can be set when the agent is made"
+print("  ok  a display name is set, kept through other changes, cleared when empty, limited to 60 characters without line breaks; the technical name never changes")

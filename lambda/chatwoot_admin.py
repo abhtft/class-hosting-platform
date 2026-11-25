@@ -120,6 +120,8 @@ def authenticate(headers, store):
 
 def view(agent):
     shown = {"name": agent["agent_id"], **{k: agent.get(k) for k in ("account_id", "inbox_ids", "enabled", "type", "purpose", "live_version", "versions", "rev", "created_at", "updated_at")}}
+    if agent.get("display_name"):  # the name people see; `name` stays the technical one (webhook address, keys)
+        shown["display_name"] = agent["display_name"]
     if agent.get("archived_at"):  # archived: switched off, kept for the archive days, can be restored
         shown["archived_at"] = agent["archived_at"]
     if agent.get("overrides"):  # the reasons the owner gave for making a version live although the safety suite failed it
@@ -178,6 +180,8 @@ def put_agent(store, tenant, name, body, now):
     if "expected_rev" in body and body["expected_rev"] != existing["rev"]:
         return problem(409, "changed", "The agent was changed since you read it.", rev=existing["rev"])
     updated = {**existing, **settings, "rev": existing["rev"] + 1, "updated_at": now}
+    if "display_name" in settings and not settings["display_name"]:
+        updated.pop("display_name", None)  # cleared
     if archived is True:  # switched off and kept for the archive days; an agent a live orchestrator lists as a department is not archived
         users = archive.used_by(store, tenant, name)
         if users:

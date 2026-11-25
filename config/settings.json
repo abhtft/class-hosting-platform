@@ -4517,6 +4517,10 @@
   ],
   "fixed": [
     {
+      "code": "chatwoot_registry.MAX_DISPLAY_NAME",
+      "reason": "The longest name people see for an agent (60 characters): what fits a heading and a list line, not a limit anyone tunes."
+    },
+    {
       "code": "chatwoot_books.UPLOAD_SECONDS",
       "reason": "How long an upload form stays valid (15 minutes): the time to send one file, not a limit anyone tunes."
     },

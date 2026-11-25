@@ -23,9 +23,10 @@ MAX_VERSIONS = platform_settings.value("chatwoot.maxVersions")
 MAX_AGENTS = platform_settings.value("chatwoot.maxAgentsPerTenant")
 MAX_INBOXES = platform_settings.value("chatwoot.maxInboxesPerAgent")
 TENANT_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,29}")  # always used with fullmatch
+MAX_DISPLAY_NAME = 60
 _LABEL = re.compile(r"[a-z][a-z_]{0,39}")  # a short lowercase word such as chatbot or lead_collection: Studio's own words, the platform only stores them
 _KEY = re.compile(r"cs_([a-z0-9][a-z0-9-]{0,29})\.([A-Za-z0-9_-]{32,64})")
-AGENT_FIELDS = ("account_id", "inbox_ids", "enabled", "type", "purpose", "expected_rev", "archived")
+AGENT_FIELDS = ("account_id", "inbox_ids", "enabled", "type", "purpose", "expected_rev", "archived", "display_name")
 _NO_KEY = hashlib.sha256(b"no such tenant").hexdigest()  # compared against when the tenant does not exist, so a wrong tenant and a wrong secret take the same path
 
 
@@ -143,6 +144,11 @@ def clean_agent(body, creating):
             if not isinstance(body[field], str) or not _LABEL.fullmatch(body[field]):
                 raise Invalid(f"{field} must be a short lowercase word (letters and underscores).")
             out[field] = body[field]
+    if "display_name" in body:  # the name people see (Studio's list and headings); the technical name never changes. Empty clears it.
+        shown = body["display_name"]
+        if shown is not None and (not isinstance(shown, str) or len(shown.strip()) > MAX_DISPLAY_NAME or any(ord(c) < 32 for c in shown)):
+            raise Invalid(f"display_name is a name of at most {MAX_DISPLAY_NAME} characters, or empty to clear it.")
+        out["display_name"] = (shown or "").strip() or None
     if "archived" in body:
         if not isinstance(body["archived"], bool):
             raise Invalid("archived must be true (archive the agent) or false (restore it).")

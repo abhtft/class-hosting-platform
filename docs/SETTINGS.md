@@ -466,6 +466,7 @@ These numbers are not settings: they are units, facts from a provider, or values
 
 | Where | Why it is not a setting |
 |---|---|
+| `chatwoot_registry.MAX_DISPLAY_NAME` | The longest name people see for an agent (60 characters): what fits a heading and a list line, not a limit anyone tunes. |
 | `chatwoot_books.UPLOAD_SECONDS` | How long an upload form stays valid (15 minutes): the time to send one file, not a limit anyone tunes. |
 | `chatwoot_consistency.FIELD_CHARS` | A text is cut to the longest length the platform accepts for any field (the instructions) before the model reads it: the limit of the fields themselves, not a separate choice. |
 | `chatwoot_repeat.SHOWN_CHARS` | How much of an answer the printed table of a repeatability check shows: a detail of the layout. |
