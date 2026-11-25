@@ -326,3 +326,78 @@ student function --Bearer ga_<slug>.<secret>--> AI proxy API --> ai_proxy.py --G
 **Turning it on (owner):** the `openrouter` secret already needs `GOOGLE_API_KEY` in it, then deploy with `AiEnabled=true BackendEnabled=true AiGeminiEnabled=true` (review the change set: it adds `AiProxyApi`, `AiProxyFunction` and gives the portal function `AI_PROXY_URL`), then `node admin.mjs portal-publish`.
 
 **Tests:** `tests/test_ai_gemini.py` (switch, proxy, caps, cost, lifecycle, provider moves, no key in any response) and `tests/test_template_gemini.py` (off by default, one secret, narrow rights, own throttled API).
+
+## 13. Which model answers the Chatwoot bot: key failover (built) and Bedrock (planned)
+
+Sections 1 to 12 are about **students**. This section is about the **Chatwoot adapter** (the customers' WhatsApp bot): it does not use a student's key. Its worker calls the model itself, through `lambda/gemini.py`, with keys from the platform secret. The same `gemini.chat` also serves the suite runs and the AI proxy, so a change there reaches all of them.
+
+### 13.1 Words used here
+
+| Word | Meaning |
+|---|---|
+| **429** | Google says "too many requests". It is about speed or quota, not about a wrong request. The same call usually works a moment later or on another key |
+| **Quota** | How much a key may ask per minute and per day. Google counts it **per Google Cloud project, not per key**. Two keys from one project share one quota |
+| **Round robin** | Keys take turns: call 1 uses key A, call 2 key B, call 3 key C, call 4 key A again. The load spreads, so one key is not always the busy one |
+| **Failover** | When a key is refused, the *same* call is sent at once to the next key. The customer never sees the first refusal |
+| **Provider** | The company that runs the model: Google (Gemini), OpenRouter (a reseller of many models), and, planned, Amazon Bedrock |
+| **`via`** | The *name* of the key that finally answered (for example `GOOGLE_API_KEY_SASHI`). Never the value |
+
+### 13.2 What is built: several Google keys, then OpenRouter
+
+The secret `openrouter` (Secrets Manager, name from `AiSecretName`) is one JSON object. The adapter reads these fields:
+
+| Field in the secret | Role |
+|---|---|
+| `GOOGLE_API_KEY` | The main Google key. Always first in the list |
+| `GOOGLE_API_KEY_<ANYTHING>` | More Google keys. Any field whose name starts `GOOGLE_API_KEY_` joins the list, in alphabetical order. Today: `_ANIVESH`, `_SASHI`. Adding a key is only adding a field; no deploy. An empty value is ignored. Other names are ignored |
+| `OPENROUTER_API_KEY` | The last way out. Used only when every Google key was refused. The same model is asked as `google/<model>` |
+
+How one call goes:
+
+```
+call 1  -> key A (turn)   200  -> answer
+call 2  -> key B (turn)   429  -> key C  200 -> answer          (failover, customer sees nothing)
+call 3  -> key C (turn)   429 -> key A 429 -> key B 429 -> OpenRouter -> answer
+                                                       all refused, no OpenRouter field -> error
+```
+
+- **Which statuses move the call on:** 401, 403, 429, 502, 503 and "could not reach Google". They mean "this key or this moment", not "this request is wrong".
+- **Which do not:** 400 (a bad request). Another key would give the same answer, so it stops there.
+- **Still failing after all of that:** the runtime waits `chatwoot.llmRetryPauseSeconds` (3 s) and tries the whole chain once more. Only then is the customer handed to a person (`llm_error`).
+- **Turns are per container.** Each running copy of the Lambda keeps its own counter. That is fine: the aim is only to spread the load, not an exact count.
+- **Nothing secret is shown.** The error text has the key values removed; the trace and the metrics hold names only; the suite and the dry run show `via`, `error` (the error class) and `http_status`.
+- **Not covered:** book search embeddings (`embeddings.py`) still use the main key only.
+
+**What to know before relying on it**
+
+1. **Same project, same quota.** If the three Google keys were made in one Google Cloud project, a 429 on one is a 429 on all, and failover gains little. It helps when the keys belong to different projects. Check in Google AI Studio which project each key is in.
+2. **Whose money.** Each key bills the account that owns it. The owner of `GOOGLE_API_KEY_SASHI` should know that the class bot spends their quota and money. The 10 dollar monthly cap per business counts what the platform records; it does not stop a key's own bill.
+3. **Google's rules.** Making many projects just to multiply a free quota may break Google's terms. A paid tier on one project is the safer long-term fix; failover stays a good safety net.
+4. **OpenRouter model name.** The fallback asks for `google/gemini-3.5-flash-lite`. That the name exists at OpenRouter is not yet checked; it matters only when every Google key fails at the same time.
+5. **Suite runs share this load.** A suite run asks the model for 31 cases (a case may have up to 3 messages) within about a minute and a half, so it is the first thing to hit a 429. `chatwoot.suiteParallel` (3) sets how many cases run together.
+
+**How to see it working:** `python tools/chatwoot_ctl.py ... suite-run <agent> --tenant <tenant> --wait` prints each case; a failed case shows `error` and `http_status`. A dry run shows `via`. Tests: `tests/test_ai_gemini.py` (section 8c: round robin, failover, OpenRouter last, no key in a message) and `tests/test_chatwoot_runtime.py` (one retry on 429/503, none on 400).
+
+### 13.3 What is only a plan: Amazon Bedrock as another provider
+
+Full plan: [notes/BEDROCK-HAIKU-PLAN.md](notes/BEDROCK-HAIKU-PLAN.md). Nothing of it is built yet.
+
+- **Idea.** Bedrock is Amazon's own model service (it runs Claude Haiku 5.5 and others). The platform already lives in one AWS account, so a Lambda calls Bedrock with **its IAM role: there is no key to paste and none to leak**. A new AWS account only needs Bedrock access switched on for the models used.
+- **Why add it.** (a) A choice in the teacher portal, next to OpenRouter and Gemini, per student and for the Chatwoot bot. (b) A real comparison of quality: switch the provider, run the standard suite, compare passes, flaky cases, Hindi answers, speed and cost. (c) One more place to fail over to, outside Google's quotas.
+- **How it would fit.** A new `lambda/bedrock.py` turns the OpenAI-shaped request into a Bedrock `Converse` call and the answer back, and maps Bedrock's errors to the same statuses (throttled = 429, busy = 503, denied = 403), so the failover rules above work unchanged. One setting (`ai.chatwootProvider`) would say which provider the bot asks first; changing it needs no deploy. The permission `bedrock:InvokeModel` would go only to the functions that call a model, never to a student role.
+- **Checked so far (account, us-east-1):** the Haiku 5.5 model and its `us.` and `global.` inference profiles are active. **Not yet checked:** a real call, the account's quota, the price.
+- **Cost and quota warnings.** Haiku is normally several times dearer than Gemini Flash-Lite (0.30 input / 2.50 output dollars per million tokens), so caps and prices must be set from the real price page. A new model often starts with a low per-minute quota, which the suite would show as 429; Service Quotas can raise it. The `us.` profile keeps traffic in US regions.
+- **Open questions for the owner:** one platform-wide provider setting for the bot or one per business (recommended: platform-wide), and which Bedrock models to offer (recommended: Haiku 5.5 as the default, Sonnet 5.5 as the second).
+
+### 13.4 How the two fit together
+
+| | Google keys + failover | Bedrock |
+|---|---|---|
+| State | Built, deployed | Plan only |
+| Secret to keep | Yes, fields in the `openrouter` secret | None (IAM role) |
+| Rate limit | Per Google project | Per AWS account and model (raise in Service Quotas) |
+| Cost | Cheapest (Flash-Lite) | Higher; must be measured |
+| Best use | Normal answers | Quality comparison, a second route that does not depend on Google |
+| Decided by | The order in the secret | A setting in the portal (planned) |
+
+The order the bot would try, once both exist: the chosen provider first, then the others that are available. The suite is the judge: after any provider or model change, run it before and after, and read the failed cases.

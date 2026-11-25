@@ -71,7 +71,7 @@ Start here. Section 1 is a one-page overview of the project. Section 2 says whic
 
 | Document | What it is |
 |---|---|
-| [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model |
+| [AI_CONNECTOR.md](AI_CONNECTOR.md) | Class AI: setup, per-student keys, caps, threat model; Gemini; model keys, failover and Bedrock for the Chatwoot bot (section 13) |
 | [STORAGE_CONNECTOR.md](STORAGE_CONNECTOR.md) | Class storage: isolation, caps, helpers |
 | [KNOWLEDGE_CONNECTOR.md](KNOWLEDGE_CONNECTOR.md) | Class knowledge: books and a class library to answer from; limits, cost, permissions |
 | [CHATWOOT_ADAPTER.md](CHATWOOT_ADAPTER.md) | Chatwoot Agent Bot webhook (steps T1 to T4: receive, verify, registry of businesses and agents, de-duplicate, answer from the business's books with a spend cap, admin API for Studio, the teacher's local command for tenants, books and caps); how to turn it on, what is stored, permissions |
