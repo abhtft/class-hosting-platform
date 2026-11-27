@@ -3,7 +3,7 @@
 An orchestrator is an ordinary agent whose version also holds `departments`: each one names another agent of the same business (of type `department`, with no inbox of its own)
 that answers for it. For every message the worker (chatwoot_api.orchestrate) runs, cheapest first:
   1. the guard (the hand-over rules of chatwoot_handover, for the whole number);
-  2. the rules of `route` below: "menu", a reply to the menu (a number or a department's name), a department's keyword (only when exactly one department matches);
+  2. the rules of `route` below: "menu", a message that is only a greeting (the menu, nothing else is asked), a reply to the menu (a number or a department's name), a department's keyword (only when exactly one department matches);
   3. sticky: the department the conversation was in, while it is recent (`sticky_minutes`);
   4. the orchestrator's own books ("general": address, owner, what services exist); when they are not sure, the menu. Never a guess.
 Later phases add a meaning match and a small model between 3 and 4 (O2).
@@ -90,6 +90,17 @@ def normalise(text):
     return " ".join(_WORDS.sub(" ", str(text or "").lower()).split())
 
 
+_GREETING_WORD = (r"h+i+|hey+|hel+o+|hlo+|hallo|hola|namast(?:e|ey)|namaskar|pranam|salam|assalamu|alaikum|walaikum|gm|नमस्ते|नमस्कार|हेलो|हैलो|हाय|हाई|प्रणाम|सुप्रभात")
+_GREETING_FILLER = r"ji|sir|madam|mam|there|all|team|bhai|bhaiya|sab|everyone|dear|जी|सर|मैडम|भैया|भाई|सब|टीम"
+_GREETING = re.compile(rf"(?:{_GREETING_WORD}|good (?:morning|afternoon|evening|night))(?: (?:{_GREETING_WORD}|{_GREETING_FILLER}|good (?:morning|afternoon|evening|night)))*")
+
+
+def is_greeting(said):
+    """True when the whole message (already normalised) is only a greeting: "hi", "hello sir", "namaste ji", "good morning", "नमस्ते". A message that says anything more ("hi library fees")
+    is not one. A greeting needs no search and no model: the customer gets the menu."""
+    return bool(said) and len(said.split()) <= 5 and _GREETING.fullmatch(said) is not None
+
+
 def current(history, now, minutes):
     """The department the conversation is in: the department of the last turn, when that turn is recent enough; else None."""
     if not history or not minutes:
@@ -107,6 +118,8 @@ def route(text, config, history, now):
     departments = config["departments"]
     if said in MENU_WORDS:
         return {"kind": "menu", "department": None, "layer": "menu_word"}
+    if is_greeting(said):  # a greeting starts (or restarts) the talk with the menu, whichever department the conversation was in: no search, no model
+        return {"kind": "menu", "department": None, "layer": "greeting"}
     if said.isdigit() and 1 <= int(said) <= len(departments):  # a reply to the menu
         return {"kind": "department", "department": departments[int(said) - 1], "layer": "menu_number"}
     for d in departments:

@@ -2676,6 +2676,21 @@
       ]
     },
     {
+      "key": "chatwoot.followupMinutes",
+      "group": "chatwoot",
+      "title": "How recent a message must be to count as a follow-up",
+      "help": "A short message such as \"and for 80 seats?\" is searched in the books together with the customer's last question, but only if that was this recent. An older one is left out of the search (a greeting a day later is a new start); the model still sees it, marked with how long ago it was said. 0 never joins.",
+      "unit": "minutes",
+      "default": 30,
+      "min": 0,
+      "max": 1440,
+      "scope": "runtime",
+      "risk": "low",
+      "code": [
+        "chatwoot_runtime.FOLLOWUP_SECONDS"
+      ]
+    },
+    {
       "key": "chatwoot.extrasTopK",
       "group": "chatwoot",
       "title": "Most extras used for one answer",

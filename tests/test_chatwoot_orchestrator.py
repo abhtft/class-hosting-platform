@@ -66,6 +66,13 @@ assert where("aur fees?", recent) == ("department", "library", "sticky")
 assert where("aur fees?", [{**recent[0], "t": NOW - 31 * 60}])[0] == "none", "a department chosen long ago does not hold"
 assert where("batch timing?", recent) == ("department", "classes", "keyword"), "a clear keyword moves the conversation"
 assert orch.current(recent, NOW, 0) is None, "sticky_minutes 0: never stay"
+for hello in ("Hi", "hii", "HELLO!", "Hey there", "hello sir", "Namaste", "namaste ji", "नमस्ते", "नमस्कार जी", "Good morning", "good evening sir", "hi hello", "salam"):
+    assert where(hello) == ("menu", None, "greeting"), hello
+for not_hello in ("hi library fees", "hello what are your timings", "good", "morning", "hi hi hi hi hi hi", "high", "history", "hindi class", "okay", ""):
+    assert where(not_hello)[2] != "greeting", not_hello
+assert where("hello", recent) == ("menu", None, "greeting"), "a greeting inside a department starts again with the menu"
+assert where("hi library") == ("department", "library", "keyword"), "a greeting with a question in it is the question"
+print("  ok  a message that is only a greeting (English, Hinglish, Devanagari, with ji or sir) gets the menu; a greeting with a question, or a word that only starts like one, does not")
 print("  ok  the rules: menu words, a reply to the menu by number or name, one keyword (whole words, Devanagari too), a tie asks, a recent department holds, an old one does not")
 
 # memory keeps the department and its time; DynamoDB numbers come back as Decimal
@@ -83,7 +90,7 @@ print("  ok  memory keeps the department and the time of a turn, and reads Dynam
 class Fakes:
     def __init__(self):
         self.store = api.MemoryStore()
-        self.requests, self.llm_calls, self.searches = [], [], []
+        self.requests, self.llm_calls, self.searches, self.queries = [], [], [], []
         self.answer = "Library 8 baje khulti hai."
         self.router = '{"department": "unsure"}'  # what the routing model says
         self.scores = None  # a function (texts, question) -> scores, or None for "no meaning match"
@@ -105,6 +112,7 @@ class Fakes:
 
     def search(self, tenant, collections, query):
         self.searches.append(list(collections))
+        self.queries.append(query)
         shelf = collections[0]
         if shelf in getattr(self, "missing", ()):
             return {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": [shelf]}
@@ -142,7 +150,7 @@ def send(f, text, now=NOW):
 
 f = Fakes()
 out, item = send(f, "Namaste")
-assert out == {"replied": True} and item["route"] == "menu" and f.requests[-1][1]["content"].endswith("2. Digital classes") and not f.llm_calls and f.router_calls == 1, "a greeting nothing decides: the routing model says unsure, the general books are not sure, the menu"
+assert out == {"replied": True} and item["route"] == "menu" and item["route_layer"] == "greeting" and f.requests[-1][1]["content"].endswith("2. Digital classes") and not f.llm_calls and f.router_calls == 0 and not f.searches, "a greeting: the menu, with no routing model and no book search"
 before = (len(f.searches), len(f.llm_calls))
 out, item = send(f, "1", NOW + 5)
 assert item["route"] == "menu" and item["department"] == "library" and item["route_layer"] == "menu_number" and (len(f.searches), len(f.llm_calls)) == before, "only a choice: a welcome, no book search for \"1\""
@@ -159,6 +167,20 @@ f.answer = "Hum Darbhanga mein hain."
 out, item = send(f, "aap kahan ho?", NOW + 3000)
 assert item["department"] == "general" and item["route_layer"] == "general" and f.searches[-1] == ["general"], "what belongs to the whole business: the orchestrator's own books"
 print("  ok  the worker: the menu for a greeting, a department by number, a follow-up stays, a keyword moves, 'menu' brings it back, the general books answer the rest")
+
+# the real case of 26 Nov: "Hi" about 20 hours after "fees kya hai" was searched together with the old question and answered from the general books; now it gets the menu
+f = Fakes()
+f.confident["general"] = True
+f.mem.put(mem.key("front", 7), {"turns": [{"c": "fees kya hai", "b": "Fees ye hain.", "d": "library", "t": NOW - 20 * 3600}], "ttl": NOW + 3600})
+out, item = send(f, "Hi")
+assert item["route"] == "menu" and item["route_layer"] == "greeting" and not f.searches and not f.llm_calls and f.router_calls == 0 and f.requests[-1][1]["content"].endswith("2. Digital classes")
+f = Fakes()
+f.confident["general"] = True
+f.mem.put(mem.key("front", 7), {"turns": [{"c": "address kya hai", "b": "Darbhanga.", "t": NOW - 20 * 3600}], "ttl": NOW + 3600})
+f.answer = "Office 10 baje khulta hai."
+out, item = send(f, "timing?")
+assert item["department"] == "general" and f.searches[-1] == ["general"] and f.queries[-1] == "timing?", "a short question a day later is searched as it is, not stitched to the old one"
+print("  ok  a greeting a day after a library question gets the menu with no search and no model call; a short question later is not stitched to the old one")
 
 # the guard for the whole number: a person asked for in the library goes to the library's team with a note naming it
 f = Fakes()
@@ -365,7 +387,7 @@ got = api.worker({"kind": "test", "tenant_id": "acme", "agent_id": "front", "tex
 assert [m["id"] for m in got["media"]] == ["brochure"], "the test chat describes the department's files too"
 f = Fakes()
 f.missing = ("general",)
-out, item = send(f, "Namaste")
+out, item = send(f, "aap kahan ho?")  # not a greeting: a greeting gets the menu before any shelf is looked at
 assert out == {"replied": True} and item["route"] == "menu" and item["route_layer"] == "ask", "no general shelf yet: the menu, not a hand-over"
 print("  ok  a department's own files are sent with its answer (and shown in the test chat); an orchestrator whose general shelf does not exist yet shows the menu instead of handing over")
 

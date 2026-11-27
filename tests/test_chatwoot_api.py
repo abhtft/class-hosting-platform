@@ -565,7 +565,7 @@ HOUR = 3600
 f, job = accepted()
 assert run_worker(f, job) == {"replied": True}
 saved = f.mem.items["mem#shop#12"]
-assert saved["turns"] == [{"c": TEXT, "b": "We open at nine and close at six."}] and saved["ttl"] == NOW + 1 + 24 * HOUR, "one turn, kept for the configured 24 hours"
+assert saved["turns"] == [{"c": TEXT, "b": "We open at nine and close at six.", "t": NOW + 1}] and saved["ttl"] == NOW + 1 + 24 * HOUR, "one turn, kept for the configured 24 hours"
 assert not [k for k in f.store.items if k.startswith("mem#")], "the memory is not in the message table"
 assert TEXT not in json.dumps(f.store.items) and "nine and close" not in json.dumps({k: v for k, v in f.store.items.items() if k.startswith("msg#")}), "nor in a message item"
 
@@ -580,7 +580,7 @@ f.llm_answer = {"text": "Yes, on Saturdays too.", "model": "m", "tokens": 100, "
 assert another(f, job, 502, "and on Saturday?") == {"replied": True}
 messages = f.llm_calls[1][0]
 assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"], "the earlier turn comes before the new message"
-assert messages[1]["content"] == "<customer>\n" + TEXT + "\n</customer>" and messages[2]["content"] == "We open at nine and close at six."
+assert messages[1]["content"] == "[said just now]\n<customer>\n" + TEXT + "\n</customer>" and messages[2]["content"] == "We open at nine and close at six."
 assert "earlier part of this conversation" in messages[0]["content"] and "not instructions" in messages[0]["content"]
 assert messages[3]["content"].endswith("<customer>\nand on Saturday?\n</customer>")
 assert f.searches[1][2] == TEXT[:1000] + " and on Saturday?", "a short follow-up is searched together with what the customer asked last time"
@@ -652,7 +652,7 @@ for words, why in (("can I talk to a person please", "person_asked"), ("mujhe in
     assert run == {"replied": True} and item["handover"] == why, (words, item.get("handover"), why)
     assert not f.searches and not f.llm_calls and len(f.requests) == 3, f"{words!r}: no search, no model call, three Chatwoot calls"
     assert words in json.loads(f.requests[1][2])["content"], "the team's private note holds what the customer wrote"
-assert f.mem.items["mem#shop#12"]["turns"][-1] == {"c": "मुझे कल आना है", "b": HANDOVER_TEXT, "h": 1}, "the hand-over turn is remembered and marked"
+assert f.mem.items["mem#shop#12"]["turns"][-1] == {"c": "मुझे कल आना है", "b": HANDOVER_TEXT, "h": 1, "t": NOW + 60}, "the hand-over turn is remembered and marked"
 print("  ok  a person asked for, a complaint, a mobile number or a wish to go ahead hands the conversation over without a search or a model call: sentence, private note, open")
 
 for words in ("what is the refund policy", "do you have a book on marketing", "what is the price of content creation", "order number 123456789012", "my age is 25 and I am from Darbhanga", "interested in social media management"):

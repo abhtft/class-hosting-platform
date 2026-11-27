@@ -519,4 +519,40 @@ assert rt.respond(rt.clean_config(base), "xyz", "acme", Stub, [{"c": "hi", "b": 
 assert rt.respond(cfg2, "", "acme", Stub, [{"c": "hi", "b": "x"}])["text"] == "Sorry, not that.", "an image in a conversation that has started gets the follow-up text too"
 print("  ok  inbox notes and the follow-up fallback are checked, and the follow-up text replaces the welcome only in a conversation that has started")
 
+# a short message is read together with the one before it only when that one is recent: the real case was "Hi" about 20 hours after "fees kya hai", which was searched as "fees kya hai Hi"
+assert rt.FOLLOWUP_SECONDS == 30 * 60
+NOW = 1_795_692_738
+timed = lambda ago: [{"c": "fees kya hai", "b": "Fees ye hain.", "t": NOW - ago}]
+assert rt.search_query("Hi", timed(20 * 3600), NOW) == "Hi", "20 hours later a greeting is a new start, the old question stays out of the search"
+assert rt.search_query("and for 80 seats?", timed(5 * 60), NOW) == "fees kya hai and for 80 seats?", "five minutes later a short message still follows the last question"
+assert rt.search_query("and for 80 seats?", timed(30 * 60), NOW) == "fees kya hai and for 80 seats?" and rt.search_query("and for 80 seats?", timed(30 * 60 + 1), NOW) == "and for 80 seats?", "the edge of the window"
+assert rt.search_query("price?", [{"c": "fees kya hai", "b": "x"}], NOW) == "price?", "a turn kept without a time cannot be called recent"
+assert rt.search_query("price?", [{"c": "fees kya hai", "b": "x", "t": NOW + 60}], NOW) == "price?", "a time in the future is not trusted"
+assert rt.search_query("price?", [{"c": "fees kya hai", "b": "x"}]) == "fees kya hai price?", "a test chat or a dry run passes no time: the turns are all from this session"
+assert rt.recent_enough({"t": NOW - 10}, NOW, window=0) is False, "a window of 0 switches the joining off"
+assert rt.search_query("price?", [{"c": "", "b": "x", "t": NOW}], NOW) == "price?", "an empty earlier message adds nothing"
+seen = []
+class Spy:
+    search = staticmethod(lambda tenant, collections, query: (seen.append(query), {"hits": [], "confident": False, "tokens": 0, "cost_micro": 0, "missing": []})[1])
+    llm = agent = None
+base_cfg = rt.clean_config({"collections": ["faq"], "fallback_text": "Sorry."})
+rt.respond(base_cfg, "Hi", "acme", Spy, timed(20 * 3600), {"now": NOW})
+rt.respond(base_cfg, "price?", "acme", Spy, timed(60), {"now": NOW})
+assert seen == ["Hi", "fees kya hai price?"], seen
+print("  ok  a short message is searched with the last question only while that is recent; a day-old question stays out of a greeting's search")
+
+# earlier turns carry how long ago they were said (worked out in code), so the model can tell a follow-up from a finished topic; no tag in a test chat, which has no time
+assert [rt.ago_text(NOW, NOW - s) for s in (0, 119, 120, 59 * 60, 3600, 7200, 20 * 3600 + 59, 86400, 3 * 86400)] == ["just now", "just now", "2 minutes ago", "59 minutes ago", "1 hour ago", "2 hours ago", "20 hours ago", "1 day ago", "3 days ago"]
+assert rt.ago_text(NOW, NOW + 5) == "" and rt.ago_text(NOW, None) == "" and rt.ago_text(None, NOW) == "" and rt.ago_text(NOW, True) == "" and rt.ago_text(NOW, "x") == ""
+facts = [{"doc": "d", "title": "T", "page": 1, "text": "Fact.", "vector": 0.9}]
+two = [{"c": "fees kya hai", "b": "Fees ye hain.", "t": NOW - 20 * 3600}, {"c": "ok", "b": "Theek.", "t": NOW - 60}]
+messages, _ = rt.build_messages(base_cfg, "Hi", facts, two, {"now": NOW})
+assert messages[1]["content"].startswith("[said 20 hours ago]\n<customer>") and messages[3]["content"].startswith("[said just now]\n<customer>") and "[said" not in messages[5]["content"] and "<customer>\nHi" in messages[5]["content"], "the new message itself carries no note"
+assert "square brackets" in messages[0]["content"] and "finished topic" in messages[0]["content"], "the model is told what the note means"
+untimed, _ = rt.build_messages(base_cfg, "Hi", facts, [{"c": "fees kya hai", "b": "x"}], {"now": NOW})
+assert "[said" not in json.dumps(untimed) and "square brackets" not in untimed[0]["content"], "a turn without a time carries no note"
+chat, _ = rt.build_messages(base_cfg, "Hi", facts, two)
+assert "[said" not in json.dumps(chat), "a test chat passes no time: no note"
+print("  ok  earlier turns say how long ago they were said (hours and days too), only when the time is known, and the model is told what the note means")
+
 print("test_chatwoot_runtime.py: configuration, fenced passages, prompt, reply, tenant shelves and routes")

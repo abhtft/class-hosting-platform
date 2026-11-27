@@ -65,7 +65,8 @@ def remember(store, agent_id, conversation_id, customer, bot, fallback, now, han
     if not enabled():
         return
     turns = load(store, agent_id, conversation_id, now)
-    turns.append({"c": cut(customer), "b": cut(bot), **({"f": 1} if fallback else {}), **({"h": 1} if handover else {}), **({"d": department, "t": int(now)} if department else {})})  # t: for how long the department stays
+    # t: when the turn happened (for how long a department stays, and whether a short message follows it); d: the department that answered, if any
+    turns.append({"c": cut(customer), "b": cut(bot), **({"f": 1} if fallback else {}), **({"h": 1} if handover else {}), **({"d": department} if department else {}), "t": int(now)})
     store.put(key(agent_id, conversation_id), {"turns": turns[-TURNS:], "ttl": now + HOURS_SECONDS})
 
 

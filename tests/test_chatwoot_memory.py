@@ -20,7 +20,7 @@ assert mem.load(store, "shop", 12, NOW) == []
 mem.remember(store, "shop", 12, "  hello\r\n", "Namaste", False, NOW)
 mem.remember(store, "shop", 12, "x" * 1000, "y" * 1000, True, NOW + 5)
 turns = mem.load(store, "shop", 12, NOW + 6)
-assert turns[0] == {"c": "hello", "b": "Namaste"} and turns[1] == {"c": "x" * 400, "b": "y" * 400, "f": 1}
+assert turns[0] == {"c": "hello", "b": "Namaste", "t": NOW} and turns[1] == {"c": "x" * 400, "b": "y" * 400, "f": 1, "t": NOW + 5}, "every turn carries the time it happened"
 assert store.items["mem#shop#12"]["ttl"] == NOW + 5 + 24 * 3600
 assert mem.last_customer(turns) == "x" * 400 and mem.last_customer([]) == ""
 print("  ok  a turn is kept oldest first, cut to the length setting, and marked when the bot's answer was its fallback")
@@ -31,6 +31,14 @@ for number in range(10):
 assert [t["c"] for t in mem.load(store, "shop", 12, NOW + 11)] == [f"q{n}" for n in range(4, 10)], "the last six"
 assert mem.load(store, "shop", 13, NOW + 11) == [] and mem.load(store, "other", 12, NOW + 11) == []
 print("  ok  only the last turns are kept, and a conversation only ever sees its own")
+
+# the time of a turn is kept with or without a department (a greeting answered by the orchestrator's own books still has one), and an odd time is dropped
+mem.remember(store, "shop", 20, "hi", "menu", False, NOW + 100)
+mem.remember(store, "shop", 20, "1", "library", False, NOW + 160, department="library")
+assert mem.load(store, "shop", 20, NOW + 200) == [{"c": "hi", "b": "menu", "t": NOW + 100}, {"c": "1", "b": "library", "t": NOW + 160, "d": "library"}]
+store.items["mem#shop#21"] = {"turns": [{"c": "a", "b": "b", "t": "yesterday"}, {"c": "c", "b": "d", "t": True}], "ttl": NOW + 999}
+assert mem.load(store, "shop", 21, NOW) == [{"c": "a", "b": "b"}, {"c": "c", "b": "d"}], "a time that is not a number is not trusted"
+print("  ok  every turn carries its time (with or without a department), an odd time is dropped")
 
 # expiry: an item past its time is empty (the table removes it late), and the next write replaces it
 assert mem.load(store, "shop", 12, NOW + 10 + 24 * 3600 - 1) != [] and mem.load(store, "shop", 12, NOW + 10 + 24 * 3600) == []
@@ -80,7 +88,7 @@ table = FakeTable()
 dynamo = mem.DynamoMemory(table)
 mem.remember(dynamo, "shop", 12, "hello", "hi", False, NOW)
 assert table.calls[-1] == ("put", ["pk", "ttl", "turns"]) and table.items["mem#shop#12"]["ttl"] == NOW + 24 * 3600
-assert mem.load(dynamo, "shop", 12, NOW) == [{"c": "hello", "b": "hi"}]
+assert mem.load(dynamo, "shop", 12, NOW) == [{"c": "hello", "b": "hi", "t": NOW}]
 assert dynamo.get("mem#shop#404") is None
 table.items["mem#shop#5"] = {"pk": "mem#shop#5", "turns": []}
 assert dynamo.get("mem#shop#5") is None, "an item without an expiry is ignored"

@@ -99,7 +99,9 @@ Tune with the routing table in Studio (Checks, Routing): add the messages that w
 
 ## Orchestrator (one number, several departments)
 
-Set up: create each department agent with type `department` (no inbox), publish and make live a version for each; in Chatwoot create one team per department and note its number; publish the orchestrator's version with `departments` (agent names and team numbers) and make it live. Debug: a message item shows `department` and `route_layer` (`menu_word`, `menu_number`, `menu_label`, `keyword`, `keyword_tie`, `sticky`, `general`, `ask`, `guard`); `department_unavailable` means the department agent is off, not of type `department`, or has no live version; `handover_team` 0 means Chatwoot refused the team assignment (check the team number).
+A greeting alone ("hi", "hello sir", "namaste ji", "नमस्ते", "good morning") always gets the menu, whichever department the conversation was in (layer `greeting`: no routing model, no book search). A short message after a long silence is not searched together with the old question (`chatwoot.followupMinutes`), so a late "Hi" or "timing?" is a new start; in a prompt the earlier customer messages carry "[said N hours ago]".
+
+Set up: create each department agent with type `department` (no inbox), publish and make live a version for each; in Chatwoot create one team per department and note its number; publish the orchestrator's version with `departments` (agent names and team numbers) and make it live. Debug: a message item shows `department` and `route_layer` (`menu_word`, `greeting`, `menu_number`, `menu_label`, `keyword`, `keyword_tie`, `sticky`, `general`, `ask`, `guard`); `department_unavailable` means the department agent is off, not of type `department`, or has no live version; `handover_team` 0 means Chatwoot refused the team assignment (check the team number).
 
 ## Consistency check
 

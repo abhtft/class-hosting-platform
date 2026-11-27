@@ -347,12 +347,13 @@ def remember(event, deps, text, metrics, now):
         log("memory_unavailable", error=type(error).__name__)
 
 
-def context_of(event):
-    """What the system knows about where the message came from: the channel word (only a short lowercase word is accepted) and the inbox number."""
+def context_of(event, now=None):
+    """What the system knows about where the message came from: the channel word (only a short lowercase word is accepted), the inbox number and, for a real message,
+    the time (`now`, Unix seconds) so the answer can tell a follow-up from a new start. A test chat or a dry run passes no time."""
     channel = event.get("channel")
     kinds = [k for k in event.get("attachments") or [] if isinstance(k, str) and re.fullmatch(r"[a-z_]{1,20}", k)] if isinstance(event.get("attachments"), list) else []
     return {"channel": channel if isinstance(channel, str) and re.fullmatch(r"[a-z_]{1,40}", channel) else "", "inbox_id": event.get("inbox_id"), "facts": teach.clean_facts(event.get("facts")),
-            "attachments": kinds[:5]}
+            "attachments": kinds[:5], **({"now": int(now)} if now is not None else {})}
 
 
 def answer_text(config, text, history, context, tenant_id, runtime, explain=False):
@@ -555,7 +556,7 @@ def compose(event, agent, tenant, deps, now, history):
         raise Refused("cap_reached", config=config)
     text = event.get("text") if isinstance(event.get("text"), str) else ""
     try:
-        reply_text, metrics, reason = answer_any(config, text, history, {**context_of(event), "media_per_reply": media.limits_of(tenant)["media_per_reply"]}, tenant["tenant_id"], deps, now,
+        reply_text, metrics, reason = answer_any(config, text, history, {**context_of(event, now), "media_per_reply": media.limits_of(tenant)["media_per_reply"]}, tenant["tenant_id"], deps, now,
                                                  explain=deps.traces is not None)  # the passages and their scores, for the trace only
     except engine.RuntimeFailure as failure:
         spend(deps, key, failure.metrics, now)
