@@ -2,6 +2,12 @@
 
 Newest first. Each entry says what was decided, why, and what it costs us.
 
+## 2026-11-27: Time is handled in code first; the model only gets a note about it
+- **Decision.** Remembered turns carry their time. (1) A short message is joined to the customer's last question only when that was within `chatwoot.followupMinutes` (30); (2) a message that is only a greeting gets the orchestrator's menu from a rule, with no routing model and no book search; (3) the answering model is shown "[said N hours ago]" on earlier customer messages and told that old ones are probably a finished topic.
+- **Why.** Found live: a "Hi" 20 hours after "fees kya hai" was searched as "fees kya hai Hi", the general books became confident and the customer got an office-hours answer instead of the menu. The search query is built by code before any model runs, so a time note for the model alone cannot repair it. A WhatsApp chat lasts for months, so "conversation" is not a "session": the session rule must be explicit and deterministic.
+- **Cost.** A customer who writes a follow-up more than 30 minutes later ("and for 80 seats?") loses the join and gets the books' answer to the bare message or the menu; the setting can be raised. Turns kept before this change have no time and are never joined (they expire within 24 hours).
+- **Not done on purpose.** A model that rewrites follow-ups into full questions (one more call per message; wait for traces that show follow-ups going astray); closing messages ("thanks", "ok") without the menu (Q5 of `docs/notes/QUALITY-PRIORITIES-2026-11-27.md`).
+
 ## 2026-11-21: Extras are retrieved by meaning and rank above the books
 - **Decision.** The client's corrections (extras) are dated records. For each question they are scored against it; the relevant ones are shown to the model ahead of the books, newest first. A relevant extra makes the answer "confident" even when the books are not sure; with no relevant extra nothing changes.
 - **Why.** Books are facts that change; the client's correction must win a conflict, and a later correction must win over an earlier one. The first implementation put every extra in every prompt and made every message confident: the live suite fell from 32/32 to 28/32 (welcome, off-topic, stuck hand-over broke).
